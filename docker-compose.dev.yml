@@ -1,0 +1,29 @@
+services:
+  db:
+    ports:
+      - "5432:5432"
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    environment:
+      APP_ENV: dev
+      APP_DEBUG: "1"
+    volumes:
+      - ./api:/app
+      - /app/vendor
+    # In dev, ensure composer install runs with dev dependencies
+    command: >
+      sh -c "composer install && supervisord -c /etc/supervisord.conf"
+
+  front:
+    build:
+      context: ./front
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./front:/app
+      - /app/node_modules
+    ports:
+      - "3000:5173"
+    command: npm run dev -- --host 0.0.0.0

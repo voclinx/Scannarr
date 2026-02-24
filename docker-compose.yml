@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: scanarr-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: scanarr
+      POSTGRES_USER: scanarr
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-scanarr_secret}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scanarr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+      args:
+        JWT_PASSPHRASE: ${JWT_PASSPHRASE:-scanarr_jwt}
+    container_name: scanarr-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://scanarr:${DB_PASSWORD:-scanarr_secret}@db:5432/scanarr?serverVersion=16&charset=utf8
+      APP_ENV: ${APP_ENV:-prod}
+      APP_SECRET: ${APP_SECRET:-change_me_in_production}
+      JWT_SECRET_KEY: '%kernel.project_dir%/config/jwt/private.pem'
+      JWT_PUBLIC_KEY: '%kernel.project_dir%/config/jwt/public.pem'
+      JWT_PASSPHRASE: ${JWT_PASSPHRASE:-scanarr_jwt}
+      JWT_TOKEN_TTL: ${JWT_TOKEN_TTL:-3600}
+      WATCHER_AUTH_TOKEN: ${WATCHER_AUTH_TOKEN:-secret-watcher-token}
+      CORS_ALLOW_ORIGIN: ${CORS_ALLOW_ORIGIN:-'^https?://localhost(:[0-9]+)?$$'}
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    volumes:
+      - ${MEDIA_VOLUME_1:-/mnt/media1}:/mnt/volume1:rw
+      - ${MEDIA_VOLUME_2:-/mnt/media2}:/mnt/volume2:rw
+
+  front:
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+    container_name: scanarr-front
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "3000:80"
+
+  # NOTE: The watcher is NOT in Docker.
+  # It runs as a native Go binary on the host server via systemd.
+  # See STD section 12.5 for installation and configuration.
+
+volumes:
+  db_data:
