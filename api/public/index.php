@@ -1,3 +1,9 @@
 <?php
-// Placeholder — will be replaced by Symfony's front controller in step 1.3
-echo json_encode(['status' => 'Scanarr API placeholder']);
+
+use App\Kernel;
+
+require_once dirname(__DIR__).'/vendor/autoload_runtime.php';
+
+return function (array $context) {
+    return new Kernel($context['APP_ENV'], (bool) $context['APP_DEBUG']);
+};
