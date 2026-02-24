@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+var/
+public/bundles/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
+
+# Docker
+db_data/
+
+# Symfony
+api/config/jwt/*.pem
+api/var/
+api/vendor/
+api/public/bundles/
+api/.env.local
+api/.env.local.php
+api/.env.*.local
+api/.php-cs-fixer.cache
+
+# Vue.js / Node
+front/node_modules/
+front/dist/
+front/.env.local
+front/.env.*.local
+
+# Go
+watcher/scanarr-watcher
+watcher/scanarr-watcher.exe
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+.phpunit.result.cache
