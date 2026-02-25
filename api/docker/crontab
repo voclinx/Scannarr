@@ -1,0 +1,2 @@
+55 23 * * * /usr/local/bin/php /app/bin/console scanarr:process-deletions >> /var/log/scanarr/deletions.log 2>&1
+0  9  * * * /usr/local/bin/php /app/bin/console scanarr:send-reminders >> /var/log/scanarr/reminders.log 2>&1

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "scanarr-docker",
+      "runtimeExecutable": "wsl",
+      "runtimeArgs": ["-d", "Ubuntu-24.04", "-e", "bash", "-c", "cd /home/yohan/workspace/Scannar && docker compose -f docker-compose.yml -f docker-compose.dev.yml up db api"],
+      "port": 8082
+    },
+    {
+      "name": "scanarr-front",
+      "runtimeExecutable": "wsl",
+      "runtimeArgs": ["-d", "Ubuntu-24.04", "-e", "bash", "-c", "cd /home/yohan/workspace/Scannar && docker compose -f docker-compose.yml -f docker-compose.dev.yml up front"],
+      "port": 3001
+    }
+  ]
+}
