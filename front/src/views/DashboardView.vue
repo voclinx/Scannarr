@@ -71,7 +71,10 @@ const totalSizeFormatted = computed(() => {
 onMounted(async () => {
   try {
     const { data } = await api.get<{ data: DashboardStats }>('/dashboard')
-    stats.value = data.data
+    stats.value = {
+      ...data.data,
+      recent_activity: data.data.recent_activity.map((a: DashboardStats['recent_activity'][0], i: number) => ({ ...a, _idx: i })),
+    }
   } catch (err: unknown) {
     const e = err as { response?: { data?: { error?: { message?: string } } } }
     error.value = e.response?.data?.error?.message || 'Impossible de charger le tableau de bord'
@@ -219,7 +222,7 @@ onMounted(async () => {
 
         <DataTable
           :value="stats.recent_activity"
-          dataKey="created_at"
+          dataKey="_idx"
           stripedRows
           class="text-sm"
           :rows="10"

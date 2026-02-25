@@ -6,7 +6,6 @@ use App\Entity\Volume;
 use App\Enum\DeletionStatus;
 use App\Enum\VolumeStatus;
 use App\Repository\ActivityLogRepository;
-use App\Repository\MediaFileRepository;
 use App\Repository\MovieRepository;
 use App\Repository\ScheduledDeletionRepository;
 use App\Repository\VolumeRepository;
@@ -22,7 +21,6 @@ class DashboardController extends AbstractController
     public function __construct(
         private EntityManagerInterface $em,
         private MovieRepository $movieRepository,
-        private MediaFileRepository $mediaFileRepository,
         private VolumeRepository $volumeRepository,
         private ScheduledDeletionRepository $deletionRepository,
         private ActivityLogRepository $activityLogRepository,
@@ -63,24 +61,38 @@ class DashboardController extends AbstractController
             ->getQuery()
             ->getSingleScalarResult();
 
-        // Volumes stats
+        // Volumes stats (single grouped query to avoid N+1)
         $volumes = $this->volumeRepository->findBy(['status' => VolumeStatus::ACTIVE]);
-        $volumeStats = array_map(function (Volume $v) {
-            $fileCount = $this->mediaFileRepository->countByVolume($v);
-            $usedSpace = (int) $this->em->createQueryBuilder()
-                ->select('COALESCE(SUM(mf.fileSizeBytes), 0)')
+
+        $volumeFileStats = [];
+        if (!empty($volumes)) {
+            $rows = $this->em->createQueryBuilder()
+                ->select('IDENTITY(mf.volume) AS vol_id, COUNT(mf.id) AS file_count, COALESCE(SUM(mf.fileSizeBytes), 0) AS used_space')
                 ->from('App\Entity\MediaFile', 'mf')
-                ->where('mf.volume = :vol')
-                ->setParameter('vol', $v)
+                ->where('mf.volume IN (:volumes)')
+                ->setParameter('volumes', $volumes)
+                ->groupBy('mf.volume')
                 ->getQuery()
-                ->getSingleScalarResult();
+                ->getResult();
+
+            foreach ($rows as $row) {
+                $volumeFileStats[$row['vol_id']] = [
+                    'file_count' => (int) $row['file_count'],
+                    'used_space' => (int) $row['used_space'],
+                ];
+            }
+        }
+
+        $volumeStats = array_map(function (Volume $v) use ($volumeFileStats) {
+            $volId = (string) $v->getId();
+            $stats = $volumeFileStats[$volId] ?? ['file_count' => 0, 'used_space' => 0];
 
             return [
-                'id' => (string) $v->getId(),
+                'id' => $volId,
                 'name' => $v->getName(),
                 'total_space_bytes' => $v->getTotalSpaceBytes() ?? 0,
-                'used_space_bytes' => $usedSpace,
-                'file_count' => $fileCount,
+                'used_space_bytes' => $stats['used_space'],
+                'file_count' => $stats['file_count'],
             ];
         }, $volumes);
 
