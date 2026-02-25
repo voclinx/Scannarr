@@ -390,6 +390,7 @@ onMounted(() => {
             filter
             filterPlaceholder="Rechercher..."
             class="w-full"
+            appendTo="body"
             @change="onMovieSelected"
           >
             <template #option="slotProps">

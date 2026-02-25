@@ -59,8 +59,13 @@ async function handleSave(): Promise<void> {
 }
 
 onMounted(async () => {
-  await store.fetchSettings()
-  loadFromStore()
+  try {
+    await store.fetchSettings()
+    loadFromStore()
+  } catch (err: unknown) {
+    const error = err as { response?: { data?: { error?: { message?: string } } } }
+    errorMessage.value = error.response?.data?.error?.message || 'Erreur lors du chargement des paramètres'
+  }
 })
 </script>
 

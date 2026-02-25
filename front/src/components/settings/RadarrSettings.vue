@@ -45,8 +45,23 @@ function openEditDialog(instance: RadarrInstance): void {
 }
 
 async function handleSave(): Promise<void> {
-  formLoading.value = true
   formError.value = null
+
+  // Client-side validation
+  if (!formName.value.trim()) {
+    formError.value = 'Le nom est requis'
+    return
+  }
+  if (!formUrl.value.trim()) {
+    formError.value = "L'URL est requise (ex: http://localhost:7878)"
+    return
+  }
+  if (!formApiKey.value.trim()) {
+    formError.value = 'La clé API est requise'
+    return
+  }
+
+  formLoading.value = true
 
   try {
     if (editingInstance.value) {
