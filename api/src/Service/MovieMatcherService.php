@@ -12,6 +12,7 @@ use App\Repository\MovieFileRepository;
 use App\Repository\MovieRepository;
 use App\Repository\RadarrInstanceRepository;
 use App\Repository\VolumeRepository;
+use App\Enum\VolumeStatus;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 
@@ -317,7 +318,7 @@ class MovieMatcherService
             return [];
         }
 
-        $volumes = $this->volumeRepository->findBy(['status' => 'active']);
+        $volumes = $this->volumeRepository->findBy(['status' => VolumeStatus::ACTIVE]);
         $map = [];
 
         foreach ($rootFolders as $rf) {

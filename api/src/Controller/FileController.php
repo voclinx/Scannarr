@@ -5,8 +5,10 @@ namespace App\Controller;
 use App\Entity\ActivityLog;
 use App\Entity\MediaFile;
 use App\Repository\MediaFileRepository;
+use App\Service\RadarrService;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\QueryBuilder;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -19,6 +21,8 @@ class FileController extends AbstractController
     public function __construct(
         private EntityManagerInterface $em,
         private MediaFileRepository $mediaFileRepository,
+        private RadarrService $radarrService,
+        private LoggerInterface $logger,
     ) {}
 
     /**
@@ -176,10 +180,27 @@ class FileController extends AbstractController
             }
         }
 
-        // TODO: Radarr dereference (Phase 3)
+        // Radarr dereference
         if ($deleteRadarrRef && $file->isLinkedRadarr()) {
-            // Will be implemented in Phase 3 with RadarrService
-            $radarrDereferenced = false;
+            foreach ($file->getMovieFiles() as $mf) {
+                $movie = $mf->getMovie();
+                if ($movie && $movie->getRadarrId() && $movie->getRadarrInstance()) {
+                    try {
+                        $this->radarrService->deleteMovie(
+                            $movie->getRadarrInstance(),
+                            $movie->getRadarrId(),
+                            false,
+                            false
+                        );
+                        $radarrDereferenced = true;
+                    } catch (\Exception $e) {
+                        $this->logger->error('Failed to dereference from Radarr', [
+                            'movie' => $movie->getTitle(),
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            }
         }
 
         // Log the deletion

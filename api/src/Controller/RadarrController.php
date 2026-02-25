@@ -95,7 +95,7 @@ class RadarrController extends AbstractController
         if (isset($payload['url'])) {
             $instance->setUrl($payload['url']);
         }
-        if (isset($payload['api_key'])) {
+        if (isset($payload['api_key']) && !str_starts_with($payload['api_key'], '••••')) {
             $instance->setApiKey($payload['api_key']);
         }
         if (isset($payload['is_active'])) {
@@ -191,7 +191,7 @@ class RadarrController extends AbstractController
             'id' => (string) $instance->getId(),
             'name' => $instance->getName(),
             'url' => $instance->getUrl(),
-            'api_key' => $instance->getApiKey(),
+            'api_key' => $instance->getApiKey() ? ('••••' . substr($instance->getApiKey(), -4)) : null,
             'is_active' => $instance->isActive(),
             'root_folders' => $instance->getRootFolders(),
             'last_sync_at' => $instance->getLastSyncAt()?->format('c'),
