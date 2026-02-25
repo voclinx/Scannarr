@@ -95,7 +95,7 @@ class RadarrController extends AbstractController
         if (isset($payload['url'])) {
             $instance->setUrl($payload['url']);
         }
-        if (isset($payload['api_key']) && !str_starts_with($payload['api_key'], '••••')) {
+        if (!empty($payload['api_key']) && is_string($payload['api_key']) && !str_starts_with($payload['api_key'], '••••')) {
             $instance->setApiKey($payload['api_key']);
         }
         if (isset($payload['is_active'])) {

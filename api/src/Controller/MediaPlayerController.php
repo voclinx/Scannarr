@@ -101,7 +101,7 @@ class MediaPlayerController extends AbstractController
         if (isset($payload['url'])) {
             $instance->setUrl($payload['url']);
         }
-        if (isset($payload['token']) && !str_starts_with($payload['token'], '••••')) {
+        if (!empty($payload['token']) && is_string($payload['token']) && !str_starts_with($payload['token'], '••••')) {
             $instance->setToken($payload['token']);
         }
         if (isset($payload['is_active'])) {
