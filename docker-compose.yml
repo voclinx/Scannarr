@@ -38,6 +38,7 @@ services:
       JWT_TOKEN_TTL: ${JWT_TOKEN_TTL:-3600}
       WATCHER_AUTH_TOKEN: ${WATCHER_AUTH_TOKEN:-secret-watcher-token}
       CORS_ALLOW_ORIGIN: ${CORS_ALLOW_ORIGIN:-'^https?://localhost(:[0-9]+)?$$'}
+      DEFAULT_URI: ${DEFAULT_URI:-http://localhost}
     ports:
       - "${API_PORT:-8080}:8080"
       - "${WS_PORT:-8081}:8081"

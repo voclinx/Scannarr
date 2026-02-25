@@ -41,10 +41,10 @@ class Volume
     #[ORM\Column(length: 20, enumType: VolumeStatus::class)]
     private VolumeStatus $status = VolumeStatus::ACTIVE;
 
-    #[ORM\Column(nullable: true)]
+    #[ORM\Column(type: 'bigint', nullable: true)]
     private ?int $totalSpaceBytes = null;
 
-    #[ORM\Column(nullable: true)]
+    #[ORM\Column(type: 'bigint', nullable: true)]
     private ?int $usedSpaceBytes = null;
 
     #[ORM\Column(nullable: true)]
