@@ -126,24 +126,26 @@ onMounted(() => {
       :value="store.volumes"
       dataKey="id"
       stripedRows
+      scrollable
+      scrollHeight="flex"
       class="text-sm"
     >
       <template #empty>
         <div class="text-center py-4 text-gray-500">Aucun volume configuré</div>
       </template>
 
-      <Column field="name" header="Nom" style="min-width: 150px" />
-      <Column field="path" header="Chemin Docker" style="min-width: 200px">
+      <Column field="name" header="Nom" style="min-width: 120px" />
+      <Column field="path" header="Chemin Docker" style="min-width: 140px">
         <template #body="{ data }: { data: Volume }">
-          <span class="text-gray-600 text-xs font-mono">{{ data.path }}</span>
+          <span class="text-gray-600 text-xs font-mono truncate block max-w-[200px]" :title="data.path">{{ data.path }}</span>
         </template>
       </Column>
-      <Column field="host_path" header="Chemin hôte" style="min-width: 200px">
+      <Column field="host_path" header="Chemin hôte" style="min-width: 140px">
         <template #body="{ data }: { data: Volume }">
-          <span class="text-gray-600 text-xs font-mono">{{ data.host_path }}</span>
+          <span class="text-gray-600 text-xs font-mono truncate block max-w-[200px]" :title="data.host_path">{{ data.host_path }}</span>
         </template>
       </Column>
-      <Column header="Type" style="width: 100px">
+      <Column header="Type" style="width: 80px">
         <template #body="{ data }: { data: Volume }">
           <Tag :value="data.type" :severity="data.type === 'local' ? 'info' : 'warn'" />
         </template>
@@ -156,12 +158,12 @@ onMounted(() => {
           />
         </template>
       </Column>
-      <Column header="Espace" style="min-width: 150px">
+      <Column header="Espace" style="min-width: 130px">
         <template #body="{ data }: { data: Volume }">
           <span class="text-xs text-gray-500 whitespace-nowrap">{{ formatSize(data.used_space_bytes) }} / {{ formatSize(data.total_space_bytes) }}</span>
         </template>
       </Column>
-      <Column header="" style="width: 140px">
+      <Column header="Actions" frozen alignFrozen="right" style="width: 110px">
         <template #body="{ data }: { data: Volume }">
           <div class="flex gap-1">
             <Button
@@ -173,8 +175,8 @@ onMounted(() => {
               :loading="scanLoading[data.id]"
               @click="handleScan(data)"
             />
-            <Button icon="pi pi-pencil" size="small" text rounded @click="openEditDialog(data)" />
-            <Button icon="pi pi-trash" size="small" text rounded severity="danger" @click="handleDelete(data)" />
+            <Button icon="pi pi-pencil" size="small" text rounded v-tooltip.top="'Modifier'" @click="openEditDialog(data)" />
+            <Button icon="pi pi-trash" size="small" text rounded severity="danger" v-tooltip.top="'Supprimer'" @click="handleDelete(data)" />
           </div>
         </template>
       </Column>

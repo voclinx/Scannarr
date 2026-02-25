@@ -17,6 +17,7 @@ export const useMoviesStore = defineStore('movies', () => {
   const movies = ref<Movie[]>([])
   const meta = ref<PaginationMeta>({ total: 0, page: 1, limit: 25, total_pages: 0 })
   const loading = ref(false)
+  const error = ref<string | null>(null)
   const currentMovie = ref<MovieDetail | null>(null)
   const currentMovieLoading = ref(false)
   const filters = ref<MovieFilters>({
@@ -43,12 +44,24 @@ export const useMoviesStore = defineStore('movies', () => {
     if (f.page) params.set('page', String(f.page))
     if (f.limit) params.set('limit', String(f.limit))
 
+    error.value = null
     try {
       const { data } = await api.get<{ data: Movie[]; meta: PaginationMeta }>(
         `/movies?${params.toString()}`,
       )
       movies.value = data.data
       meta.value = data.meta
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { error?: { message?: string } } }; message?: string }
+      const status = e.response?.status
+      const msg = e.response?.data?.error?.message
+      if (status === 401) {
+        // Auth interceptor will handle this
+      } else if (msg) {
+        error.value = `Erreur ${status ?? ''} : ${msg}`
+      } else {
+        error.value = e.message || 'Erreur lors du chargement des films'
+      }
     } finally {
       loading.value = false
     }
@@ -128,6 +141,7 @@ export const useMoviesStore = defineStore('movies', () => {
     movies,
     meta,
     loading,
+    error,
     currentMovie,
     currentMovieLoading,
     filters,

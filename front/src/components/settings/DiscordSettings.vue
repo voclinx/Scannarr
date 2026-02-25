@@ -80,10 +80,17 @@ async function handleTest(): Promise<void> {
   }
 }
 
+const loadError = ref<string | null>(null)
+
 onMounted(async () => {
-  await store.fetchSettings()
-  webhookUrl.value = store.settings.discord_webhook_url || ''
-  reminderDays.value = parseInt(store.settings.discord_reminder_days || '3', 10)
+  try {
+    await store.fetchSettings()
+    webhookUrl.value = store.settings.discord_webhook_url || ''
+    reminderDays.value = parseInt(store.settings.discord_reminder_days || '3', 10)
+  } catch (err: unknown) {
+    const error = err as { response?: { data?: { error?: { message?: string } } } }
+    loadError.value = error.response?.data?.error?.message || 'Erreur lors du chargement des paramètres Discord'
+  }
 })
 </script>
 
@@ -91,6 +98,9 @@ onMounted(async () => {
   <div class="space-y-4">
     <h3 class="text-lg font-semibold text-gray-900">Notifications Discord</h3>
 
+    <Message v-if="loadError" severity="error" :closable="true" @close="loadError = null">
+      {{ loadError }}
+    </Message>
     <Message v-if="saveSuccess" severity="success" :closable="false">
       Configuration sauvegardée avec succès
     </Message>

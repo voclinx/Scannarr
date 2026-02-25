@@ -99,6 +99,11 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- Error messages -->
+    <Message v-if="moviesStore.error" severity="error" :closable="true" @close="moviesStore.error = null">
+      {{ moviesStore.error }}
+    </Message>
+
     <!-- Sync messages -->
     <Message v-if="syncMessage" severity="success" :closable="true" @close="syncMessage = null">
       {{ syncMessage }}
@@ -122,14 +127,14 @@ onMounted(async () => {
         </span>
       </div>
 
-      <!-- Reset filters -->
+      <!-- Reset search -->
       <Button
-        icon="pi pi-filter-slash"
+        v-if="searchInput"
+        label="Effacer"
+        icon="pi pi-times"
         severity="secondary"
         text
-        rounded
-        v-tooltip.top="'Réinitialiser la recherche'"
-        :disabled="!searchInput"
+        size="small"
         @click="onResetFilters"
       />
     </div>
