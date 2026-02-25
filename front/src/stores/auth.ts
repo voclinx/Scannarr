@@ -101,17 +101,10 @@ export const useAuthStore = defineStore('auth', () => {
   async function checkSetupRequired(): Promise<boolean> {
     try {
       const api = useApi()
-      await api.post('/auth/setup', {})
-      // If it succeeds with empty body, shouldn't happen
+      const response = await api.get<{ data: { setup_completed: boolean } }>('/auth/setup-status')
+      return !response.data.data.setup_completed
+    } catch {
       return true
-    } catch (error: unknown) {
-      if (error && typeof error === 'object' && 'response' in error) {
-        const axiosError = error as { response: { status: number } }
-        if (axiosError.response.status === 403) {
-          return false // setup already completed
-        }
-      }
-      return true // assume setup needed on other errors
     }
   }
 

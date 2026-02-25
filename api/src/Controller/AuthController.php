@@ -27,6 +27,18 @@ class AuthController extends AbstractController
         private UserRepository $userRepository,
     ) {}
 
+    #[Route('/setup-status', methods: ['GET'])]
+    public function setupStatus(): JsonResponse
+    {
+        $setupCompleted = $this->settingRepository->findOneBy(['settingKey' => 'setup_completed']);
+
+        return $this->json([
+            'data' => [
+                'setup_completed' => $setupCompleted !== null && $setupCompleted->getSettingValue() === 'true',
+            ],
+        ]);
+    }
+
     #[Route('/setup', methods: ['POST'])]
     public function setup(Request $request): JsonResponse
     {
@@ -129,8 +141,7 @@ class AuthController extends AbstractController
         $accessToken = $this->jwtManager->create($user);
 
         // Create refresh token
-        $refreshTokenManager = $this->em->getRepository(\Gesdinet\JWTRefreshTokenBundle\Entity\RefreshToken::class);
-        $refreshToken = new \Gesdinet\JWTRefreshTokenBundle\Entity\RefreshToken();
+        $refreshToken = new \App\Entity\RefreshToken();
         $refreshToken->setUsername($user->getUserIdentifier());
         $refreshToken->setRefreshToken(bin2hex(random_bytes(64)));
         $refreshToken->setValid(new \DateTime('+30 days'));
@@ -163,7 +174,7 @@ class AuthController extends AbstractController
             ], 400);
         }
 
-        $refreshTokenRepo = $this->em->getRepository(\Gesdinet\JWTRefreshTokenBundle\Entity\RefreshToken::class);
+        $refreshTokenRepo = $this->em->getRepository(\App\Entity\RefreshToken::class);
         $refreshToken = $refreshTokenRepo->findOneBy(['refreshToken' => $refreshTokenString]);
 
         if (!$refreshToken || $refreshToken->getValid() < new \DateTime()) {
