@@ -1,0 +1,5 @@
+# Ensure shell scripts and Docker config always use LF
+*.sh text eol=lf
+*.conf text eol=lf
+crontab text eol=lf
+Dockerfile text eol=lf

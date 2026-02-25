@@ -54,8 +54,14 @@ async function onSync(): Promise<void> {
       moviesStore.fetchMovies()
     }, 3000)
   } catch (err: unknown) {
-    const error = err as { response?: { data?: { error?: { message?: string } } } }
-    syncError.value = error.response?.data?.error?.message || 'Erreur lors de la synchronisation'
+    const error = err as { response?: { data?: { error?: { message?: string; code?: number } } }; message?: string }
+    const apiMsg = error.response?.data?.error?.message
+    const apiCode = error.response?.data?.error?.code
+    if (apiMsg) {
+      syncError.value = apiCode ? `Erreur ${apiCode} : ${apiMsg}` : apiMsg
+    } else {
+      syncError.value = error.message || 'Erreur lors de la synchronisation — vérifiez la configuration Radarr dans les paramètres.'
+    }
   } finally {
     syncLoading.value = false
   }
@@ -116,13 +122,14 @@ onMounted(async () => {
         </span>
       </div>
 
-      <!-- Reset -->
+      <!-- Reset filters -->
       <Button
         icon="pi pi-filter-slash"
         severity="secondary"
         text
         rounded
-        v-tooltip.top="'Réinitialiser les filtres'"
+        v-tooltip.top="'Réinitialiser la recherche'"
+        :disabled="!searchInput"
         @click="onResetFilters"
       />
     </div>

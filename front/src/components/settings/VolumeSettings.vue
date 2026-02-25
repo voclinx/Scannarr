@@ -88,10 +88,20 @@ async function handleDelete(volume: Volume): Promise<void> {
   await store.deleteVolume(volume.id)
 }
 
+const scanError = ref<string | null>(null)
+const scanSuccess = ref<string | null>(null)
+
 async function handleScan(volume: Volume): Promise<void> {
   scanLoading.value[volume.id] = true
+  scanError.value = null
+  scanSuccess.value = null
   try {
     await store.triggerScan(volume.id)
+    scanSuccess.value = `Scan lancé pour le volume "${volume.name}"`
+    setTimeout(() => { scanSuccess.value = null }, 5000)
+  } catch (err: unknown) {
+    const error = err as { response?: { data?: { error?: { message?: string } } } }
+    scanError.value = error.response?.data?.error?.message || `Erreur lors du scan du volume "${volume.name}"`
   } finally {
     scanLoading.value[volume.id] = false
   }
@@ -108,6 +118,9 @@ onMounted(() => {
       <h3 class="text-lg font-semibold text-gray-900">Volumes</h3>
       <Button label="Ajouter" icon="pi pi-plus" size="small" @click="openAddDialog" />
     </div>
+
+    <Message v-if="scanSuccess" severity="success" :closable="false">{{ scanSuccess }}</Message>
+    <Message v-if="scanError" severity="error" :closable="false">{{ scanError }}</Message>
 
     <DataTable
       :value="store.volumes"
@@ -143,9 +156,9 @@ onMounted(() => {
           />
         </template>
       </Column>
-      <Column header="Espace" style="width: 120px">
+      <Column header="Espace" style="min-width: 150px">
         <template #body="{ data }: { data: Volume }">
-          <span class="text-xs text-gray-500">{{ formatSize(data.used_space_bytes) }} / {{ formatSize(data.total_space_bytes) }}</span>
+          <span class="text-xs text-gray-500 whitespace-nowrap">{{ formatSize(data.used_space_bytes) }} / {{ formatSize(data.total_space_bytes) }}</span>
         </template>
       </Column>
       <Column header="" style="width: 140px">

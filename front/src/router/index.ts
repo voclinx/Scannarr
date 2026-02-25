@@ -12,6 +12,7 @@ const MovieDetailView = () => import('@/views/MovieDetailView.vue')
 const ScheduledDeletionsView = () => import('@/views/ScheduledDeletionsView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 const UsersManagementView = () => import('@/views/UsersManagementView.vue')
+const NotFoundView = () => import('@/views/NotFoundView.vue')
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -38,6 +39,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'users', name: 'users', component: UsersManagementView, meta: { minRole: 'ROLE_ADMIN' } },
     ],
   },
+  { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundView },
 ]
 
 const router = createRouter({
