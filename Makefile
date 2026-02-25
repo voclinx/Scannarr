@@ -227,6 +227,36 @@ watcher-install: ## Installer le watcher via le script d'installation
 	cd watcher && sudo bash install.sh
 
 # ============================================================================
+# 🔍 Code Quality (API)
+# ============================================================================
+
+.PHONY: cs-fix
+cs-fix: ## Corriger le style de code PHP (PHP CS Fixer)
+	$(API) php vendor/bin/php-cs-fixer fix --diff
+
+.PHONY: cs-check
+cs-check: ## Vérifier le style de code PHP (dry-run)
+	$(API) php vendor/bin/php-cs-fixer fix --dry-run --diff
+
+.PHONY: rector
+rector: ## Appliquer les refactors Rector
+	$(API) php vendor/bin/rector process
+
+.PHONY: rector-check
+rector-check: ## Vérifier les suggestions Rector (dry-run)
+	$(API) php vendor/bin/rector process --dry-run
+
+.PHONY: phpmd
+phpmd: ## Analyser le code avec PHPMD
+	$(API) php vendor/bin/phpmd src text phpmd.xml
+
+.PHONY: quality
+quality: cs-check rector-check phpmd ## Lancer tous les checks de qualité (dry-run)
+
+.PHONY: quality-fix
+quality-fix: cs-fix rector ## Corriger automatiquement le code (CS Fixer + Rector)
+
+# ============================================================================
 # 🧹 Nettoyage
 # ============================================================================
 

@@ -196,6 +196,9 @@ class MovieControllerTest extends AbstractApiTestCase
 
         $movieId = (string) $movie->getId();
 
+        // Clear identity map to force fresh load from DB (avoids stale lazy collections)
+        $this->em->clear();
+
         $this->apiGet("/api/v1/movies/{$movieId}");
 
         $this->assertResponseStatusCode(200);

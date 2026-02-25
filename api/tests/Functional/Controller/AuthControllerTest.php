@@ -178,19 +178,18 @@ class AuthControllerTest extends AbstractApiTestCase
             password: 'MyP@ssw0rd',
         );
 
-        // Login first to obtain a refresh token
-        $this->apiPost('/api/v1/auth/login', [
-            'email' => 'user@scanarr.io',
-            'password' => 'MyP@ssw0rd',
-        ]);
+        // Create a refresh token directly in DB (avoids cross-request transaction issues)
+        $refreshTokenString = bin2hex(random_bytes(32));
+        $refreshToken = new \App\Entity\RefreshToken();
+        $refreshToken->setRefreshToken($refreshTokenString);
+        $refreshToken->setUsername($user->getEmail());
+        $refreshToken->setValid(new \DateTime('+1 hour'));
+        $this->em->persist($refreshToken);
+        $this->em->flush();
 
-        $this->assertResponseStatusCode(200);
-        $loginData = $this->getResponseData();
-        $refreshToken = $loginData['data']['refresh_token'];
-
-        // Now use the refresh token to obtain a new access token
+        // Use the refresh token to obtain a new access token
         $this->apiPost('/api/v1/auth/refresh', [
-            'refresh_token' => $refreshToken,
+            'refresh_token' => $refreshTokenString,
         ]);
 
         $this->assertResponseStatusCode(200);

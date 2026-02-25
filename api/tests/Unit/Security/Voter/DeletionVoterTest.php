@@ -37,7 +37,7 @@ class DeletionVoterTest extends TestCase
     {
         $uuid = $id ?? Uuid::v4();
 
-        $user = $this->createMock(User::class);
+        $user = $this->createStub(User::class);
         $user->method('getRole')->willReturn($role);
         $user->method('getId')->willReturn($uuid);
 
@@ -46,7 +46,7 @@ class DeletionVoterTest extends TestCase
 
     private function createToken(?User $user = null): TokenInterface
     {
-        $token = $this->createMock(TokenInterface::class);
+        $token = $this->createStub(TokenInterface::class);
         $token->method('getUser')->willReturn($user);
 
         return $token;
@@ -54,7 +54,7 @@ class DeletionVoterTest extends TestCase
 
     private function createDeletion(User $owner): ScheduledDeletion
     {
-        $deletion = $this->createMock(ScheduledDeletion::class);
+        $deletion = $this->createStub(ScheduledDeletion::class);
         $deletion->method('getCreatedBy')->willReturn($owner);
 
         return $deletion;

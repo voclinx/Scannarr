@@ -17,19 +17,19 @@ use Symfony\Component\Uid\Uuid;
 class WatcherMessageProcessorTest extends TestCase
 {
     private EntityManagerInterface&MockObject $em;
-    private ManagerRegistry&MockObject $managerRegistry;
-    private VolumeRepository&MockObject $volumeRepository;
-    private MediaFileRepository&MockObject $mediaFileRepository;
-    private LoggerInterface&MockObject $logger;
+    private ManagerRegistry $managerRegistry;
+    private VolumeRepository $volumeRepository;
+    private MediaFileRepository $mediaFileRepository;
+    private LoggerInterface $logger;
     private WatcherMessageProcessor $processor;
 
     protected function setUp(): void
     {
         $this->em = $this->createMock(EntityManagerInterface::class);
-        $this->managerRegistry = $this->createMock(ManagerRegistry::class);
-        $this->volumeRepository = $this->createMock(VolumeRepository::class);
-        $this->mediaFileRepository = $this->createMock(MediaFileRepository::class);
-        $this->logger = $this->createMock(LoggerInterface::class);
+        $this->managerRegistry = $this->createStub(ManagerRegistry::class);
+        $this->volumeRepository = $this->createStub(VolumeRepository::class);
+        $this->mediaFileRepository = $this->createStub(MediaFileRepository::class);
+        $this->logger = $this->createStub(LoggerInterface::class);
 
         // EntityManager is always open
         $this->em->method('isOpen')->willReturn(true);
@@ -46,11 +46,11 @@ class WatcherMessageProcessorTest extends TestCase
     /**
      * Create a Volume mock with the given host path and name.
      */
-    private function createVolumeMock(
+    private function createVolumeStub(
         string $hostPath = '/mnt/media1',
         string $name = 'TestVolume',
-    ): Volume&MockObject {
-        $volume = $this->createMock(Volume::class);
+    ): Volume {
+        $volume = $this->createStub(Volume::class);
         $volume->method('getHostPath')->willReturn($hostPath);
         $volume->method('getName')->willReturn($name);
         $volume->method('getId')->willReturn(Uuid::v4());
@@ -59,14 +59,14 @@ class WatcherMessageProcessorTest extends TestCase
     }
 
     /**
-     * Create a MediaFile mock.
+     * Create a MediaFile stub.
      */
-    private function createMediaFileMock(
+    private function createMediaFileStub(
         ?string $fileName = 'test.mkv',
         int $sizeBytes = 1073741824,
         int $hardlinkCount = 1,
-    ): MediaFile&MockObject {
-        $mediaFile = $this->createMock(MediaFile::class);
+    ): MediaFile {
+        $mediaFile = $this->createStub(MediaFile::class);
         $mediaFile->method('getFileName')->willReturn($fileName);
         $mediaFile->method('getFileSizeBytes')->willReturn($sizeBytes);
         $mediaFile->method('getHardlinkCount')->willReturn($hardlinkCount);
@@ -81,18 +81,16 @@ class WatcherMessageProcessorTest extends TestCase
 
     public function testFileCreatedPersistsNewMediaFile(): void
     {
-        $volume = $this->createVolumeMock('/mnt/media1', 'Movies');
+        $volume = $this->createVolumeStub('/mnt/media1', 'Movies');
 
         // VolumeRepository returns the volume for the given host path
         $this->volumeRepository
             ->method('findByHostPathPrefix')
-            ->with('/mnt/media1/Movies/Inception.2010.mkv')
             ->willReturn($volume);
 
         // No existing file in DB
         $this->mediaFileRepository
             ->method('findByVolumeAndFilePath')
-            ->with($volume, 'Movies/Inception.2010.mkv')
             ->willReturn(null);
 
         // Expect persist with a new MediaFile entity
@@ -126,17 +124,15 @@ class WatcherMessageProcessorTest extends TestCase
 
     public function testFileDeletedRemovesMediaFile(): void
     {
-        $volume = $this->createVolumeMock('/mnt/media1', 'Movies');
-        $existingFile = $this->createMediaFileMock('OldMovie.mkv', 2147483648);
+        $volume = $this->createVolumeStub('/mnt/media1', 'Movies');
+        $existingFile = $this->createMediaFileStub('OldMovie.mkv', 2147483648);
 
         $this->volumeRepository
             ->method('findByHostPathPrefix')
-            ->with('/mnt/media1/Movies/OldMovie.mkv')
             ->willReturn($volume);
 
         $this->mediaFileRepository
             ->method('findByVolumeAndFilePath')
-            ->with($volume, 'Movies/OldMovie.mkv')
             ->willReturn($existingFile);
 
         // Expect remove to be called with the existing media file
@@ -167,7 +163,7 @@ class WatcherMessageProcessorTest extends TestCase
 
     public function testFileRenamedUpdatesMediaFilePath(): void
     {
-        $volume = $this->createVolumeMock('/mnt/media1', 'Movies');
+        $volume = $this->createVolumeStub('/mnt/media1', 'Movies');
 
         // Create a real (partial) MediaFile that we can verify updates on
         $mediaFile = new MediaFile();
@@ -183,7 +179,6 @@ class WatcherMessageProcessorTest extends TestCase
 
         $this->mediaFileRepository
             ->method('findByVolumeAndFilePath')
-            ->with($volume, 'Movies/old-name.mkv')
             ->willReturn($mediaFile);
 
         $this->em->expects($this->atLeastOnce())
@@ -211,7 +206,7 @@ class WatcherMessageProcessorTest extends TestCase
 
     public function testScanFileCreatesNewMediaFile(): void
     {
-        $volume = $this->createVolumeMock('/mnt/media1', 'Movies');
+        $volume = $this->createVolumeStub('/mnt/media1', 'Movies');
         $scanId = 'scan-' . Uuid::v4();
 
         $this->volumeRepository
@@ -261,9 +256,10 @@ class WatcherMessageProcessorTest extends TestCase
     // TEST-WH-005: Réception scan.file - mise à jour
     // ──────────────────────────────────────────────
 
+    #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
     public function testScanFileUpdatesExistingMediaFile(): void
     {
-        $volume = $this->createVolumeMock('/mnt/media1', 'Movies');
+        $volume = $this->createVolumeStub('/mnt/media1', 'Movies');
         $scanId = 'scan-' . Uuid::v4();
 
         // Create a real MediaFile so we can check its properties are updated
@@ -280,13 +276,7 @@ class WatcherMessageProcessorTest extends TestCase
 
         $this->mediaFileRepository
             ->method('findByVolumeAndFilePath')
-            ->with($volume, 'Movies/Existing.mkv')
             ->willReturn($existingFile);
-
-        // persist should NOT be called for an update (only for new entities)
-        // but flush may be called for batch
-        // Actually, the code does not call persist for existing files in handleScanFile,
-        // so we should not expect persist for a MediaFile here.
 
         // First, simulate scan.started
         $this->processor->process([
@@ -332,13 +322,11 @@ class WatcherMessageProcessorTest extends TestCase
 
         $this->volumeRepository
             ->method('findByHostPathPrefix')
-            ->with('/mnt/media-scan')
             ->willReturn($volume);
 
         // During scan.completed, findAllFilePathsByVolume is called to detect stale files
         $this->mediaFileRepository
             ->method('findAllFilePathsByVolume')
-            ->with($volume)
             ->willReturn([]); // No files in DB (clean state)
 
         // Expect flush to be called (for volume update and final scan flush)

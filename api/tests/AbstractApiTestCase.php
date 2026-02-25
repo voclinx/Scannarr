@@ -20,6 +20,9 @@ abstract class AbstractApiTestCase extends WebTestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // Ensure kernel is shutdown before creating a new client (PHPUnit 12 runs in same process)
+        static::ensureKernelShutdown();
         $this->client = static::createClient();
         $this->em = static::getContainer()->get(EntityManagerInterface::class);
 
@@ -33,6 +36,9 @@ abstract class AbstractApiTestCase extends WebTestCase
         if ($this->em->getConnection()->isTransactionActive()) {
             $this->em->getConnection()->rollBack();
         }
+
+        // Shutdown kernel to avoid "kernel already booted" errors
+        static::ensureKernelShutdown();
 
         parent::tearDown();
     }

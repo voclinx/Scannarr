@@ -34,7 +34,7 @@ class FileVoterTest extends TestCase
 
     private function createUser(string $role): User
     {
-        $user = $this->createMock(User::class);
+        $user = $this->createStub(User::class);
         $user->method('getRole')->willReturn($role);
 
         return $user;
@@ -42,7 +42,7 @@ class FileVoterTest extends TestCase
 
     private function createToken(?User $user = null): TokenInterface
     {
-        $token = $this->createMock(TokenInterface::class);
+        $token = $this->createStub(TokenInterface::class);
         $token->method('getUser')->willReturn($user);
 
         return $token;
