@@ -1,0 +1,25 @@
+[Unit]
+Description=Scanarr Watcher - Filesystem monitor for Scanarr
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=scanarr
+Group=scanarr
+EnvironmentFile=/etc/scanarr/watcher.env
+ExecStart=/usr/local/bin/scanarr-watcher
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=scanarr-watcher
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths=/mnt
+
+[Install]
+WantedBy=multi-user.target

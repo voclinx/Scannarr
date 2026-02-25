@@ -1,4 +1,5 @@
 parameters:
+    watcher_auth_token: '%env(WATCHER_AUTH_TOKEN)%'
 
 services:
     _defaults:
@@ -11,3 +12,11 @@ services:
             - '../src/DependencyInjection/'
             - '../src/Entity/'
             - '../src/Kernel.php'
+
+    App\WebSocket\WatcherWebSocketServer:
+        arguments:
+            $authToken: '%watcher_auth_token%'
+
+    App\Service\WatcherCommandService:
+        arguments:
+            $watcherAuthToken: '%watcher_auth_token%'
