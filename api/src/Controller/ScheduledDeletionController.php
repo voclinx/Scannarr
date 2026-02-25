@@ -8,6 +8,7 @@ use App\Entity\User;
 use App\Enum\DeletionStatus;
 use App\Repository\MovieRepository;
 use App\Repository\ScheduledDeletionRepository;
+use App\Security\Voter\DeletionVoter;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -203,15 +204,8 @@ class ScheduledDeletionController extends AbstractController
             );
         }
 
-        // Ownership check: advanced users can only modify their own
-        /** @var User $user */
-        $user = $this->getUser();
-        if (!$this->isGranted('ROLE_ADMIN') && (string) $deletion->getCreatedBy()?->getId() !== (string) $user->getId()) {
-            return $this->json(
-                ['error' => ['code' => 403, 'message' => 'You can only modify your own scheduled deletions']],
-                Response::HTTP_FORBIDDEN
-            );
-        }
+        // Ownership check via Voter
+        $this->denyAccessUnlessGranted(DeletionVoter::EDIT, $deletion);
 
         $payload = json_decode($request->getContent(), true);
         if (!$payload) {
@@ -310,15 +304,8 @@ class ScheduledDeletionController extends AbstractController
             );
         }
 
-        // Ownership check: advanced users can only cancel their own
-        /** @var User $user */
-        $user = $this->getUser();
-        if (!$this->isGranted('ROLE_ADMIN') && (string) $deletion->getCreatedBy()?->getId() !== (string) $user->getId()) {
-            return $this->json(
-                ['error' => ['code' => 403, 'message' => 'You can only cancel your own scheduled deletions']],
-                Response::HTTP_FORBIDDEN
-            );
-        }
+        // Ownership check via Voter
+        $this->denyAccessUnlessGranted(DeletionVoter::CANCEL, $deletion);
 
         $deletion->setStatus(DeletionStatus::CANCELLED);
         $this->em->flush();

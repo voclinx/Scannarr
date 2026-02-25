@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Entity\ActivityLog;
 use App\Entity\MediaFile;
 use App\Repository\MediaFileRepository;
+use App\Security\Voter\FileVoter;
 use App\Service\RadarrService;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\QueryBuilder;
@@ -153,6 +154,8 @@ class FileController extends AbstractController
                 'error' => ['code' => 404, 'message' => 'File not found'],
             ], 404);
         }
+
+        $this->denyAccessUnlessGranted(FileVoter::DELETE, $file);
 
         $data = json_decode($request->getContent(), true) ?? [];
         $deletePhysical = (bool) ($data['delete_physical'] ?? false);
