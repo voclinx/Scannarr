@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMoviesStore } from '@/stores/movies'
+import { useDeletionsStore } from '@/stores/deletions'
 import { useAuthStore } from '@/stores/auth'
 import MovieGlobalDeleteModal from '@/components/movies/MovieGlobalDeleteModal.vue'
 import DataTable from 'primevue/datatable'
@@ -10,16 +11,72 @@ import Tag from 'primevue/tag'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
+import Dialog from 'primevue/dialog'
+import DatePicker from 'primevue/datepicker'
+import InputNumber from 'primevue/inputnumber'
+import Checkbox from 'primevue/checkbox'
 import type { MovieFileDetail } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const moviesStore = useMoviesStore()
+const deletionsStore = useDeletionsStore()
 const authStore = useAuthStore()
 
 const showDeleteModal = ref(false)
 const deleteError = ref<string | null>(null)
 const deleteSuccess = ref<string | null>(null)
+
+// Schedule deletion dialog
+const showScheduleDialog = ref(false)
+const scheduleLoading = ref(false)
+const scheduleError = ref<string | null>(null)
+const scheduleDate = ref<Date | null>(null)
+const scheduleDeletePhysical = ref(true)
+const scheduleDeleteRadarr = ref(false)
+const scheduleReminderDays = ref(3)
+
+function openScheduleDialog(): void {
+  scheduleDate.value = null
+  scheduleDeletePhysical.value = true
+  scheduleDeleteRadarr.value = false
+  scheduleReminderDays.value = 3
+  scheduleError.value = null
+  showScheduleDialog.value = true
+}
+
+async function handleSchedule(): Promise<void> {
+  const movie = moviesStore.currentMovie
+  if (!movie || !scheduleDate.value) return
+
+  scheduleLoading.value = true
+  scheduleError.value = null
+
+  try {
+    await deletionsStore.createDeletion({
+      scheduled_date: scheduleDate.value.toISOString().split('T')[0] as string,
+      delete_physical_files: scheduleDeletePhysical.value,
+      delete_radarr_reference: scheduleDeleteRadarr.value,
+      delete_media_player_reference: false,
+      reminder_days_before: scheduleReminderDays.value,
+      items: [
+        {
+          movie_id: movie.id,
+          media_file_ids: movie.files.map((f) => f.id),
+        },
+      ],
+    })
+
+    showScheduleDialog.value = false
+    deleteSuccess.value = 'Suppression planifiée créée avec succès'
+  } catch (err: unknown) {
+    const error = err as { response?: { data?: { error?: { message?: string } } } }
+    scheduleError.value =
+      error.response?.data?.error?.message || 'Erreur lors de la planification'
+  } finally {
+    scheduleLoading.value = false
+  }
+}
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -159,14 +216,22 @@ onMounted(async () => {
                 {{ moviesStore.currentMovie.original_title }}
               </p>
             </div>
-            <Button
-              v-if="authStore.hasMinRole('ROLE_ADVANCED_USER') && moviesStore.currentMovie.files.length > 0"
-              label="Supprimer"
-              icon="pi pi-trash"
-              severity="danger"
-              size="small"
-              @click="showDeleteModal = true"
-            />
+            <div class="flex gap-2" v-if="authStore.hasMinRole('ROLE_ADVANCED_USER') && moviesStore.currentMovie.files.length > 0">
+              <Button
+                label="Planifier"
+                icon="pi pi-calendar"
+                severity="warn"
+                size="small"
+                @click="openScheduleDialog"
+              />
+              <Button
+                label="Supprimer"
+                icon="pi pi-trash"
+                severity="danger"
+                size="small"
+                @click="showDeleteModal = true"
+              />
+            </div>
           </div>
 
           <!-- Metadata chips -->
@@ -295,6 +360,63 @@ onMounted(async () => {
         :movie="moviesStore.currentMovie"
         @confirm="onDeleteConfirm"
       />
+
+      <!-- Schedule deletion dialog -->
+      <Dialog
+        v-model:visible="showScheduleDialog"
+        :modal="true"
+        header="Planifier la suppression"
+        :style="{ width: '450px' }"
+      >
+        <div class="space-y-4">
+          <Message v-if="scheduleError" severity="error" :closable="false">{{ scheduleError }}</Message>
+
+          <Message severity="info" :closable="false">
+            <strong>{{ moviesStore.currentMovie.title }}</strong>
+            — {{ moviesStore.currentMovie.files.length }} fichier(s) seront inclus.
+          </Message>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Date de suppression</label>
+            <DatePicker
+              v-model="scheduleDate"
+              :minDate="new Date()"
+              dateFormat="dd/mm/yy"
+              placeholder="Sélectionner une date"
+              class="w-full"
+            />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Rappel (jours avant)</label>
+            <InputNumber v-model="scheduleReminderDays" :min="0" :max="30" class="w-full" />
+          </div>
+
+          <div class="space-y-2 pt-2 border-t border-gray-200">
+            <div class="flex items-center gap-2">
+              <Checkbox v-model="scheduleDeletePhysical" :binary="true" inputId="schedDeletePhysical" />
+              <label for="schedDeletePhysical" class="cursor-pointer text-sm">Supprimer les fichiers physiques</label>
+            </div>
+            <div class="flex items-center gap-2">
+              <Checkbox v-model="scheduleDeleteRadarr" :binary="true" inputId="schedDeleteRadarr" />
+              <label for="schedDeleteRadarr" class="cursor-pointer text-sm">Supprimer la référence Radarr</label>
+            </div>
+          </div>
+        </div>
+
+        <template #footer>
+          <div class="flex justify-end gap-2">
+            <Button label="Annuler" severity="secondary" text @click="showScheduleDialog = false" />
+            <Button
+              label="Planifier"
+              icon="pi pi-calendar"
+              @click="handleSchedule"
+              :loading="scheduleLoading"
+              :disabled="!scheduleDate"
+            />
+          </div>
+        </template>
+      </Dialog>
     </template>
   </div>
 </template>

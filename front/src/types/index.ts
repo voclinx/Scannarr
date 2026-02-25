@@ -88,6 +88,39 @@ export interface ScheduledDeletion {
   total_files_count: number;
   created_by: string;
   created_at: string;
+  executed_at?: string;
+}
+
+export interface ScheduledDeletionDetail extends ScheduledDeletion {
+  reminder_sent_at?: string;
+  execution_report?: Record<string, unknown>;
+  items: ScheduledDeletionItemDetail[];
+  updated_at: string;
+}
+
+export interface ScheduledDeletionItemDetail {
+  id: string;
+  movie: {
+    id: string;
+    title: string;
+    year?: number;
+    poster_url?: string;
+  } | null;
+  media_file_ids: string[];
+  status: 'pending' | 'deleted' | 'failed' | 'skipped';
+  error_message?: string;
+}
+
+export interface CreateScheduledDeletionPayload {
+  scheduled_date: string;
+  delete_physical_files: boolean;
+  delete_radarr_reference: boolean;
+  delete_media_player_reference: boolean;
+  reminder_days_before: number;
+  items: {
+    movie_id: string;
+    media_file_ids: string[];
+  }[];
 }
 
 export interface RadarrInstance {
