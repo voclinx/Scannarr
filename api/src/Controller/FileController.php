@@ -41,6 +41,7 @@ class FileController extends AbstractController
      *   - min_hardlinks: filter by minimum hardlink count
      */
     #[Route('', methods: ['GET'])]
+    #[IsGranted('ROLE_GUEST')]
     public function index(Request $request): JsonResponse
     {
         $page = max(1, (int)$request->query->get('page', 1));
@@ -129,6 +130,7 @@ class FileController extends AbstractController
      * Get file details — Guest+.
      */
     #[Route('/{id}', methods: ['GET'])]
+    #[IsGranted('ROLE_GUEST')]
     public function show(string $id): JsonResponse
     {
         $file = $this->mediaFileRepository->find($id);
@@ -234,6 +236,139 @@ class FileController extends AbstractController
                 'radarr_dereferenced' => $radarrDereferenced,
             ],
         ]);
+    }
+
+    /**
+     * Global delete — removes a file across ALL volumes (by file name).
+     * Body: { "delete_physical": true, "delete_radarr_reference": true, "disable_radarr_auto_search": false }
+     */
+    #[Route('/{id}/global', methods: ['DELETE'])]
+    #[IsGranted('ROLE_ADVANCED_USER')]
+    public function globalDelete(string $id, Request $request): JsonResponse
+    {
+        $sourceFile = $this->mediaFileRepository->find($id);
+        if (!$sourceFile instanceof MediaFile) {
+            return $this->json([
+                'error' => ['code' => 404, 'message' => 'File not found'],
+            ], 404);
+        }
+
+        $this->denyAccessUnlessGranted(FileVoter::DELETE, $sourceFile);
+
+        $data = json_decode($request->getContent(), true) ?? [];
+        $deletePhysical = (bool) ($data['delete_physical'] ?? false);
+        $deleteRadarrRef = (bool) ($data['delete_radarr_reference'] ?? false);
+        $disableRadarrAutoSearch = (bool) ($data['disable_radarr_auto_search'] ?? false);
+
+        // Find all files with the same name across all volumes
+        $allFiles = $this->mediaFileRepository->findByFileName($sourceFile->getFileName());
+
+        $filesDeleted = 0;
+        $volumesAffected = [];
+        $radarrDereferenced = false;
+        $warning = null;
+
+        foreach ($allFiles as $file) {
+            $volume = $file->getVolume();
+            $volumeName = $volume->getName();
+
+            // Physical deletion
+            if ($deletePhysical) {
+                $fullPath = rtrim((string) $volume->getPath(), '/') . '/' . $file->getFilePath();
+
+                if (file_exists($fullPath)) {
+                    if (!@unlink($fullPath)) {
+                        $this->logger->warning('Failed to delete physical file during global delete', [
+                            'path' => $fullPath,
+                            'volume' => $volumeName,
+                        ]);
+                        continue;
+                    }
+                }
+            }
+
+            // Track affected volumes
+            if (!in_array($volumeName, $volumesAffected, true)) {
+                $volumesAffected[] = $volumeName;
+            }
+
+            // Radarr dereference (only once per movie)
+            if ($deleteRadarrRef && !$radarrDereferenced && $file->isLinkedRadarr()) {
+                foreach ($file->getMovieFiles() as $mf) {
+                    $movie = $mf->getMovie();
+                    if ($movie && $movie->getRadarrId() && $movie->getRadarrInstance()) {
+                        try {
+                            $this->radarrService->deleteMovie(
+                                $movie->getRadarrInstance(),
+                                $movie->getRadarrId(),
+                                false,
+                                false,
+                            );
+                            $radarrDereferenced = true;
+                        } catch (Exception $e) {
+                            $this->logger->error('Failed to dereference from Radarr during global delete', [
+                                'movie' => $movie->getTitle(),
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
+
+                        // Disable auto-search if requested
+                        if ($disableRadarrAutoSearch) {
+                            try {
+                                $radarrMovie = $this->radarrService->getMovie($movie->getRadarrInstance(), $movie->getRadarrId());
+                                $radarrMovie['monitored'] = false;
+                                $this->radarrService->updateMovie($movie->getRadarrInstance(), $movie->getRadarrId(), $radarrMovie);
+                            } catch (Exception $e) {
+                                $this->logger->error('Failed to disable Radarr auto-search', [
+                                    'error' => $e->getMessage(),
+                                ]);
+                            }
+                        }
+
+                        // Warning if auto-search still enabled
+                        if (!$disableRadarrAutoSearch && $movie->isRadarrMonitored()) {
+                            $warning = 'Radarr auto-search is still enabled for this movie. It may be re-downloaded.';
+                        }
+                    }
+                }
+            }
+
+            // Log each file deletion
+            $log = new ActivityLog();
+            $log->setAction('file.global_deleted');
+            $log->setEntityType('MediaFile');
+            $log->setEntityId($file->getId());
+            $log->setUser($this->getUser());
+            $log->setDetails([
+                'file_name' => $file->getFileName(),
+                'file_path' => $file->getFilePath(),
+                'volume' => $volumeName,
+                'size_bytes' => $file->getFileSizeBytes(),
+                'global_source_id' => (string) $sourceFile->getId(),
+            ]);
+            $this->em->persist($log);
+
+            // Remove from DB
+            $this->em->remove($file);
+            ++$filesDeleted;
+        }
+
+        $this->em->flush();
+
+        $response = [
+            'data' => [
+                'message' => 'File globally deleted',
+                'files_deleted' => $filesDeleted,
+                'volumes_affected' => $volumesAffected,
+                'radarr_dereferenced' => $radarrDereferenced,
+            ],
+        ];
+
+        if ($warning !== null) {
+            $response['data']['warning'] = $warning;
+        }
+
+        return $this->json($response);
     }
 
     private function serializeFile(MediaFile $file): array

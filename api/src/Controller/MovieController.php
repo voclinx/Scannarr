@@ -31,6 +31,8 @@ class MovieController extends AbstractController
         private readonly EntityManagerInterface $em,
         private readonly RadarrService $radarrService,
         private readonly LoggerInterface $logger,
+        #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%kernel.project_dir%')]
+        private readonly string $projectDir,
     ) {
     }
 
@@ -227,8 +229,8 @@ class MovieController extends AbstractController
     public function sync(): JsonResponse
     {
         // Run the command asynchronously
-        $process = new Process(['php', '/app/bin/console', 'scanarr:sync-radarr', '--no-interaction']);
-        $process->setWorkingDirectory('/app');
+        $process = new Process(['php', $this->projectDir . '/bin/console', 'scanarr:sync-radarr', '--no-interaction']);
+        $process->setWorkingDirectory($this->projectDir);
         $process->setTimeout(null);
         $process->start();
 

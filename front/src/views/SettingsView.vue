@@ -8,6 +8,7 @@ import TabPanel from 'primevue/tabpanel'
 import RadarrSettings from '@/components/settings/RadarrSettings.vue'
 import MediaPlayerSettings from '@/components/settings/MediaPlayerSettings.vue'
 import VolumeSettings from '@/components/settings/VolumeSettings.vue'
+import TorrentSettings from '@/components/settings/TorrentSettings.vue'
 import DiscordSettings from '@/components/settings/DiscordSettings.vue'
 import GeneralSettings from '@/components/settings/GeneralSettings.vue'
 
@@ -41,14 +42,20 @@ const activeTab = ref('0')
           </Tab>
           <Tab value="3">
             <div class="flex items-center gap-2">
-              <i class="pi pi-discord"></i>
-              <span>Discord</span>
+              <i class="pi pi-download"></i>
+              <span>Torrent</span>
             </div>
           </Tab>
           <Tab value="4">
             <div class="flex items-center gap-2">
-              <i class="pi pi-cog"></i>
-              <span>Général</span>
+              <i class="pi pi-discord"></i>
+              <span>Discord</span>
+            </div>
+          </Tab>
+          <Tab value="5">
+            <div class="flex items-center gap-2">
+              <i class="pi pi-globe"></i>
+              <span>TMDB</span>
             </div>
           </Tab>
         </TabList>
@@ -71,10 +78,15 @@ const activeTab = ref('0')
           </TabPanel>
           <TabPanel value="3">
             <div class="p-4">
-              <DiscordSettings />
+              <TorrentSettings />
             </div>
           </TabPanel>
           <TabPanel value="4">
+            <div class="p-4">
+              <DiscordSettings />
+            </div>
+          </TabPanel>
+          <TabPanel value="5">
             <div class="p-4">
               <GeneralSettings />
             </div>

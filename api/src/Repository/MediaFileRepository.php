@@ -69,6 +69,23 @@ class MediaFileRepository extends ServiceEntityRepository
     }
 
     /**
+     * Find all media files with the same file name (across all volumes).
+     * Used for global file deletion.
+     *
+     * @return MediaFile[]
+     */
+    public function findByFileName(string $fileName): array
+    {
+        return $this->createQueryBuilder('mf')
+            ->leftJoin('mf.volume', 'v')
+            ->addSelect('v')
+            ->where('mf.fileName = :fileName')
+            ->setParameter('fileName', $fileName)
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * Count media files for a volume.
      */
     public function countByVolume(Volume $volume): int

@@ -16,6 +16,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
 #[Route('/api/v1/auth')]
@@ -213,6 +214,7 @@ class AuthController extends AbstractController
     }
 
     #[Route('/me', methods: ['GET'])]
+    #[IsGranted('ROLE_GUEST')]
     public function me(): JsonResponse
     {
         /** @var User $user */

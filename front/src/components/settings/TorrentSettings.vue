@@ -7,7 +7,9 @@ import Message from 'primevue/message'
 
 const store = useSettingsStore()
 
-const tmdbApiKey = ref('')
+const qbittorrentUrl = ref('')
+const qbittorrentUsername = ref('')
+const qbittorrentPassword = ref('')
 
 const saving = ref(false)
 const saveSuccess = ref(false)
@@ -20,9 +22,17 @@ async function handleSave(): Promise<void> {
   saveSuccess.value = false
 
   try {
-    await store.updateSettings({
-      tmdb_api_key: tmdbApiKey.value || null,
-    })
+    const updates: Record<string, string | null> = {
+      qbittorrent_url: qbittorrentUrl.value || null,
+      qbittorrent_username: qbittorrentUsername.value || null,
+    }
+
+    // Only send password if user entered something
+    if (qbittorrentPassword.value) {
+      updates['qbittorrent_password'] = qbittorrentPassword.value
+    }
+
+    await store.updateSettings(updates)
     saveSuccess.value = true
     setTimeout(() => {
       saveSuccess.value = false
@@ -38,7 +48,9 @@ async function handleSave(): Promise<void> {
 onMounted(async () => {
   try {
     await store.fetchSettings()
-    tmdbApiKey.value = store.settings['tmdb_api_key'] ?? ''
+    qbittorrentUrl.value = store.settings['qbittorrent_url'] ?? ''
+    qbittorrentUsername.value = store.settings['qbittorrent_username'] ?? ''
+    qbittorrentPassword.value = ''
   } catch (err: unknown) {
     const error = err as { response?: { data?: { error?: { message?: string } } } }
     loadError.value = error.response?.data?.error?.message || 'Erreur lors du chargement des paramètres'
@@ -48,7 +60,7 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-4">
-    <h3 class="text-lg font-semibold text-gray-900">TMDB</h3>
+    <h3 class="text-lg font-semibold text-gray-900">qBittorrent</h3>
 
     <Message v-if="loadError" severity="error" :closable="true" @close="loadError = null">
       {{ loadError }}
@@ -58,13 +70,22 @@ onMounted(async () => {
     </Message>
     <Message v-if="saveError" severity="error" :closable="false">{{ saveError }}</Message>
 
-    <div class="max-w-xl">
-      <label class="block text-sm font-medium text-gray-700 mb-1">Clé API TMDB</label>
-      <InputText v-model="tmdbApiKey" placeholder="Votre clé API TMDB" class="w-full" />
-      <p class="text-xs text-gray-400 mt-1">
-        Nécessaire pour l'enrichissement des métadonnées des films.
-        Obtenez votre clé sur <a href="https://www.themoviedb.org/settings/api" target="_blank" class="text-blue-500 hover:underline">themoviedb.org</a>.
-      </p>
+    <div class="space-y-3 max-w-xl">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">URL</label>
+        <InputText v-model="qbittorrentUrl" placeholder="http://192.168.1.10:8080" class="w-full" />
+        <p class="text-xs text-gray-400 mt-1">
+          URL de l'interface web de qBittorrent.
+        </p>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Nom d'utilisateur</label>
+        <InputText v-model="qbittorrentUsername" placeholder="admin" class="w-full" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Mot de passe</label>
+        <InputText v-model="qbittorrentPassword" type="password" placeholder="Laisser vide pour ne pas modifier" class="w-full" />
+      </div>
     </div>
 
     <div class="pt-4">

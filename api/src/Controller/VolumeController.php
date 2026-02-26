@@ -32,6 +32,7 @@ class VolumeController extends AbstractController
      * List all volumes — accessible to any authenticated user (Guest+).
      */
     #[Route('', methods: ['GET'])]
+    #[IsGranted('ROLE_GUEST')]
     public function index(): JsonResponse
     {
         $volumes = $this->volumeRepository->findBy([], ['name' => 'ASC']);

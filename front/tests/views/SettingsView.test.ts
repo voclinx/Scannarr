@@ -73,6 +73,9 @@ const tabsStubs = {
   VolumeSettings: {
     template: '<div data-testid="volume-settings">Volume Settings</div>',
   },
+  TorrentSettings: {
+    template: '<div data-testid="torrent-settings">Torrent Settings</div>',
+  },
   DiscordSettings: {
     template: '<div data-testid="discord-settings">Discord Settings</div>',
   },
@@ -98,26 +101,28 @@ describe('SettingsView', () => {
     // Verify heading
     expect(wrapper.text()).toContain('Paramètres')
 
-    // Verify all 5 tabs are rendered
+    // Verify all 6 tabs are rendered (Radarr, Lecteurs, Volumes, Torrent, Discord, TMDB)
     const tabs = wrapper.findAll('[role="tab"]')
-    expect(tabs.length).toBe(5)
+    expect(tabs.length).toBe(6)
 
     // Verify tab labels
     const tabLabels = tabs.map((tab) => tab.text().trim())
     expect(tabLabels).toContain('Radarr')
     expect(tabLabels).toContain('Lecteurs')
     expect(tabLabels).toContain('Volumes')
+    expect(tabLabels).toContain('Torrent')
     expect(tabLabels).toContain('Discord')
-    expect(tabLabels).toContain('Général')
+    expect(tabLabels).toContain('TMDB')
 
     // Verify all tab panels exist
     const panels = wrapper.findAll('[data-testid="tab-panel"]')
-    expect(panels.length).toBe(5)
+    expect(panels.length).toBe(6)
 
     // Verify each settings component is rendered
     expect(wrapper.find('[data-testid="radarr-settings"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="media-player-settings"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="volume-settings"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="torrent-settings"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="discord-settings"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="general-settings"]').exists()).toBe(true)
   })

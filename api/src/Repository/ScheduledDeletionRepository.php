@@ -103,8 +103,6 @@ class ScheduledDeletionRepository extends ServiceEntityRepository
      */
     public function findNeedingReminder(): array
     {
-        new DateTime('today');
-
         return $this->createQueryBuilder('d')
             ->leftJoin('d.items', 'i')
             ->addSelect('i')
