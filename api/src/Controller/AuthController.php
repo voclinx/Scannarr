@@ -2,10 +2,13 @@
 
 namespace App\Controller;
 
+use App\Entity\RefreshToken;
 use App\Entity\Setting;
 use App\Entity\User;
 use App\Repository\SettingRepository;
 use App\Repository\UserRepository;
+use DateTime;
+use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Lexik\Bundle\JWTAuthenticationBundle\Services\JWTTokenManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -19,13 +22,14 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 class AuthController extends AbstractController
 {
     public function __construct(
-        private EntityManagerInterface $em,
-        private UserPasswordHasherInterface $passwordHasher,
-        private JWTTokenManagerInterface $jwtManager,
-        private ValidatorInterface $validator,
-        private SettingRepository $settingRepository,
-        private UserRepository $userRepository,
-    ) {}
+        private readonly EntityManagerInterface $em,
+        private readonly UserPasswordHasherInterface $passwordHasher,
+        private readonly JWTTokenManagerInterface $jwtManager,
+        private readonly ValidatorInterface $validator,
+        private readonly SettingRepository $settingRepository,
+        private readonly UserRepository $userRepository,
+    ) {
+    }
 
     #[Route('/setup-status', methods: ['GET'])]
     public function setupStatus(): JsonResponse
@@ -70,13 +74,14 @@ class AuthController extends AbstractController
             foreach ($errors as $error) {
                 $details[$error->getPropertyPath()] = $error->getMessage();
             }
+
             return $this->json([
                 'error' => ['code' => 422, 'message' => 'Validation failed', 'details' => $details],
             ], 422);
         }
 
         $password = $data['password'] ?? '';
-        if (strlen($password) < 8) {
+        if (strlen((string)$password) < 8) {
             return $this->json([
                 'error' => ['code' => 422, 'message' => 'Validation failed', 'details' => ['password' => 'Password must be at least 8 characters']],
             ], 422);
@@ -100,7 +105,7 @@ class AuthController extends AbstractController
 
         return $this->json([
             'data' => [
-                'id' => (string) $user->getId(),
+                'id' => (string)$user->getId(),
                 'email' => $user->getEmail(),
                 'username' => $user->getUsername(),
                 'role' => $user->getRole(),
@@ -135,16 +140,16 @@ class AuthController extends AbstractController
         }
 
         // Update last login
-        $user->setLastLoginAt(new \DateTimeImmutable());
+        $user->setLastLoginAt(new DateTimeImmutable());
         $this->em->flush();
 
         $accessToken = $this->jwtManager->create($user);
 
         // Create refresh token
-        $refreshToken = new \App\Entity\RefreshToken();
+        $refreshToken = new RefreshToken();
         $refreshToken->setUsername($user->getUserIdentifier());
         $refreshToken->setRefreshToken(bin2hex(random_bytes(64)));
-        $refreshToken->setValid(new \DateTime('+30 days'));
+        $refreshToken->setValid(new DateTime('+30 days'));
         $this->em->persist($refreshToken);
         $this->em->flush();
 
@@ -152,9 +157,9 @@ class AuthController extends AbstractController
             'data' => [
                 'access_token' => $accessToken,
                 'refresh_token' => $refreshToken->getRefreshToken(),
-                'expires_in' => (int) $this->getParameter('lexik_jwt_authentication.token_ttl'),
+                'expires_in' => (int)$this->getParameter('lexik_jwt_authentication.token_ttl'),
                 'user' => [
-                    'id' => (string) $user->getId(),
+                    'id' => (string)$user->getId(),
                     'username' => $user->getUsername(),
                     'role' => $user->getRole(),
                 ],
@@ -174,17 +179,17 @@ class AuthController extends AbstractController
             ], 400);
         }
 
-        $refreshTokenRepo = $this->em->getRepository(\App\Entity\RefreshToken::class);
+        $refreshTokenRepo = $this->em->getRepository(RefreshToken::class);
         $refreshToken = $refreshTokenRepo->findOneBy(['refreshToken' => $refreshTokenString]);
 
-        if (!$refreshToken || $refreshToken->getValid() < new \DateTime()) {
+        if (!$refreshToken || $refreshToken->getValid() < new DateTime()) {
             return $this->json([
                 'error' => ['code' => 401, 'message' => 'Invalid or expired refresh token'],
             ], 401);
         }
 
         $user = $this->userRepository->findOneBy(['email' => $refreshToken->getUsername()]);
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json([
                 'error' => ['code' => 401, 'message' => 'User not found'],
             ], 401);
@@ -195,14 +200,14 @@ class AuthController extends AbstractController
         // Rotate refresh token
         $newRefreshToken = bin2hex(random_bytes(64));
         $refreshToken->setRefreshToken($newRefreshToken);
-        $refreshToken->setValid(new \DateTime('+30 days'));
+        $refreshToken->setValid(new DateTime('+30 days'));
         $this->em->flush();
 
         return $this->json([
             'data' => [
                 'access_token' => $accessToken,
                 'refresh_token' => $newRefreshToken,
-                'expires_in' => (int) $this->getParameter('lexik_jwt_authentication.token_ttl'),
+                'expires_in' => (int)$this->getParameter('lexik_jwt_authentication.token_ttl'),
             ],
         ]);
     }
@@ -215,7 +220,7 @@ class AuthController extends AbstractController
 
         return $this->json([
             'data' => [
-                'id' => (string) $user->getId(),
+                'id' => (string)$user->getId(),
                 'email' => $user->getEmail(),
                 'username' => $user->getUsername(),
                 'role' => $user->getRole(),
@@ -238,7 +243,7 @@ class AuthController extends AbstractController
 
         foreach ($defaults as [$key, $value, $type]) {
             $existing = $this->settingRepository->findOneBy(['settingKey' => $key]);
-            if (!$existing) {
+            if (!$existing instanceof Setting) {
                 $setting = new Setting();
                 $setting->setSettingKey($key);
                 $setting->setSettingValue($value);

@@ -8,7 +8,7 @@ use App\Repository\MediaFileRepository;
 use App\Security\Voter\FileVoter;
 use App\Service\RadarrService;
 use Doctrine\ORM\EntityManagerInterface;
-use Doctrine\ORM\QueryBuilder;
+use Exception;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -20,11 +20,12 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 class FileController extends AbstractController
 {
     public function __construct(
-        private EntityManagerInterface $em,
-        private MediaFileRepository $mediaFileRepository,
-        private RadarrService $radarrService,
-        private LoggerInterface $logger,
-    ) {}
+        private readonly EntityManagerInterface $em,
+        private readonly MediaFileRepository $mediaFileRepository,
+        private readonly RadarrService $radarrService,
+        private readonly LoggerInterface $logger,
+    ) {
+    }
 
     /**
      * List files with search, filters and pagination — accessible to Guest+.
@@ -42,8 +43,8 @@ class FileController extends AbstractController
     #[Route('', methods: ['GET'])]
     public function index(Request $request): JsonResponse
     {
-        $page = max(1, (int) $request->query->get('page', 1));
-        $limit = min(100, max(1, (int) $request->query->get('limit', 25)));
+        $page = max(1, (int)$request->query->get('page', 1));
+        $limit = min(100, max(1, (int)$request->query->get('limit', 25)));
         $offset = ($page - 1) * $limit;
 
         $qb = $this->em->createQueryBuilder()
@@ -76,13 +77,13 @@ class FileController extends AbstractController
         $minHardlinks = $request->query->get('min_hardlinks');
         if ($minHardlinks !== null && $minHardlinks !== '') {
             $qb->andWhere('mf.hardlinkCount >= :minHardlinks')
-                ->setParameter('minHardlinks', (int) $minHardlinks);
+                ->setParameter('minHardlinks', (int)$minHardlinks);
         }
 
         // Count total before pagination
         $countQb = clone $qb;
         $countQb->select('COUNT(mf.id)');
-        $total = (int) $countQb->getQuery()->getSingleScalarResult();
+        $total = (int)$countQb->getQuery()->getSingleScalarResult();
 
         // Sort
         $allowedSorts = ['file_name', 'file_size_bytes', 'detected_at', 'hardlink_count', 'file_path'];
@@ -111,7 +112,7 @@ class FileController extends AbstractController
 
         $files = $qb->getQuery()->getResult();
 
-        $data = array_map(fn(MediaFile $f) => $this->serializeFile($f), $files);
+        $data = array_map($this->serializeFile(...), $files);
 
         return $this->json([
             'data' => $data,
@@ -119,7 +120,7 @@ class FileController extends AbstractController
                 'total' => $total,
                 'page' => $page,
                 'limit' => $limit,
-                'total_pages' => (int) ceil($total / $limit),
+                'total_pages' => (int)ceil($total / $limit),
             ],
         ]);
     }
@@ -131,7 +132,7 @@ class FileController extends AbstractController
     public function show(string $id): JsonResponse
     {
         $file = $this->mediaFileRepository->find($id);
-        if (!$file) {
+        if (!$file instanceof MediaFile) {
             return $this->json([
                 'error' => ['code' => 404, 'message' => 'File not found'],
             ], 404);
@@ -149,7 +150,7 @@ class FileController extends AbstractController
     public function delete(string $id, Request $request): JsonResponse
     {
         $file = $this->mediaFileRepository->find($id);
-        if (!$file) {
+        if (!$file instanceof MediaFile) {
             return $this->json([
                 'error' => ['code' => 404, 'message' => 'File not found'],
             ], 404);
@@ -158,8 +159,8 @@ class FileController extends AbstractController
         $this->denyAccessUnlessGranted(FileVoter::DELETE, $file);
 
         $data = json_decode($request->getContent(), true) ?? [];
-        $deletePhysical = (bool) ($data['delete_physical'] ?? false);
-        $deleteRadarrRef = (bool) ($data['delete_radarr_reference'] ?? false);
+        $deletePhysical = (bool)($data['delete_physical'] ?? false);
+        $deleteRadarrRef = (bool)($data['delete_radarr_reference'] ?? false);
 
         $physicalDeleted = false;
         $radarrDereferenced = false;
@@ -167,7 +168,7 @@ class FileController extends AbstractController
         // Physical deletion
         if ($deletePhysical) {
             $volume = $file->getVolume();
-            $fullPath = rtrim($volume->getPath(), '/') . '/' . $file->getFilePath();
+            $fullPath = rtrim((string)$volume->getPath(), '/') . '/' . $file->getFilePath();
 
             if (file_exists($fullPath)) {
                 if (@unlink($fullPath)) {
@@ -193,10 +194,10 @@ class FileController extends AbstractController
                             $movie->getRadarrInstance(),
                             $movie->getRadarrId(),
                             false,
-                            false
+                            false,
                         );
                         $radarrDereferenced = true;
-                    } catch (\Exception $e) {
+                    } catch (Exception $e) {
                         $this->logger->error('Failed to dereference from Radarr', [
                             'movie' => $movie->getTitle(),
                             'error' => $e->getMessage(),
@@ -238,8 +239,8 @@ class FileController extends AbstractController
     private function serializeFile(MediaFile $file): array
     {
         return [
-            'id' => (string) $file->getId(),
-            'volume_id' => (string) $file->getVolume()->getId(),
+            'id' => (string)$file->getId(),
+            'volume_id' => (string)$file->getVolume()->getId(),
             'volume_name' => $file->getVolume()->getName(),
             'file_path' => $file->getFilePath(),
             'file_name' => $file->getFileName(),

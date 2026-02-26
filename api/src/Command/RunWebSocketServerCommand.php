@@ -17,7 +17,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 class RunWebSocketServerCommand extends Command
 {
     public function __construct(
-        private WatcherWebSocketServer $webSocketServer,
+        private readonly WatcherWebSocketServer $webSocketServer,
     ) {
         parent::__construct();
     }
@@ -33,7 +33,7 @@ class RunWebSocketServerCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
         $host = $input->getOption('host');
-        $port = (int) $input->getOption('port');
+        $port = (int)$input->getOption('port');
 
         $io->info("Starting WebSocket server on {$host}:{$port}");
 

@@ -49,11 +49,12 @@ class MediaFileRepository extends ServiceEntityRepository
      * Delete media files by volume and file paths.
      *
      * @param string[] $filePaths
+     *
      * @return int Number of deleted records
      */
     public function deleteByVolumeAndFilePaths(Volume $volume, array $filePaths): int
     {
-        if (empty($filePaths)) {
+        if ($filePaths === []) {
             return 0;
         }
 

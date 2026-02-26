@@ -29,7 +29,7 @@ class VolumeRepository extends ServiceEntityRepository
         $bestLength = 0;
 
         foreach ($volumes as $volume) {
-            $hostPath = rtrim($volume->getHostPath(), '/');
+            $hostPath = rtrim((string)$volume->getHostPath(), '/');
             if (str_starts_with($absolutePath, $hostPath . '/') || $absolutePath === $hostPath) {
                 $len = strlen($hostPath);
                 if ($len > $bestLength) {

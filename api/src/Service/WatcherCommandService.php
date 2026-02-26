@@ -4,6 +4,7 @@ namespace App\Service;
 
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Uid\Uuid;
+use Throwable;
 
 /**
  * Service to send commands to the watcher via the internal HTTP endpoint
@@ -12,10 +13,11 @@ use Symfony\Component\Uid\Uuid;
 class WatcherCommandService
 {
     public function __construct(
-        private string $watcherAuthToken,
-        private LoggerInterface $logger,
-        private string $wsInternalUrl = 'http://127.0.0.1:8081',
-    ) {}
+        private readonly string $watcherAuthToken,
+        private readonly LoggerInterface $logger,
+        private readonly string $wsInternalUrl = 'http://127.0.0.1:8081',
+    ) {
+    }
 
     /**
      * Request a scan of the given path.
@@ -24,7 +26,7 @@ class WatcherCommandService
      */
     public function requestScan(string $hostPath): string
     {
-        $scanId = (string) Uuid::v4();
+        $scanId = (string)Uuid::v4();
 
         $command = [
             'type' => 'command.scan',
@@ -80,9 +82,11 @@ class WatcherCommandService
             if ($response === false) {
                 return ['connected_watchers' => 0, 'error' => 'WebSocket server unreachable'];
             }
+
             return json_decode($response, true) ?? [];
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->error('Failed to get WS server status', ['error' => $e->getMessage()]);
+
             return ['connected_watchers' => 0, 'error' => $e->getMessage()];
         }
     }
@@ -115,6 +119,7 @@ class WatcherCommandService
                     'type' => $command['type'],
                     'url' => $url,
                 ]);
+
                 return;
             }
 
@@ -123,7 +128,7 @@ class WatcherCommandService
                 'type' => $command['type'],
                 'watchers' => $result['watchers'] ?? 0,
             ]);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->error('Error sending command to WS server', [
                 'type' => $command['type'],
                 'error' => $e->getMessage(),

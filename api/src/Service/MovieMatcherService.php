@@ -7,28 +7,29 @@ use App\Entity\Movie;
 use App\Entity\MovieFile;
 use App\Entity\RadarrInstance;
 use App\Entity\Volume;
+use App\Enum\VolumeStatus;
 use App\Repository\MediaFileRepository;
 use App\Repository\MovieFileRepository;
 use App\Repository\MovieRepository;
 use App\Repository\RadarrInstanceRepository;
 use App\Repository\VolumeRepository;
-use App\Enum\VolumeStatus;
 use Doctrine\ORM\EntityManagerInterface;
+use Exception;
 use Psr\Log\LoggerInterface;
 
 class MovieMatcherService
 {
     public function __construct(
-        private RadarrInstanceRepository $radarrInstanceRepository,
-        private MovieRepository $movieRepository,
-        private MovieFileRepository $movieFileRepository,
-        private MediaFileRepository $mediaFileRepository,
-        private VolumeRepository $volumeRepository,
-        private EntityManagerInterface $em,
-        private RadarrService $radarrService,
-        private TmdbService $tmdbService,
-        private FileNameParser $fileNameParser,
-        private LoggerInterface $logger,
+        private readonly RadarrInstanceRepository $radarrInstanceRepository,
+        private readonly MovieRepository $movieRepository,
+        private readonly MovieFileRepository $movieFileRepository,
+        private readonly MediaFileRepository $mediaFileRepository,
+        private readonly VolumeRepository $volumeRepository,
+        private readonly EntityManagerInterface $em,
+        private readonly RadarrService $radarrService,
+        private readonly TmdbService $tmdbService,
+        private readonly FileNameParser $fileNameParser,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -65,7 +66,7 @@ class MovieMatcherService
         foreach ($instances as $instance) {
             try {
                 $matched += $this->matchInstanceViaRadarr($instance);
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $this->logger->error('Radarr matching failed for instance', [
                     'instance' => $instance->getName(),
                     'error' => $e->getMessage(),
@@ -107,21 +108,21 @@ class MovieMatcherService
             // Try to find matching movie in DB
             $movie = $this->findMovieByTitleAndYear($parsed['title'], $parsed['year']);
 
-            if ($movie === null && $parsed['year'] !== null) {
+            if (!$movie instanceof Movie && $parsed['year'] !== null) {
                 // Try TMDB search as fallback
                 $movie = $this->findMovieViaTmdbSearch($parsed['title'], $parsed['year']);
             }
 
-            if ($movie !== null) {
+            if ($movie instanceof Movie) {
                 $confidence = $this->calculateConfidence($parsed);
                 $created = $this->createMovieFileLink($movie, $mediaFile, 'filename_parse', $confidence);
 
                 if ($created) {
-                    $matched++;
+                    ++$matched;
                 }
             }
 
-            $batchCount++;
+            ++$batchCount;
             if ($batchCount % 50 === 0) {
                 $this->em->flush();
             }
@@ -139,7 +140,7 @@ class MovieMatcherService
     {
         // 1. Try Radarr API match first
         $movieFile = $this->matchSingleFileViaRadarr($mediaFile);
-        if ($movieFile !== null) {
+        if ($movieFile instanceof MovieFile) {
             return $movieFile;
         }
 
@@ -154,11 +155,11 @@ class MovieMatcherService
 
         $movie = $this->findMovieByTitleAndYear($parsed['title'], $parsed['year']);
 
-        if ($movie === null && $parsed['year'] !== null) {
+        if (!$movie instanceof Movie && $parsed['year'] !== null) {
             $movie = $this->findMovieViaTmdbSearch($parsed['title'], $parsed['year']);
         }
 
-        if ($movie !== null) {
+        if ($movie instanceof Movie) {
             $confidence = $this->calculateConfidence($parsed);
             $this->createMovieFileLink($movie, $mediaFile, 'filename_parse', $confidence);
 
@@ -183,10 +184,11 @@ class MovieMatcherService
         // Build the root folder mapping: radarr_path => volume + local_path_prefix
         $rootFolderMap = $this->buildRootFolderMap($instance);
 
-        if (empty($rootFolderMap)) {
+        if ($rootFolderMap === []) {
             $this->logger->warning('No root folder mapping for instance', [
                 'instance' => $instance->getName(),
             ]);
+
             return 0;
         }
 
@@ -212,18 +214,18 @@ class MovieMatcherService
                     // Try to match with a media file in our DB
                     $mediaFile = $this->findMediaFileByRadarrPath($radarrPath, $rootFolderMap);
 
-                    if ($mediaFile !== null) {
+                    if ($mediaFile instanceof MediaFile) {
                         $created = $this->createMovieFileLink($movie, $mediaFile, 'radarr_api', '1.00');
 
                         if ($created) {
                             // Mark media file as linked to Radarr
                             $mediaFile->setIsLinkedRadarr(true);
                             $mediaFile->setRadarrInstance($instance);
-                            $matched++;
+                            ++$matched;
                         }
                     }
                 }
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $this->logger->debug('Failed to get files for movie from Radarr', [
                     'movie' => $movie->getTitle(),
                     'radarr_id' => $movie->getRadarrId(),
@@ -247,13 +249,13 @@ class MovieMatcherService
         foreach ($instances as $instance) {
             $rootFolderMap = $this->buildRootFolderMap($instance);
 
-            if (empty($rootFolderMap)) {
+            if ($rootFolderMap === []) {
                 continue;
             }
 
             // Check if this file's path matches any Radarr root folder mapping
             $volume = $mediaFile->getVolume();
-            if ($volume === null) {
+            if (!$volume instanceof Volume) {
                 continue;
             }
 
@@ -274,10 +276,10 @@ class MovieMatcherService
                             foreach ($radarrFiles as $radarrFile) {
                                 $matchedFile = $this->findMediaFileByRadarrPath(
                                     $radarrFile['path'] ?? '',
-                                    $rootFolderMap
+                                    $rootFolderMap,
                                 );
 
-                                if ($matchedFile !== null && $matchedFile->getId()->equals($mediaFile->getId())) {
+                                if ($matchedFile instanceof MediaFile && $matchedFile->getId()->equals($mediaFile->getId())) {
                                     $this->createMovieFileLink($movie, $mediaFile, 'radarr_api', '1.00');
                                     $mediaFile->setIsLinkedRadarr(true);
                                     $mediaFile->setRadarrInstance($instance);
@@ -289,7 +291,7 @@ class MovieMatcherService
                                     ]);
                                 }
                             }
-                        } catch (\Exception $e) {
+                        } catch (Exception) {
                             // Continue trying next movie
                         }
                     }
@@ -314,7 +316,7 @@ class MovieMatcherService
     private function buildRootFolderMap(RadarrInstance $instance): array
     {
         $rootFolders = $instance->getRootFolders();
-        if (empty($rootFolders)) {
+        if ($rootFolders === null || $rootFolders === []) {
             return [];
         }
 
@@ -386,10 +388,10 @@ class MovieMatcherService
                 // Find in our DB
                 $mediaFile = $this->mediaFileRepository->findByVolumeAndFilePath(
                     $mapping['volume'],
-                    $relativePath
+                    $relativePath,
                 );
 
-                if ($mediaFile !== null) {
+                if ($mediaFile instanceof MediaFile) {
                     return $mediaFile;
                 }
             }
@@ -443,7 +445,7 @@ class MovieMatcherService
         try {
             $results = $this->tmdbService->searchMovie($title, $year);
 
-            if (empty($results)) {
+            if ($results === []) {
                 return null;
             }
 
@@ -452,7 +454,7 @@ class MovieMatcherService
             if ($tmdbId !== null) {
                 return $this->movieRepository->findOneBy(['tmdbId' => $tmdbId]);
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->debug('TMDB search failed during matching', [
                 'title' => $title,
                 'year' => $year,
@@ -486,7 +488,7 @@ class MovieMatcherService
             $confidence += 0.05;
         }
 
-        return (string) min(0.9, $confidence);
+        return (string)min(0.9, $confidence);
     }
 
     /**

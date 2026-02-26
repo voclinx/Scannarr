@@ -3,6 +3,7 @@
 namespace App\Entity;
 
 use App\Repository\UserRepository;
+use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
 use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
@@ -40,18 +41,18 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     private bool $isActive = true;
 
     #[ORM\Column]
-    private \DateTimeImmutable $createdAt;
+    private DateTimeImmutable $createdAt;
 
     #[ORM\Column]
-    private \DateTimeImmutable $updatedAt;
+    private DateTimeImmutable $updatedAt;
 
     #[ORM\Column(nullable: true)]
-    private ?\DateTimeImmutable $lastLoginAt = null;
+    private ?DateTimeImmutable $lastLoginAt = null;
 
     public function __construct()
     {
-        $this->createdAt = new \DateTimeImmutable();
-        $this->updatedAt = new \DateTimeImmutable();
+        $this->createdAt = new DateTimeImmutable();
+        $this->updatedAt = new DateTimeImmutable();
     }
 
     public function getId(): ?Uuid
@@ -67,6 +68,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function setEmail(string $email): static
     {
         $this->email = $email;
+
         return $this;
     }
 
@@ -78,12 +80,13 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function setUsername(string $username): static
     {
         $this->username = $username;
+
         return $this;
     }
 
     public function getUserIdentifier(): string
     {
-        return (string) $this->email;
+        return (string)$this->email;
     }
 
     public function getRoles(): array
@@ -99,6 +102,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function setRole(string $role): static
     {
         $this->role = $role;
+
         return $this;
     }
 
@@ -110,6 +114,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function setPassword(string $password): static
     {
         $this->password = $password;
+
         return $this;
     }
 
@@ -125,15 +130,16 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function setIsActive(bool $isActive): static
     {
         $this->isActive = $isActive;
+
         return $this;
     }
 
-    public function getCreatedAt(): \DateTimeImmutable
+    public function getCreatedAt(): DateTimeImmutable
     {
         return $this->createdAt;
     }
 
-    public function getUpdatedAt(): \DateTimeImmutable
+    public function getUpdatedAt(): DateTimeImmutable
     {
         return $this->updatedAt;
     }
@@ -141,17 +147,18 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\PreUpdate]
     public function setUpdatedAtValue(): void
     {
-        $this->updatedAt = new \DateTimeImmutable();
+        $this->updatedAt = new DateTimeImmutable();
     }
 
-    public function getLastLoginAt(): ?\DateTimeImmutable
+    public function getLastLoginAt(): ?DateTimeImmutable
     {
         return $this->lastLoginAt;
     }
 
-    public function setLastLoginAt(?\DateTimeImmutable $lastLoginAt): static
+    public function setLastLoginAt(?DateTimeImmutable $lastLoginAt): static
     {
         $this->lastLoginAt = $lastLoginAt;
+
         return $this;
     }
 }

@@ -3,15 +3,17 @@
 namespace App\Service;
 
 use App\Entity\RadarrInstance;
+use Exception;
 use Psr\Log\LoggerInterface;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
+use RuntimeException;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class RadarrService
 {
     public function __construct(
-        private HttpClientInterface $httpClient,
-        private LoggerInterface $logger,
+        private readonly HttpClientInterface $httpClient,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -31,7 +33,7 @@ class RadarrService
                 'version' => $status['version'] ?? 'unknown',
                 'movies_count' => is_array($movies) ? count($movies) : 0,
             ];
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [
                 'success' => false,
                 'error' => $e->getMessage(),
@@ -93,8 +95,6 @@ class RadarrService
 
     /**
      * Delete a movie from Radarr (dereference only, no file deletion).
-     *
-     * @return void
      */
     public function deleteMovie(RadarrInstance $instance, int $radarrId, bool $deleteFiles = false, bool $addExclusion = false): void
     {
@@ -108,8 +108,6 @@ class RadarrService
 
     /**
      * Delete a movie file reference in Radarr.
-     *
-     * @return void
      */
     public function deleteMovieFile(RadarrInstance $instance, int $movieFileId): void
     {
@@ -120,6 +118,7 @@ class RadarrService
      * Update a movie in Radarr (e.g., to disable monitoring/auto-search).
      *
      * @param array<string, mixed> $movieData Full movie object from Radarr with modifications
+     *
      * @return array<string, mixed>
      */
     public function updateMovie(RadarrInstance $instance, int $radarrId, array $movieData): array
@@ -133,8 +132,10 @@ class RadarrService
      * Make an API request to a Radarr instance.
      *
      * @param array<string, mixed> $options Additional request options
+     *
      * @return array<string, mixed>
-     * @throws \RuntimeException If the request fails
+     *
+     * @throws RuntimeException If the request fails
      */
     private function request(RadarrInstance $instance, string $method, string $endpoint, array $options = []): array
     {
@@ -145,7 +146,7 @@ class RadarrService
             'Accept' => 'application/json',
         ]);
 
-        $options['timeout'] = $options['timeout'] ?? 30;
+        $options['timeout'] ??= 30;
 
         try {
             $response = $this->httpClient->request($method, $url, $options);
@@ -158,7 +159,7 @@ class RadarrService
 
             $content = $response->getContent();
 
-            if (empty($content)) {
+            if ($content === '' || $content === '0') {
                 return [];
             }
 
@@ -171,10 +172,10 @@ class RadarrService
                 'error' => $e->getMessage(),
             ]);
 
-            throw new \RuntimeException(
+            throw new RuntimeException(
                 sprintf('Radarr API error: %s', $e->getMessage()),
                 0,
-                $e
+                $e,
             );
         }
     }

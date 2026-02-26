@@ -2,6 +2,7 @@
 
 namespace App\Controller;
 
+use App\Entity\Movie;
 use App\Entity\ScheduledDeletion;
 use App\Entity\ScheduledDeletionItem;
 use App\Entity\User;
@@ -9,6 +10,7 @@ use App\Enum\DeletionStatus;
 use App\Repository\MovieRepository;
 use App\Repository\ScheduledDeletionRepository;
 use App\Security\Voter\DeletionVoter;
+use DateTime;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -22,10 +24,10 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 class ScheduledDeletionController extends AbstractController
 {
     public function __construct(
-        private ScheduledDeletionRepository $deletionRepository,
-        private MovieRepository $movieRepository,
-        private EntityManagerInterface $em,
-        private LoggerInterface $logger,
+        private readonly ScheduledDeletionRepository $deletionRepository,
+        private readonly MovieRepository $movieRepository,
+        private readonly EntityManagerInterface $em,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -46,7 +48,7 @@ class ScheduledDeletionController extends AbstractController
             'status' => $status,
         ]);
 
-        $data = array_map(fn(ScheduledDeletion $d) => $this->serializeForList($d), $result['data']);
+        $data = array_map($this->serializeForList(...), $result['data']);
 
         return $this->json([
             'data' => $data,
@@ -71,7 +73,7 @@ class ScheduledDeletionController extends AbstractController
         if (!$payload) {
             return $this->json(
                 ['error' => ['code' => 400, 'message' => 'Invalid JSON']],
-                Response::HTTP_BAD_REQUEST
+                Response::HTTP_BAD_REQUEST,
             );
         }
 
@@ -82,24 +84,24 @@ class ScheduledDeletionController extends AbstractController
         if (!$scheduledDate) {
             return $this->json(
                 ['error' => ['code' => 422, 'message' => 'Validation failed', 'details' => ['scheduled_date' => 'Required']]],
-                Response::HTTP_UNPROCESSABLE_ENTITY
+                Response::HTTP_UNPROCESSABLE_ENTITY,
             );
         }
 
         if (empty($items)) {
             return $this->json(
                 ['error' => ['code' => 422, 'message' => 'Validation failed', 'details' => ['items' => 'At least one item is required']]],
-                Response::HTTP_UNPROCESSABLE_ENTITY
+                Response::HTTP_UNPROCESSABLE_ENTITY,
             );
         }
 
         // Validate date is in the future
-        $date = new \DateTime($scheduledDate);
-        $today = new \DateTime('today');
+        $date = new DateTime($scheduledDate);
+        $today = new DateTime('today');
         if ($date < $today) {
             return $this->json(
                 ['error' => ['code' => 422, 'message' => 'Validation failed', 'details' => ['scheduled_date' => 'Date must be in the future']]],
-                Response::HTTP_UNPROCESSABLE_ENTITY
+                Response::HTTP_UNPROCESSABLE_ENTITY,
             );
         }
 
@@ -109,10 +111,10 @@ class ScheduledDeletionController extends AbstractController
         $deletion = new ScheduledDeletion();
         $deletion->setCreatedBy($user);
         $deletion->setScheduledDate($date);
-        $deletion->setDeletePhysicalFiles((bool) ($payload['delete_physical_files'] ?? true));
-        $deletion->setDeleteRadarrReference((bool) ($payload['delete_radarr_reference'] ?? false));
-        $deletion->setDeleteMediaPlayerReference((bool) ($payload['delete_media_player_reference'] ?? false));
-        $deletion->setReminderDaysBefore((int) ($payload['reminder_days_before'] ?? 3));
+        $deletion->setDeletePhysicalFiles((bool)($payload['delete_physical_files'] ?? true));
+        $deletion->setDeleteRadarrReference((bool)($payload['delete_radarr_reference'] ?? false));
+        $deletion->setDeleteMediaPlayerReference((bool)($payload['delete_media_player_reference'] ?? false));
+        $deletion->setReminderDaysBefore((int)($payload['reminder_days_before'] ?? 3));
 
         $totalFilesCount = 0;
 
@@ -126,10 +128,10 @@ class ScheduledDeletionController extends AbstractController
             }
 
             $movie = $this->movieRepository->find($movieId);
-            if (!$movie) {
+            if (!$movie instanceof Movie) {
                 return $this->json(
                     ['error' => ['code' => 422, 'message' => "Movie not found: {$movieId}"]],
-                    Response::HTTP_UNPROCESSABLE_ENTITY
+                    Response::HTTP_UNPROCESSABLE_ENTITY,
                 );
             }
 
@@ -145,7 +147,7 @@ class ScheduledDeletionController extends AbstractController
 
         return $this->json([
             'data' => [
-                'id' => (string) $deletion->getId(),
+                'id' => (string)$deletion->getId(),
                 'scheduled_date' => $deletion->getScheduledDate()->format('Y-m-d'),
                 'execution_time' => $deletion->getExecutionTime()->format('H:i:s'),
                 'status' => $deletion->getStatus()->value,
@@ -170,10 +172,10 @@ class ScheduledDeletionController extends AbstractController
     {
         $deletion = $this->deletionRepository->find($id);
 
-        if (!$deletion) {
+        if (!$deletion instanceof ScheduledDeletion) {
             return $this->json(
                 ['error' => ['code' => 404, 'message' => 'Scheduled deletion not found']],
-                Response::HTTP_NOT_FOUND
+                Response::HTTP_NOT_FOUND,
             );
         }
 
@@ -189,10 +191,10 @@ class ScheduledDeletionController extends AbstractController
     {
         $deletion = $this->deletionRepository->find($id);
 
-        if (!$deletion) {
+        if (!$deletion instanceof ScheduledDeletion) {
             return $this->json(
                 ['error' => ['code' => 404, 'message' => 'Scheduled deletion not found']],
-                Response::HTTP_NOT_FOUND
+                Response::HTTP_NOT_FOUND,
             );
         }
 
@@ -200,7 +202,7 @@ class ScheduledDeletionController extends AbstractController
         if (!in_array($deletion->getStatus(), [DeletionStatus::PENDING, DeletionStatus::REMINDER_SENT], true)) {
             return $this->json(
                 ['error' => ['code' => 409, 'message' => 'Cannot modify a deletion with status: ' . $deletion->getStatus()->value]],
-                Response::HTTP_CONFLICT
+                Response::HTTP_CONFLICT,
             );
         }
 
@@ -211,18 +213,18 @@ class ScheduledDeletionController extends AbstractController
         if (!$payload) {
             return $this->json(
                 ['error' => ['code' => 400, 'message' => 'Invalid JSON']],
-                Response::HTTP_BAD_REQUEST
+                Response::HTTP_BAD_REQUEST,
             );
         }
 
         // Update date
         if (isset($payload['scheduled_date'])) {
-            $date = new \DateTime($payload['scheduled_date']);
-            $today = new \DateTime('today');
+            $date = new DateTime($payload['scheduled_date']);
+            $today = new DateTime('today');
             if ($date < $today) {
                 return $this->json(
                     ['error' => ['code' => 422, 'message' => 'Validation failed', 'details' => ['scheduled_date' => 'Date must be in the future']]],
-                    Response::HTTP_UNPROCESSABLE_ENTITY
+                    Response::HTTP_UNPROCESSABLE_ENTITY,
                 );
             }
             $deletion->setScheduledDate($date);
@@ -232,16 +234,16 @@ class ScheduledDeletionController extends AbstractController
 
         // Update options
         if (isset($payload['delete_physical_files'])) {
-            $deletion->setDeletePhysicalFiles((bool) $payload['delete_physical_files']);
+            $deletion->setDeletePhysicalFiles((bool)$payload['delete_physical_files']);
         }
         if (isset($payload['delete_radarr_reference'])) {
-            $deletion->setDeleteRadarrReference((bool) $payload['delete_radarr_reference']);
+            $deletion->setDeleteRadarrReference((bool)$payload['delete_radarr_reference']);
         }
         if (isset($payload['delete_media_player_reference'])) {
-            $deletion->setDeleteMediaPlayerReference((bool) $payload['delete_media_player_reference']);
+            $deletion->setDeleteMediaPlayerReference((bool)$payload['delete_media_player_reference']);
         }
         if (isset($payload['reminder_days_before'])) {
-            $deletion->setReminderDaysBefore((int) $payload['reminder_days_before']);
+            $deletion->setReminderDaysBefore((int)$payload['reminder_days_before']);
         }
 
         // Update items if provided
@@ -261,10 +263,10 @@ class ScheduledDeletionController extends AbstractController
                 }
 
                 $movie = $this->movieRepository->find($movieId);
-                if (!$movie) {
+                if (!$movie instanceof Movie) {
                     return $this->json(
                         ['error' => ['code' => 422, 'message' => "Movie not found: {$movieId}"]],
-                        Response::HTTP_UNPROCESSABLE_ENTITY
+                        Response::HTTP_UNPROCESSABLE_ENTITY,
                     );
                 }
 
@@ -289,10 +291,10 @@ class ScheduledDeletionController extends AbstractController
     {
         $deletion = $this->deletionRepository->find($id);
 
-        if (!$deletion) {
+        if (!$deletion instanceof ScheduledDeletion) {
             return $this->json(
                 ['error' => ['code' => 404, 'message' => 'Scheduled deletion not found']],
-                Response::HTTP_NOT_FOUND
+                Response::HTTP_NOT_FOUND,
             );
         }
 
@@ -300,7 +302,7 @@ class ScheduledDeletionController extends AbstractController
         if (!in_array($deletion->getStatus(), [DeletionStatus::PENDING, DeletionStatus::REMINDER_SENT], true)) {
             return $this->json(
                 ['error' => ['code' => 409, 'message' => 'Cannot cancel a deletion with status: ' . $deletion->getStatus()->value]],
-                Response::HTTP_CONFLICT
+                Response::HTTP_CONFLICT,
             );
         }
 
@@ -311,7 +313,7 @@ class ScheduledDeletionController extends AbstractController
         $this->em->flush();
 
         return $this->json([
-            'data' => ['message' => 'Scheduled deletion cancelled', 'id' => (string) $deletion->getId()],
+            'data' => ['message' => 'Scheduled deletion cancelled', 'id' => (string)$deletion->getId()],
         ]);
     }
 
@@ -328,7 +330,7 @@ class ScheduledDeletionController extends AbstractController
         }
 
         return [
-            'id' => (string) $deletion->getId(),
+            'id' => (string)$deletion->getId(),
             'scheduled_date' => $deletion->getScheduledDate()?->format('Y-m-d'),
             'execution_time' => $deletion->getExecutionTime()->format('H:i:s'),
             'status' => $deletion->getStatus()->value,
@@ -358,9 +360,9 @@ class ScheduledDeletionController extends AbstractController
             $totalFiles += count($item->getMediaFileIds());
 
             $items[] = [
-                'id' => (string) $item->getId(),
+                'id' => (string)$item->getId(),
                 'movie' => $movie !== null ? [
-                    'id' => (string) $movie->getId(),
+                    'id' => (string)$movie->getId(),
                     'title' => $movie->getTitle(),
                     'year' => $movie->getYear(),
                     'poster_url' => $movie->getPosterUrl(),
@@ -372,7 +374,7 @@ class ScheduledDeletionController extends AbstractController
         }
 
         return [
-            'id' => (string) $deletion->getId(),
+            'id' => (string)$deletion->getId(),
             'scheduled_date' => $deletion->getScheduledDate()?->format('Y-m-d'),
             'execution_time' => $deletion->getExecutionTime()->format('H:i:s'),
             'status' => $deletion->getStatus()->value,
@@ -387,7 +389,7 @@ class ScheduledDeletionController extends AbstractController
             'total_files_count' => $totalFiles,
             'items' => $items,
             'created_by' => [
-                'id' => (string) $deletion->getCreatedBy()?->getId(),
+                'id' => (string)$deletion->getCreatedBy()?->getId(),
                 'username' => $deletion->getCreatedBy()?->getUsername(),
             ],
             'created_at' => $deletion->getCreatedAt()->format('c'),

@@ -7,9 +7,12 @@ use App\Entity\MediaFile;
 use App\Entity\Volume;
 use App\Repository\MediaFileRepository;
 use App\Repository\VolumeRepository;
+use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\Uid\Uuid;
+use Throwable;
 
 /**
  * Processes incoming WebSocket messages from the watcher.
@@ -26,18 +29,19 @@ class WatcherMessageProcessor
     private array $activeScans = [];
 
     /** Batch size for scan.file — flush every N files */
-    private const SCAN_BATCH_SIZE = 50;
+    private const int SCAN_BATCH_SIZE = 50;
 
     /** @var array<string, int> Counter of files processed per scan since last flush */
     private array $scanBatchCounters = [];
 
     public function __construct(
         private EntityManagerInterface $em,
-        private ManagerRegistry $managerRegistry,
-        private VolumeRepository $volumeRepository,
-        private MediaFileRepository $mediaFileRepository,
-        private LoggerInterface $logger,
-    ) {}
+        private readonly ManagerRegistry $managerRegistry,
+        private readonly VolumeRepository $volumeRepository,
+        private readonly MediaFileRepository $mediaFileRepository,
+        private readonly LoggerInterface $logger,
+    ) {
+    }
 
     /**
      * Process a decoded message from the watcher.
@@ -71,7 +75,7 @@ class WatcherMessageProcessor
                 'watcher.status' => $this->handleWatcherStatus($data),
                 default => $this->logger->warning('Unknown message type', ['type' => $type]),
             };
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->error('Error processing message', [
                 'type' => $type,
                 'error' => $e->getMessage(),
@@ -94,21 +98,23 @@ class WatcherMessageProcessor
         }
 
         $volume = $this->resolveVolume($path);
-        if (!$volume) {
+        if (!$volume instanceof Volume) {
             $this->logger->warning('No volume found for path', ['path' => $path]);
+
             return;
         }
 
         $relativePath = $this->getRelativePath($path, $volume);
         $existing = $this->mediaFileRepository->findByVolumeAndFilePath($volume, $relativePath);
 
-        if ($existing) {
+        if ($existing instanceof MediaFile) {
             // Update existing file (might have been re-created)
-            $existing->setFileSizeBytes((int) ($data['size_bytes'] ?? 0));
-            $existing->setHardlinkCount((int) ($data['hardlink_count'] ?? 1));
-            $existing->setFileName($data['name'] ?? basename($path));
+            $existing->setFileSizeBytes((int)($data['size_bytes'] ?? 0));
+            $existing->setHardlinkCount((int)($data['hardlink_count'] ?? 1));
+            $existing->setFileName($data['name'] ?? basename((string)$path));
             $this->em->flush();
             $this->logger->info('File updated (re-created)', ['path' => $relativePath, 'volume' => $volume->getName()]);
+
             return;
         }
 
@@ -131,16 +137,18 @@ class WatcherMessageProcessor
         }
 
         $volume = $this->resolveVolume($path);
-        if (!$volume) {
+        if (!$volume instanceof Volume) {
             $this->logger->warning('No volume found for path', ['path' => $path]);
+
             return;
         }
 
         $relativePath = $this->getRelativePath($path, $volume);
         $mediaFile = $this->mediaFileRepository->findByVolumeAndFilePath($volume, $relativePath);
 
-        if (!$mediaFile) {
+        if (!$mediaFile instanceof MediaFile) {
             $this->logger->debug('File not found in DB for deletion', ['path' => $relativePath]);
+
             return;
         }
 
@@ -172,11 +180,12 @@ class WatcherMessageProcessor
 
         if (!$oldVolume && !$newVolume) {
             $this->logger->warning('No volume found for rename', ['old' => $oldPath, 'new' => $newPath]);
+
             return;
         }
 
-        $oldRelativePath = $oldVolume ? $this->getRelativePath($oldPath, $oldVolume) : null;
-        $newRelativePath = $newVolume ? $this->getRelativePath($newPath, $newVolume) : null;
+        $oldRelativePath = $oldVolume instanceof Volume ? $this->getRelativePath($oldPath, $oldVolume) : null;
+        $newRelativePath = $newVolume instanceof Volume ? $this->getRelativePath($newPath, $newVolume) : null;
 
         // Find the old file
         $mediaFile = null;
@@ -188,9 +197,9 @@ class WatcherMessageProcessor
             // Update existing file with new path
             $mediaFile->setVolume($newVolume);
             $mediaFile->setFilePath($newRelativePath);
-            $mediaFile->setFileName($data['name'] ?? basename($newPath));
-            $mediaFile->setFileSizeBytes((int) ($data['size_bytes'] ?? $mediaFile->getFileSizeBytes()));
-            $mediaFile->setHardlinkCount((int) ($data['hardlink_count'] ?? $mediaFile->getHardlinkCount()));
+            $mediaFile->setFileName($data['name'] ?? basename((string)$newPath));
+            $mediaFile->setFileSizeBytes((int)($data['size_bytes'] ?? $mediaFile->getFileSizeBytes()));
+            $mediaFile->setHardlinkCount((int)($data['hardlink_count'] ?? $mediaFile->getHardlinkCount()));
             $this->em->flush();
 
             $this->logger->info('File renamed', ['old' => $oldRelativePath, 'new' => $newRelativePath]);
@@ -218,21 +227,22 @@ class WatcherMessageProcessor
         }
 
         $volume = $this->resolveVolume($path);
-        if (!$volume) {
+        if (!$volume instanceof Volume) {
             return;
         }
 
         $relativePath = $this->getRelativePath($path, $volume);
         $mediaFile = $this->mediaFileRepository->findByVolumeAndFilePath($volume, $relativePath);
 
-        if (!$mediaFile) {
+        if (!$mediaFile instanceof MediaFile) {
             // File not in DB yet — treat as created
             $this->handleFileCreated($data);
+
             return;
         }
 
-        $mediaFile->setFileSizeBytes((int) ($data['size_bytes'] ?? $mediaFile->getFileSizeBytes()));
-        $mediaFile->setHardlinkCount((int) ($data['hardlink_count'] ?? $mediaFile->getHardlinkCount()));
+        $mediaFile->setFileSizeBytes((int)($data['size_bytes'] ?? $mediaFile->getFileSizeBytes()));
+        $mediaFile->setHardlinkCount((int)($data['hardlink_count'] ?? $mediaFile->getHardlinkCount()));
         $this->em->flush();
 
         $this->logger->info('File modified', ['path' => $relativePath, 'size' => $data['size_bytes'] ?? 0]);
@@ -249,12 +259,14 @@ class WatcherMessageProcessor
 
         if (!$scanId || !$path) {
             $this->logger->warning('Scan started with missing data', $data);
+
             return;
         }
 
         $volume = $this->resolveVolume($path);
-        if (!$volume) {
+        if (!$volume instanceof Volume) {
             $this->logger->warning('No volume found for scan path', ['path' => $path]);
+
             return;
         }
 
@@ -286,6 +298,7 @@ class WatcherMessageProcessor
         if (!$scanId || !isset($this->activeScans[$scanId])) {
             // No active scan context — treat as a standalone file creation
             $this->handleFileCreated($data);
+
             return;
         }
 
@@ -303,17 +316,17 @@ class WatcherMessageProcessor
         // Upsert: find existing or create new
         $mediaFile = $this->mediaFileRepository->findByVolumeAndFilePath($volume, $relativePath);
 
-        if ($mediaFile) {
-            $mediaFile->setFileSizeBytes((int) ($data['size_bytes'] ?? $mediaFile->getFileSizeBytes()));
-            $mediaFile->setHardlinkCount((int) ($data['hardlink_count'] ?? $mediaFile->getHardlinkCount()));
-            $mediaFile->setFileName($data['name'] ?? basename($path));
+        if ($mediaFile instanceof MediaFile) {
+            $mediaFile->setFileSizeBytes((int)($data['size_bytes'] ?? $mediaFile->getFileSizeBytes()));
+            $mediaFile->setHardlinkCount((int)($data['hardlink_count'] ?? $mediaFile->getHardlinkCount()));
+            $mediaFile->setFileName($data['name'] ?? basename((string)$path));
         } else {
             $mediaFile = $this->createMediaFile($volume, $relativePath, $data);
             $this->em->persist($mediaFile);
         }
 
         // Batch flush for performance
-        $this->scanBatchCounters[$scanId]++;
+        ++$this->scanBatchCounters[$scanId];
         if ($this->scanBatchCounters[$scanId] >= self::SCAN_BATCH_SIZE) {
             $this->em->flush();
             $this->em->clear();
@@ -326,13 +339,13 @@ class WatcherMessageProcessor
     private function handleScanCompleted(array $data): void
     {
         $scanId = $data['scan_id'] ?? null;
-        $path = $data['path'] ?? null;
 
         // Final flush of any remaining batch
         $this->em->flush();
 
         if (!$scanId || !isset($this->activeScans[$scanId])) {
             $this->logger->warning('Scan completed for unknown scan_id', ['scan_id' => $scanId]);
+
             return;
         }
 
@@ -344,7 +357,7 @@ class WatcherMessageProcessor
         $stalePaths = array_diff($allDbPaths, array_keys($seenPaths));
 
         $removedCount = 0;
-        if (!empty($stalePaths)) {
+        if ($stalePaths !== []) {
             $removedCount = $this->mediaFileRepository->deleteByVolumeAndFilePaths($volume, $stalePaths);
             $this->logger->info('Scan cleanup: removed stale files', [
                 'volume' => $volume->getName(),
@@ -353,9 +366,9 @@ class WatcherMessageProcessor
         }
 
         // Update volume metadata
-        $volume->setLastScanAt(new \DateTimeImmutable());
+        $volume->setLastScanAt(new DateTimeImmutable());
         if (isset($data['total_size_bytes'])) {
-            $volume->setUsedSpaceBytes((int) $data['total_size_bytes']);
+            $volume->setUsedSpaceBytes((int)$data['total_size_bytes']);
         }
         $this->em->flush();
 
@@ -417,8 +430,9 @@ class WatcherMessageProcessor
      */
     private function getRelativePath(string $absolutePath, Volume $volume): string
     {
-        $hostPath = rtrim($volume->getHostPath(), '/');
+        $hostPath = rtrim((string)$volume->getHostPath(), '/');
         $relative = substr($absolutePath, strlen($hostPath));
+
         return ltrim($relative, '/');
     }
 
@@ -431,8 +445,8 @@ class WatcherMessageProcessor
         $mediaFile->setVolume($volume);
         $mediaFile->setFilePath($relativePath);
         $mediaFile->setFileName($data['name'] ?? basename($relativePath));
-        $mediaFile->setFileSizeBytes((int) ($data['size_bytes'] ?? 0));
-        $mediaFile->setHardlinkCount((int) ($data['hardlink_count'] ?? 1));
+        $mediaFile->setFileSizeBytes((int)($data['size_bytes'] ?? 0));
+        $mediaFile->setHardlinkCount((int)($data['hardlink_count'] ?? 1));
 
         return $mediaFile;
     }
@@ -440,7 +454,7 @@ class WatcherMessageProcessor
     /**
      * Log an activity (without a user, since it comes from the watcher).
      */
-    private function logActivity(string $action, string $entityType, ?\Symfony\Component\Uid\Uuid $entityId, array $details): void
+    private function logActivity(string $action, string $entityType, ?Uuid $entityId, array $details): void
     {
         $log = new ActivityLog();
         $log->setAction($action);

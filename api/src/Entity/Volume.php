@@ -5,6 +5,7 @@ namespace App\Entity;
 use App\Enum\VolumeStatus;
 use App\Enum\VolumeType;
 use App\Repository\VolumeRepository;
+use DateTimeImmutable;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
@@ -48,13 +49,13 @@ class Volume
     private ?int $usedSpaceBytes = null;
 
     #[ORM\Column(nullable: true)]
-    private ?\DateTimeImmutable $lastScanAt = null;
+    private ?DateTimeImmutable $lastScanAt = null;
 
     #[ORM\Column]
-    private \DateTimeImmutable $createdAt;
+    private DateTimeImmutable $createdAt;
 
     #[ORM\Column]
-    private \DateTimeImmutable $updatedAt;
+    private DateTimeImmutable $updatedAt;
 
     /** @var Collection<int, MediaFile> */
     #[ORM\OneToMany(targetEntity: MediaFile::class, mappedBy: 'volume', cascade: ['remove'])]
@@ -62,8 +63,8 @@ class Volume
 
     public function __construct()
     {
-        $this->createdAt = new \DateTimeImmutable();
-        $this->updatedAt = new \DateTimeImmutable();
+        $this->createdAt = new DateTimeImmutable();
+        $this->updatedAt = new DateTimeImmutable();
         $this->mediaFiles = new ArrayCollection();
     }
 
@@ -80,6 +81,7 @@ class Volume
     public function setName(string $name): static
     {
         $this->name = $name;
+
         return $this;
     }
 
@@ -91,6 +93,7 @@ class Volume
     public function setPath(string $path): static
     {
         $this->path = $path;
+
         return $this;
     }
 
@@ -102,6 +105,7 @@ class Volume
     public function setHostPath(string $hostPath): static
     {
         $this->hostPath = $hostPath;
+
         return $this;
     }
 
@@ -113,6 +117,7 @@ class Volume
     public function setType(VolumeType $type): static
     {
         $this->type = $type;
+
         return $this;
     }
 
@@ -124,6 +129,7 @@ class Volume
     public function setStatus(VolumeStatus $status): static
     {
         $this->status = $status;
+
         return $this;
     }
 
@@ -135,6 +141,7 @@ class Volume
     public function setTotalSpaceBytes(?int $totalSpaceBytes): static
     {
         $this->totalSpaceBytes = $totalSpaceBytes;
+
         return $this;
     }
 
@@ -146,26 +153,28 @@ class Volume
     public function setUsedSpaceBytes(?int $usedSpaceBytes): static
     {
         $this->usedSpaceBytes = $usedSpaceBytes;
+
         return $this;
     }
 
-    public function getLastScanAt(): ?\DateTimeImmutable
+    public function getLastScanAt(): ?DateTimeImmutable
     {
         return $this->lastScanAt;
     }
 
-    public function setLastScanAt(?\DateTimeImmutable $lastScanAt): static
+    public function setLastScanAt(?DateTimeImmutable $lastScanAt): static
     {
         $this->lastScanAt = $lastScanAt;
+
         return $this;
     }
 
-    public function getCreatedAt(): \DateTimeImmutable
+    public function getCreatedAt(): DateTimeImmutable
     {
         return $this->createdAt;
     }
 
-    public function getUpdatedAt(): \DateTimeImmutable
+    public function getUpdatedAt(): DateTimeImmutable
     {
         return $this->updatedAt;
     }
@@ -173,7 +182,7 @@ class Volume
     #[ORM\PreUpdate]
     public function setUpdatedAtValue(): void
     {
-        $this->updatedAt = new \DateTimeImmutable();
+        $this->updatedAt = new DateTimeImmutable();
     }
 
     /** @return Collection<int, MediaFile> */

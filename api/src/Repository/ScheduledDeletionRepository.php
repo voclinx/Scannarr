@@ -4,6 +4,7 @@ namespace App\Repository;
 
 use App\Entity\ScheduledDeletion;
 use App\Enum\DeletionStatus;
+use DateTime;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -21,6 +22,7 @@ class ScheduledDeletionRepository extends ServiceEntityRepository
      * Find scheduled deletions with filters and pagination.
      *
      * @param array{page?: int, limit?: int, status?: string|null} $filters
+     *
      * @return array{data: ScheduledDeletion[], total: int, page: int, limit: int, total_pages: int}
      */
     public function findWithFilters(array $filters): array
@@ -58,7 +60,7 @@ class ScheduledDeletionRepository extends ServiceEntityRepository
             }
         }
 
-        $total = (int) $countQb->getQuery()->getSingleScalarResult();
+        $total = (int)$countQb->getQuery()->getSingleScalarResult();
 
         $offset = ($page - 1) * $limit;
         $qb->setFirstResult($offset)->setMaxResults($limit);
@@ -68,7 +70,7 @@ class ScheduledDeletionRepository extends ServiceEntityRepository
             'total' => $total,
             'page' => $page,
             'limit' => $limit,
-            'total_pages' => (int) ceil($total / $limit),
+            'total_pages' => (int)ceil($total / $limit),
         ];
     }
 
@@ -79,7 +81,7 @@ class ScheduledDeletionRepository extends ServiceEntityRepository
      */
     public function findDueForExecution(): array
     {
-        $today = new \DateTime('today');
+        $today = new DateTime('today');
 
         return $this->createQueryBuilder('d')
             ->leftJoin('d.items', 'i')
@@ -101,7 +103,7 @@ class ScheduledDeletionRepository extends ServiceEntityRepository
      */
     public function findNeedingReminder(): array
     {
-        $today = new \DateTime('today');
+        new DateTime('today');
 
         return $this->createQueryBuilder('d')
             ->leftJoin('d.items', 'i')

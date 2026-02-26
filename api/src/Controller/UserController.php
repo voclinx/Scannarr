@@ -17,23 +17,24 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 class UserController extends AbstractController
 {
     public function __construct(
-        private EntityManagerInterface $em,
-        private UserRepository $userRepository,
-        private UserPasswordHasherInterface $passwordHasher,
-        private ValidatorInterface $validator,
-    ) {}
+        private readonly EntityManagerInterface $em,
+        private readonly UserRepository $userRepository,
+        private readonly UserPasswordHasherInterface $passwordHasher,
+        private readonly ValidatorInterface $validator,
+    ) {
+    }
 
     #[Route('', methods: ['GET'])]
     public function index(Request $request): JsonResponse
     {
-        $page = max(1, (int) $request->query->get('page', 1));
-        $limit = min(100, max(1, (int) $request->query->get('limit', 25)));
+        $page = max(1, (int)$request->query->get('page', 1));
+        $limit = min(100, max(1, (int)$request->query->get('limit', 25)));
         $offset = ($page - 1) * $limit;
 
         $total = $this->userRepository->count([]);
         $users = $this->userRepository->findBy([], ['createdAt' => 'DESC'], $limit, $offset);
 
-        $data = array_map(fn(User $user) => $this->serializeUser($user), $users);
+        $data = array_map($this->serializeUser(...), $users);
 
         return $this->json([
             'data' => $data,
@@ -41,7 +42,7 @@ class UserController extends AbstractController
                 'total' => $total,
                 'page' => $page,
                 'limit' => $limit,
-                'total_pages' => (int) ceil($total / $limit),
+                'total_pages' => (int)ceil($total / $limit),
             ],
         ]);
     }
@@ -67,13 +68,14 @@ class UserController extends AbstractController
             foreach ($errors as $error) {
                 $details[$error->getPropertyPath()] = $error->getMessage();
             }
+
             return $this->json([
                 'error' => ['code' => 422, 'message' => 'Validation failed', 'details' => $details],
             ], 422);
         }
 
         $password = $data['password'] ?? '';
-        if (strlen($password) < 8) {
+        if (strlen((string)$password) < 8) {
             return $this->json([
                 'error' => ['code' => 422, 'message' => 'Validation failed', 'details' => ['password' => 'Password must be at least 8 characters']],
             ], 422);
@@ -107,7 +109,7 @@ class UserController extends AbstractController
     public function update(string $id, Request $request): JsonResponse
     {
         $user = $this->userRepository->find($id);
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json([
                 'error' => ['code' => 404, 'message' => 'User not found'],
             ], 404);
@@ -136,10 +138,10 @@ class UserController extends AbstractController
             $user->setRole($data['role']);
         }
         if (isset($data['is_active'])) {
-            $user->setIsActive((bool) $data['is_active']);
+            $user->setIsActive((bool)$data['is_active']);
         }
         if (isset($data['password'])) {
-            if (strlen($data['password']) < 8) {
+            if (strlen((string)$data['password']) < 8) {
                 return $this->json([
                     'error' => ['code' => 422, 'message' => 'Validation failed', 'details' => ['password' => 'Password must be at least 8 characters']],
                 ], 422);
@@ -153,6 +155,7 @@ class UserController extends AbstractController
             foreach ($errors as $error) {
                 $details[$error->getPropertyPath()] = $error->getMessage();
             }
+
             return $this->json([
                 'error' => ['code' => 422, 'message' => 'Validation failed', 'details' => $details],
             ], 422);
@@ -175,7 +178,7 @@ class UserController extends AbstractController
     public function delete(string $id): JsonResponse
     {
         $user = $this->userRepository->find($id);
-        if (!$user) {
+        if (!$user instanceof User) {
             return $this->json([
                 'error' => ['code' => 404, 'message' => 'User not found'],
             ], 404);
@@ -198,7 +201,7 @@ class UserController extends AbstractController
     private function serializeUser(User $user): array
     {
         return [
-            'id' => (string) $user->getId(),
+            'id' => (string)$user->getId(),
             'email' => $user->getEmail(),
             'username' => $user->getUsername(),
             'role' => $user->getRole(),

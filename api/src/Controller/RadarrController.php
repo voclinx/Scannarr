@@ -6,6 +6,7 @@ use App\Entity\RadarrInstance;
 use App\Repository\RadarrInstanceRepository;
 use App\Service\RadarrService;
 use Doctrine\ORM\EntityManagerInterface;
+use Exception;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -19,10 +20,10 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 class RadarrController extends AbstractController
 {
     public function __construct(
-        private RadarrInstanceRepository $radarrRepository,
-        private EntityManagerInterface $em,
-        private ValidatorInterface $validator,
-        private RadarrService $radarrService,
+        private readonly RadarrInstanceRepository $radarrRepository,
+        private readonly EntityManagerInterface $em,
+        private readonly ValidatorInterface $validator,
+        private readonly RadarrService $radarrService,
     ) {
     }
 
@@ -31,7 +32,7 @@ class RadarrController extends AbstractController
     {
         $instances = $this->radarrRepository->findAll();
 
-        $data = array_map(fn(RadarrInstance $i) => $this->serialize($i), $instances);
+        $data = array_map($this->serialize(...), $instances);
 
         return $this->json([
             'data' => $data,
@@ -54,7 +55,7 @@ class RadarrController extends AbstractController
         $instance->setApiKey($payload['api_key'] ?? '');
 
         if (isset($payload['is_active'])) {
-            $instance->setIsActive((bool) $payload['is_active']);
+            $instance->setIsActive((bool)$payload['is_active']);
         }
 
         $errors = $this->validator->validate($instance);
@@ -63,6 +64,7 @@ class RadarrController extends AbstractController
             foreach ($errors as $error) {
                 $details[$error->getPropertyPath()] = $error->getMessage();
             }
+
             return $this->json([
                 'error' => ['code' => 422, 'message' => 'Validation failed', 'details' => $details],
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -79,7 +81,7 @@ class RadarrController extends AbstractController
     {
         $instance = $this->radarrRepository->find($id);
 
-        if (!$instance) {
+        if (!$instance instanceof RadarrInstance) {
             return $this->json(['error' => ['code' => 404, 'message' => 'Radarr instance not found']], Response::HTTP_NOT_FOUND);
         }
 
@@ -99,7 +101,7 @@ class RadarrController extends AbstractController
             $instance->setApiKey($payload['api_key']);
         }
         if (isset($payload['is_active'])) {
-            $instance->setIsActive((bool) $payload['is_active']);
+            $instance->setIsActive((bool)$payload['is_active']);
         }
 
         $errors = $this->validator->validate($instance);
@@ -108,6 +110,7 @@ class RadarrController extends AbstractController
             foreach ($errors as $error) {
                 $details[$error->getPropertyPath()] = $error->getMessage();
             }
+
             return $this->json([
                 'error' => ['code' => 422, 'message' => 'Validation failed', 'details' => $details],
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -123,7 +126,7 @@ class RadarrController extends AbstractController
     {
         $instance = $this->radarrRepository->find($id);
 
-        if (!$instance) {
+        if (!$instance instanceof RadarrInstance) {
             return $this->json(['error' => ['code' => 404, 'message' => 'Radarr instance not found']], Response::HTTP_NOT_FOUND);
         }
 
@@ -138,7 +141,7 @@ class RadarrController extends AbstractController
     {
         $instance = $this->radarrRepository->find($id);
 
-        if (!$instance) {
+        if (!$instance instanceof RadarrInstance) {
             return $this->json(['error' => ['code' => 404, 'message' => 'Radarr instance not found']], Response::HTTP_NOT_FOUND);
         }
 
@@ -161,7 +164,7 @@ class RadarrController extends AbstractController
     {
         $instance = $this->radarrRepository->find($id);
 
-        if (!$instance) {
+        if (!$instance instanceof RadarrInstance) {
             return $this->json(['error' => ['code' => 404, 'message' => 'Radarr instance not found']], Response::HTTP_NOT_FOUND);
         }
 
@@ -173,7 +176,7 @@ class RadarrController extends AbstractController
             $this->em->flush();
 
             return $this->json(['data' => $folders]);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return $this->json([
                 'error' => ['code' => 400, 'message' => sprintf('Failed to get root folders: %s', $e->getMessage())],
             ], Response::HTTP_BAD_REQUEST);
@@ -188,7 +191,7 @@ class RadarrController extends AbstractController
     private function serialize(RadarrInstance $instance): array
     {
         return [
-            'id' => (string) $instance->getId(),
+            'id' => (string)$instance->getId(),
             'name' => $instance->getName(),
             'url' => $instance->getUrl(),
             'api_key' => $instance->getApiKey() ? ('••••' . substr($instance->getApiKey(), -4)) : null,

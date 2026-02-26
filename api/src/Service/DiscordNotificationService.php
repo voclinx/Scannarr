@@ -5,20 +5,23 @@ namespace App\Service;
 use App\Entity\ScheduledDeletion;
 use App\Repository\MediaFileRepository;
 use App\Repository\SettingRepository;
+use DateTimeImmutable;
+use DateTimeInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Throwable;
 
 class DiscordNotificationService
 {
-    private const COLOR_WARNING = 16744448;  // Orange
-    private const COLOR_SUCCESS = 3066993;   // Green
-    private const COLOR_ERROR = 15158332;    // Red
+    private const int COLOR_WARNING = 16744448;  // Orange
+    private const int COLOR_SUCCESS = 3066993;   // Green
+    private const int COLOR_ERROR = 15158332;    // Red
 
     public function __construct(
-        private HttpClientInterface $httpClient,
-        private SettingRepository $settingRepository,
-        private MediaFileRepository $mediaFileRepository,
-        private LoggerInterface $logger,
+        private readonly HttpClientInterface $httpClient,
+        private readonly SettingRepository $settingRepository,
+        private readonly MediaFileRepository $mediaFileRepository,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -30,6 +33,7 @@ class DiscordNotificationService
         $webhookUrl = $this->getWebhookUrl();
         if ($webhookUrl === null) {
             $this->logger->info('Discord webhook URL not configured, skipping reminder');
+
             return false;
         }
 
@@ -55,7 +59,7 @@ class DiscordNotificationService
 
         $scheduledDate = $deletion->getScheduledDate();
         $executionTime = $deletion->getExecutionTime();
-        $dateStr = $scheduledDate !== null ? $scheduledDate->format('d/m/Y') : '??';
+        $dateStr = $scheduledDate instanceof DateTimeInterface ? $scheduledDate->format('d/m/Y') : '??';
         $timeStr = $executionTime->format('H:i');
         $createdBy = $deletion->getCreatedBy()?->getUsername() ?? 'Unknown';
 
@@ -68,7 +72,7 @@ class DiscordNotificationService
                 $items->count() > 1 ? 'seront' : 'sera',
                 $items->count() > 1 ? 's' : '',
                 $dateStr,
-                $timeStr
+                $timeStr,
             ),
             'color' => self::COLOR_WARNING,
             'fields' => [
@@ -89,7 +93,7 @@ class DiscordNotificationService
                 ],
             ],
             'footer' => ['text' => 'Scanarr — Annulez via l\'interface si besoin'],
-            'timestamp' => (new \DateTimeImmutable())->format('c'),
+            'timestamp' => (new DateTimeImmutable())->format('c'),
         ];
 
         return $this->sendEmbed($webhookUrl, $embed);
@@ -116,11 +120,7 @@ class DiscordNotificationService
             $year = $itemReport['year'] ?? null;
             $label = $title . ($year !== null ? " ({$year})" : '');
 
-            if (empty($itemReport['errors'])) {
-                $movieLines[] = "• {$label} ✅";
-            } else {
-                $movieLines[] = "• {$label} ❌";
-            }
+            $movieLines[] = empty($itemReport['errors']) ? "• {$label} ✅" : "• {$label} ❌";
 
             $totalSpaceFreed += $itemReport['space_freed_bytes'] ?? 0;
         }
@@ -132,7 +132,7 @@ class DiscordNotificationService
                 count($items),
                 count($items) > 1 ? 's' : '',
                 count($items) > 1 ? 'ont' : 'a',
-                count($items) > 1 ? 's' : ''
+                count($items) > 1 ? 's' : '',
             ),
             'color' => self::COLOR_SUCCESS,
             'fields' => [
@@ -153,7 +153,7 @@ class DiscordNotificationService
                 ],
             ],
             'footer' => ['text' => 'Scanarr'],
-            'timestamp' => (new \DateTimeImmutable())->format('c'),
+            'timestamp' => (new DateTimeImmutable())->format('c'),
         ];
 
         return $this->sendEmbed($webhookUrl, $embed);
@@ -189,11 +189,11 @@ class DiscordNotificationService
         }
 
         $scheduledDate = $deletion->getScheduledDate();
-        $dateStr = $scheduledDate !== null ? $scheduledDate->format('d/m/Y') : '??';
+        $dateStr = $scheduledDate instanceof DateTimeInterface ? $scheduledDate->format('d/m/Y') : '??';
 
         $fields = [];
 
-        if (!empty($successLines)) {
+        if ($successLines !== []) {
             $fields[] = [
                 'name' => 'Succès',
                 'value' => implode("\n", array_slice($successLines, 0, 15)),
@@ -201,7 +201,7 @@ class DiscordNotificationService
             ];
         }
 
-        if (!empty($failedLines)) {
+        if ($failedLines !== []) {
             $fields[] = [
                 'name' => 'Échecs',
                 'value' => implode("\n", array_slice($failedLines, 0, 15)),
@@ -213,12 +213,12 @@ class DiscordNotificationService
             'title' => '❌ Suppression — Erreurs détectées',
             'description' => sprintf(
                 'La suppression planifiée du **%s** a rencontré des erreurs.',
-                $dateStr
+                $dateStr,
             ),
             'color' => self::COLOR_ERROR,
             'fields' => $fields,
             'footer' => ['text' => 'Scanarr — Vérifiez les permissions de fichiers'],
-            'timestamp' => (new \DateTimeImmutable())->format('c'),
+            'timestamp' => (new DateTimeImmutable())->format('c'),
         ];
 
         return $this->sendEmbed($webhookUrl, $embed);
@@ -241,6 +241,7 @@ class DiscordNotificationService
 
             if ($statusCode >= 200 && $statusCode < 300) {
                 $this->logger->info('Discord notification sent successfully');
+
                 return true;
             }
 
@@ -250,7 +251,7 @@ class DiscordNotificationService
             ]);
 
             return false;
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->error('Failed to send Discord notification', [
                 'error' => $e->getMessage(),
             ]);
@@ -265,7 +266,8 @@ class DiscordNotificationService
     private function getWebhookUrl(): ?string
     {
         $url = $this->settingRepository->getValue('discord_webhook_url');
-        return !empty($url) ? $url : null;
+
+        return in_array($url, [null, '', '0'], true) ? null : $url;
     }
 
     /**
@@ -279,8 +281,8 @@ class DiscordNotificationService
 
         $units = ['B', 'KB', 'MB', 'GB', 'TB'];
         $k = 1024;
-        $i = (int) floor(log($bytes) / log($k));
+        $i = (int)floor(log($bytes) / log($k));
 
-        return round($bytes / pow($k, $i), $i > 1 ? 1 : 0) . ' ' . $units[$i];
+        return round($bytes / $k ** $i, $i > 1 ? 1 : 0) . ' ' . $units[$i];
     }
 }

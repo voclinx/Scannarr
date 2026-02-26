@@ -3,15 +3,17 @@
 namespace App\Service;
 
 use App\Entity\MediaPlayerInstance;
+use Exception;
 use Psr\Log\LoggerInterface;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
+use RuntimeException;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class PlexService
 {
     public function __construct(
-        private HttpClientInterface $httpClient,
-        private LoggerInterface $logger,
+        private readonly HttpClientInterface $httpClient,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -32,7 +34,7 @@ class PlexService
                 'name' => $container['friendlyName'] ?? 'Unknown',
                 'version' => $container['version'] ?? 'unknown',
             ];
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [
                 'success' => false,
                 'error' => $e->getMessage(),
@@ -50,7 +52,7 @@ class PlexService
         $data = $this->request($instance, 'GET', '/library/sections');
         $directories = $data['MediaContainer']['Directory'] ?? [];
 
-        return array_map(fn(array $d) => [
+        return array_map(fn (array $d): array => [
             'key' => $d['key'] ?? '',
             'title' => $d['title'] ?? '',
             'type' => $d['type'] ?? '',
@@ -73,7 +75,8 @@ class PlexService
      * Make a request to the Plex API.
      *
      * @return array<string, mixed>
-     * @throws \RuntimeException
+     *
+     * @throws RuntimeException
      */
     private function request(MediaPlayerInstance $instance, string $method, string $endpoint): array
     {
@@ -96,10 +99,10 @@ class PlexService
                 'error' => $e->getMessage(),
             ]);
 
-            throw new \RuntimeException(
+            throw new RuntimeException(
                 sprintf('Plex API error: %s', $e->getMessage()),
                 0,
-                $e
+                $e,
             );
         }
     }

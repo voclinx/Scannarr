@@ -20,11 +20,11 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 class MediaPlayerController extends AbstractController
 {
     public function __construct(
-        private MediaPlayerInstanceRepository $playerRepository,
-        private EntityManagerInterface $em,
-        private ValidatorInterface $validator,
-        private PlexService $plexService,
-        private JellyfinService $jellyfinService,
+        private readonly MediaPlayerInstanceRepository $playerRepository,
+        private readonly EntityManagerInterface $em,
+        private readonly ValidatorInterface $validator,
+        private readonly PlexService $plexService,
+        private readonly JellyfinService $jellyfinService,
     ) {
     }
 
@@ -33,7 +33,7 @@ class MediaPlayerController extends AbstractController
     {
         $instances = $this->playerRepository->findAll();
 
-        $data = array_map(fn(MediaPlayerInstance $i) => $this->serialize($i), $instances);
+        $data = array_map($this->serialize(...), $instances);
 
         return $this->json([
             'data' => $data,
@@ -57,7 +57,7 @@ class MediaPlayerController extends AbstractController
         $instance->setToken($payload['token'] ?? '');
 
         if (isset($payload['is_active'])) {
-            $instance->setIsActive((bool) $payload['is_active']);
+            $instance->setIsActive((bool)$payload['is_active']);
         }
 
         $errors = $this->validator->validate($instance);
@@ -66,6 +66,7 @@ class MediaPlayerController extends AbstractController
             foreach ($errors as $error) {
                 $details[$error->getPropertyPath()] = $error->getMessage();
             }
+
             return $this->json([
                 'error' => ['code' => 422, 'message' => 'Validation failed', 'details' => $details],
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -82,7 +83,7 @@ class MediaPlayerController extends AbstractController
     {
         $instance = $this->playerRepository->find($id);
 
-        if (!$instance) {
+        if (!$instance instanceof MediaPlayerInstance) {
             return $this->json(['error' => ['code' => 404, 'message' => 'Media player not found']], Response::HTTP_NOT_FOUND);
         }
 
@@ -105,7 +106,7 @@ class MediaPlayerController extends AbstractController
             $instance->setToken($payload['token']);
         }
         if (isset($payload['is_active'])) {
-            $instance->setIsActive((bool) $payload['is_active']);
+            $instance->setIsActive((bool)$payload['is_active']);
         }
 
         $errors = $this->validator->validate($instance);
@@ -114,6 +115,7 @@ class MediaPlayerController extends AbstractController
             foreach ($errors as $error) {
                 $details[$error->getPropertyPath()] = $error->getMessage();
             }
+
             return $this->json([
                 'error' => ['code' => 422, 'message' => 'Validation failed', 'details' => $details],
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -129,7 +131,7 @@ class MediaPlayerController extends AbstractController
     {
         $instance = $this->playerRepository->find($id);
 
-        if (!$instance) {
+        if (!$instance instanceof MediaPlayerInstance) {
             return $this->json(['error' => ['code' => 404, 'message' => 'Media player not found']], Response::HTTP_NOT_FOUND);
         }
 
@@ -144,7 +146,7 @@ class MediaPlayerController extends AbstractController
     {
         $instance = $this->playerRepository->find($id);
 
-        if (!$instance) {
+        if (!$instance instanceof MediaPlayerInstance) {
             return $this->json(['error' => ['code' => 404, 'message' => 'Media player not found']], Response::HTTP_NOT_FOUND);
         }
 
@@ -172,7 +174,7 @@ class MediaPlayerController extends AbstractController
     private function serialize(MediaPlayerInstance $instance): array
     {
         return [
-            'id' => (string) $instance->getId(),
+            'id' => (string)$instance->getId(),
             'name' => $instance->getName(),
             'type' => $instance->getType(),
             'url' => $instance->getUrl(),

@@ -18,16 +18,16 @@ namespace App\Service;
 class FileNameParser
 {
     /** @var string[] */
-    private const RESOLUTIONS = ['2160p', '1080p', '720p', '480p', '4K', 'UHD'];
+    private const array RESOLUTIONS = ['2160p', '1080p', '720p', '480p', '4K', 'UHD'];
 
     /** @var string[] */
-    private const QUALITIES = [
+    private const array QUALITIES = [
         'BluRay', 'Bluray', 'BDRip', 'BRRip', 'WEB-DL', 'WEBRip', 'WEB',
         'HDTV', 'DVDRip', 'Remux', 'PROPER', 'REPACK',
     ];
 
     /** @var string[] */
-    private const CODECS = [
+    private const array CODECS = [
         'x264', 'x265', 'H.264', 'H264', 'H.265', 'H265',
         'HEVC', 'AVC', 'AV1', 'VP9', 'MPEG-2', 'XviD', 'DivX',
     ];
@@ -60,7 +60,7 @@ class FileNameParser
             $title = str_replace(['.', '_'], ' ', trim($titlePart));
             // Clean up extra spaces
             $title = preg_replace('/\s+/', ' ', $title);
-            $title = trim($title);
+            $title = trim((string)$title);
         }
 
         // Extract resolution, quality, codec (case-insensitive)
@@ -70,7 +70,7 @@ class FileNameParser
 
         return [
             'title' => $title ?: null,
-            'year' => $year !== null ? (int) $year : null,
+            'year' => $year !== null ? (int)$year : null,
             'resolution' => $resolution,
             'quality' => $quality,
             'codec' => $codec,

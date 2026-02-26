@@ -10,7 +10,7 @@ import Tag from 'primevue/tag'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
-import InputSwitch from 'primevue/inputswitch'
+import ToggleSwitch from 'primevue/toggleswitch'
 import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
 import ConfirmDialog from 'primevue/confirmdialog'
@@ -356,7 +356,7 @@ onMounted(() => {
         </div>
 
         <div v-if="dialogMode === 'edit'" class="flex items-center gap-3 pt-2 border-t border-gray-200">
-          <InputSwitch v-model="formIsActive" inputId="userActive" />
+          <ToggleSwitch v-model="formIsActive" inputId="userActive" />
           <label for="userActive" class="cursor-pointer text-sm text-gray-700">Compte actif</label>
         </div>
       </div>
