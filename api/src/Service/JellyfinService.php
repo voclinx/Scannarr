@@ -3,15 +3,17 @@
 namespace App\Service;
 
 use App\Entity\MediaPlayerInstance;
+use Exception;
 use Psr\Log\LoggerInterface;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
+use RuntimeException;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class JellyfinService
 {
     public function __construct(
-        private HttpClientInterface $httpClient,
-        private LoggerInterface $logger,
+        private readonly HttpClientInterface $httpClient,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -30,7 +32,7 @@ class JellyfinService
                 'name' => $data['ServerName'] ?? 'Unknown',
                 'version' => $data['Version'] ?? 'unknown',
             ];
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [
                 'success' => false,
                 'error' => $e->getMessage(),
@@ -60,8 +62,10 @@ class JellyfinService
      * Make a request to the Jellyfin API.
      *
      * @param array<string, mixed> $options
+     *
      * @return array<string, mixed>
-     * @throws \RuntimeException
+     *
+     * @throws RuntimeException
      */
     private function request(MediaPlayerInstance $instance, string $method, string $endpoint, array $options = []): array
     {
@@ -72,7 +76,7 @@ class JellyfinService
             'Accept' => 'application/json',
         ]);
 
-        $options['timeout'] = $options['timeout'] ?? 15;
+        $options['timeout'] ??= 15;
 
         try {
             $response = $this->httpClient->request($method, $url, $options);
@@ -85,10 +89,10 @@ class JellyfinService
                 'error' => $e->getMessage(),
             ]);
 
-            throw new \RuntimeException(
+            throw new RuntimeException(
                 sprintf('Jellyfin API error: %s', $e->getMessage()),
                 0,
-                $e
+                $e,
             );
         }
     }

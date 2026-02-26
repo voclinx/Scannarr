@@ -3,6 +3,7 @@
 namespace App\Entity;
 
 use App\Repository\MovieFileRepository;
+use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
 use Symfony\Component\Uid\Uuid;
@@ -33,21 +34,68 @@ class MovieFile
     private ?string $confidence = '1.00';
 
     #[ORM\Column]
-    private \DateTimeImmutable $createdAt;
+    private DateTimeImmutable $createdAt;
 
     public function __construct()
     {
-        $this->createdAt = new \DateTimeImmutable();
+        $this->createdAt = new DateTimeImmutable();
     }
 
-    public function getId(): ?Uuid { return $this->id; }
-    public function getMovie(): ?Movie { return $this->movie; }
-    public function setMovie(?Movie $movie): static { $this->movie = $movie; return $this; }
-    public function getMediaFile(): ?MediaFile { return $this->mediaFile; }
-    public function setMediaFile(?MediaFile $mediaFile): static { $this->mediaFile = $mediaFile; return $this; }
-    public function getMatchedBy(): string { return $this->matchedBy; }
-    public function setMatchedBy(string $matchedBy): static { $this->matchedBy = $matchedBy; return $this; }
-    public function getConfidence(): ?string { return $this->confidence; }
-    public function setConfidence(?string $confidence): static { $this->confidence = $confidence; return $this; }
-    public function getCreatedAt(): \DateTimeImmutable { return $this->createdAt; }
+    public function getId(): ?Uuid
+    {
+        return $this->id;
+    }
+
+    public function getMovie(): ?Movie
+    {
+        return $this->movie;
+    }
+
+    public function setMovie(?Movie $movie): static
+    {
+        $this->movie = $movie;
+
+        return $this;
+    }
+
+    public function getMediaFile(): ?MediaFile
+    {
+        return $this->mediaFile;
+    }
+
+    public function setMediaFile(?MediaFile $mediaFile): static
+    {
+        $this->mediaFile = $mediaFile;
+
+        return $this;
+    }
+
+    public function getMatchedBy(): string
+    {
+        return $this->matchedBy;
+    }
+
+    public function setMatchedBy(string $matchedBy): static
+    {
+        $this->matchedBy = $matchedBy;
+
+        return $this;
+    }
+
+    public function getConfidence(): ?string
+    {
+        return $this->confidence;
+    }
+
+    public function setConfidence(?string $confidence): static
+    {
+        $this->confidence = $confidence;
+
+        return $this;
+    }
+
+    public function getCreatedAt(): DateTimeImmutable
+    {
+        return $this->createdAt;
+    }
 }

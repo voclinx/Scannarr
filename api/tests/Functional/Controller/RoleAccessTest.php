@@ -12,6 +12,7 @@ use App\Enum\DeletionStatus;
 use App\Enum\VolumeStatus;
 use App\Enum\VolumeType;
 use App\Tests\AbstractApiTestCase;
+use DateTime;
 
 /**
  * Functional tests for role-based access control.
@@ -75,7 +76,7 @@ class RoleAccessTest extends AbstractApiTestCase
 
         $deletion = new ScheduledDeletion();
         $deletion->setCreatedBy($owner);
-        $deletion->setScheduledDate(new \DateTime('+30 days'));
+        $deletion->setScheduledDate(new DateTime('+30 days'));
         $deletion->setStatus(DeletionStatus::PENDING);
 
         $item = new ScheduledDeletionItem();

@@ -7,8 +7,10 @@ use App\Entity\Volume;
 use App\Repository\MediaFileRepository;
 use App\Repository\VolumeRepository;
 use App\WebSocket\WatcherMessageProcessor;
+use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -96,12 +98,10 @@ class WatcherMessageProcessorTest extends TestCase
         // Expect persist with a new MediaFile entity
         $this->em->expects($this->atLeastOnce())
             ->method('persist')
-            ->with($this->callback(function ($entity) {
-                return $entity instanceof MediaFile
-                    && $entity->getFileName() === 'Inception.2010.mkv'
-                    && $entity->getFileSizeBytes() === 5368709120
-                    && $entity->getHardlinkCount() === 2;
-            }));
+            ->with($this->callback(fn ($entity) => $entity instanceof MediaFile
+                && $entity->getFileName() === 'Inception.2010.mkv'
+                && $entity->getFileSizeBytes() === 5368709120
+                && $entity->getHardlinkCount() === 2));
 
         // Expect flush to be called
         $this->em->expects($this->atLeastOnce())
@@ -221,12 +221,13 @@ class WatcherMessageProcessorTest extends TestCase
         // Expect persist for the new MediaFile
         $this->em->expects($this->atLeastOnce())
             ->method('persist')
-            ->with($this->callback(function ($entity) {
+            ->with($this->callback(function ($entity): bool {
                 // Accept both MediaFile (the file being created) and ActivityLog
                 if ($entity instanceof MediaFile) {
                     return $entity->getFileName() === 'ScanMovie.mkv'
                         && $entity->getFileSizeBytes() === 3221225472;
                 }
+
                 return true; // Accept other entities (ActivityLog, etc.)
             }));
 
@@ -256,7 +257,7 @@ class WatcherMessageProcessorTest extends TestCase
     // TEST-WH-005: Réception scan.file - mise à jour
     // ──────────────────────────────────────────────
 
-    #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
+    #[AllowMockObjectsWithoutExpectations]
     public function testScanFileUpdatesExistingMediaFile(): void
     {
         $volume = $this->createVolumeStub('/mnt/media1', 'Movies');
@@ -365,7 +366,7 @@ class WatcherMessageProcessorTest extends TestCase
 
         // Verify volume lastScanAt has been updated
         $this->assertNotNull($volume->getLastScanAt());
-        $this->assertInstanceOf(\DateTimeImmutable::class, $volume->getLastScanAt());
+        $this->assertInstanceOf(DateTimeImmutable::class, $volume->getLastScanAt());
 
         // Verify usedSpaceBytes was updated from total_size_bytes
         $this->assertEquals(107374182400, $volume->getUsedSpaceBytes());

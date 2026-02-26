@@ -56,6 +56,6 @@
     </rule>
 
     <!-- Unused Code -->
-    <rule ref="rulesets/unused.xml" />
+    <rule ref="rulesets/unusedcode.xml" />
 
 </ruleset>

@@ -6,6 +6,7 @@ use App\Entity\MediaFile;
 use App\Entity\User;
 use App\Security\Voter\FileVoter;
 use PHPUnit\Framework\TestCase;
+use stdClass;
 use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
 use Symfony\Component\Security\Core\Authorization\Voter\VoterInterface;
 
@@ -78,7 +79,7 @@ class FileVoterTest extends TestCase
 
     public function testAbstainsOnNonMediaFileSubject(): void
     {
-        $result = $this->vote(FileVoter::DELETE, new \stdClass(), $this->createToken($this->createUser('ROLE_ADMIN')));
+        $result = $this->vote(FileVoter::DELETE, new stdClass(), $this->createToken($this->createUser('ROLE_ADMIN')));
 
         $this->assertEquals(VoterInterface::ACCESS_ABSTAIN, $result);
     }
@@ -133,7 +134,7 @@ class FileVoterTest extends TestCase
 
     public function testAnonymousUserCannotDeleteFile(): void
     {
-        $token = $this->createToken(null);
+        $token = $this->createToken();
         $file = new MediaFile();
 
         $result = $this->vote(FileVoter::DELETE, $file, $token);

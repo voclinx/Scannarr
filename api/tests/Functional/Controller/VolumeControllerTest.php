@@ -133,7 +133,7 @@ class VolumeControllerTest extends AbstractApiTestCase
         $this->em->persist($volume);
         $this->em->flush();
 
-        $volumeId = (string) $volume->getId();
+        $volumeId = (string)$volume->getId();
 
         $this->apiPost("/api/v1/volumes/{$volumeId}/scan");
 
@@ -170,7 +170,7 @@ class VolumeControllerTest extends AbstractApiTestCase
         $this->em->persist($volume);
         $this->em->flush();
 
-        $volumeId = (string) $volume->getId();
+        $volumeId = (string)$volume->getId();
 
         $this->apiDelete("/api/v1/volumes/{$volumeId}");
 

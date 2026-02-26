@@ -4,23 +4,27 @@ namespace App\Service;
 
 use App\Entity\ActivityLog;
 use App\Entity\MediaFile;
+use App\Entity\Movie;
+use App\Entity\RadarrInstance;
 use App\Entity\ScheduledDeletion;
 use App\Entity\ScheduledDeletionItem;
 use App\Entity\User;
+use App\Entity\Volume;
 use App\Enum\DeletionStatus;
 use App\Repository\MediaFileRepository;
-use App\Repository\MovieFileRepository;
+use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
+use Exception;
 use Psr\Log\LoggerInterface;
+use Throwable;
 
 class DeletionService
 {
     public function __construct(
-        private EntityManagerInterface $em,
-        private MediaFileRepository $mediaFileRepository,
-        private MovieFileRepository $movieFileRepository,
-        private RadarrService $radarrService,
-        private LoggerInterface $logger,
+        private readonly EntityManagerInterface $em,
+        private readonly MediaFileRepository $mediaFileRepository,
+        private readonly RadarrService $radarrService,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -37,7 +41,7 @@ class DeletionService
         $successCount = 0;
         $failedCount = 0;
         $report = [
-            'started_at' => (new \DateTimeImmutable())->format('c'),
+            'started_at' => (new DateTimeImmutable())->format('c'),
             'items' => [],
         ];
 
@@ -45,15 +49,15 @@ class DeletionService
             $itemReport = $this->processItem($deletion, $item);
 
             if ($item->getStatus() === 'deleted') {
-                $successCount++;
+                ++$successCount;
             } else {
-                $failedCount++;
+                ++$failedCount;
             }
 
             $report['items'][] = $itemReport;
         }
 
-        $report['finished_at'] = (new \DateTimeImmutable())->format('c');
+        $report['finished_at'] = (new DateTimeImmutable())->format('c');
         $report['success_count'] = $successCount;
         $report['failed_count'] = $failedCount;
 
@@ -64,7 +68,7 @@ class DeletionService
             $deletion->setStatus(DeletionStatus::FAILED);
         }
 
-        $deletion->setExecutedAt(new \DateTimeImmutable());
+        $deletion->setExecutedAt(new DateTimeImmutable());
         $deletion->setExecutionReport($report);
 
         // Log activity
@@ -79,7 +83,7 @@ class DeletionService
         ]);
 
         $user = $deletion->getCreatedBy();
-        if ($user !== null) {
+        if ($user instanceof User) {
             $log->setUser($user);
         }
 
@@ -122,7 +126,7 @@ class DeletionService
 
                     if ($mediaFile === null) {
                         $itemReport['errors'][] = "Media file not found: {$mediaFileId}";
-                        $itemReport['files_failed']++;
+                        ++$itemReport['files_failed'];
                         continue;
                     }
 
@@ -130,12 +134,12 @@ class DeletionService
 
                     if ($deleted) {
                         $totalSpaceFreed += $mediaFile->getFileSizeBytes();
-                        $itemReport['files_deleted']++;
+                        ++$itemReport['files_deleted'];
 
                         // Remove from database (cascades to movie_files)
                         $this->em->remove($mediaFile);
                     } else {
-                        $itemReport['files_failed']++;
+                        ++$itemReport['files_failed'];
                         $itemReport['errors'][] = "Failed to delete: {$mediaFile->getFileName()}";
                     }
                 }
@@ -146,7 +150,7 @@ class DeletionService
             $itemReport['space_freed_bytes'] = $totalSpaceFreed;
 
             // 2. Delete Radarr reference if requested
-            if ($deletion->isDeleteRadarrReference() && $movie !== null) {
+            if ($deletion->isDeleteRadarrReference() && $movie instanceof Movie) {
                 $radarrResult = $this->dereferenceFromRadarr($movie);
                 $itemReport['radarr_dereferenced'] = $radarrResult['success'];
                 if (!$radarrResult['success'] && $radarrResult['error'] !== null) {
@@ -171,7 +175,7 @@ class DeletionService
                 $item->setStatus('failed');
                 $item->setErrorMessage(implode('; ', $itemReport['errors']));
             }
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->error('Error processing deletion item', [
                 'movie' => $movieTitle,
                 'error' => $e->getMessage(),
@@ -191,10 +195,11 @@ class DeletionService
     private function deletePhysicalFile(MediaFile $mediaFile): bool
     {
         $volume = $mediaFile->getVolume();
-        if ($volume === null) {
+        if (!$volume instanceof Volume) {
             $this->logger->warning('Cannot delete file: no volume associated', [
-                'file_id' => (string) $mediaFile->getId(),
+                'file_id' => (string)$mediaFile->getId(),
             ]);
+
             return false;
         }
 
@@ -202,12 +207,14 @@ class DeletionService
 
         if (!file_exists($physicalPath)) {
             $this->logger->info('File already deleted from disk', ['path' => $physicalPath]);
+
             // Consider it a success since the file is gone
             return true;
         }
 
         if (@unlink($physicalPath)) {
             $this->logger->info('File deleted successfully', ['path' => $physicalPath]);
+
             return true;
         }
 
@@ -224,12 +231,12 @@ class DeletionService
      *
      * @return array{success: bool, error: ?string}
      */
-    private function dereferenceFromRadarr(\App\Entity\Movie $movie): array
+    private function dereferenceFromRadarr(Movie $movie): array
     {
         $radarrInstance = $movie->getRadarrInstance();
         $radarrId = $movie->getRadarrId();
 
-        if ($radarrInstance === null || $radarrId === null) {
+        if (!$radarrInstance instanceof RadarrInstance || $radarrId === null) {
             return ['success' => true, 'error' => null]; // Nothing to dereference
         }
 
@@ -238,11 +245,11 @@ class DeletionService
                 $radarrInstance,
                 $radarrId,
                 false, // Don't delete files via Radarr
-                false  // Don't add exclusion
+                false,  // Don't add exclusion
             );
 
             return ['success' => true, 'error' => null];
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->error('Failed to dereference from Radarr', [
                 'movie' => $movie->getTitle(),
                 'radarr_id' => $radarrId,

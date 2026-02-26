@@ -4,13 +4,11 @@ namespace App\Tests;
 
 use App\Entity\Setting;
 use App\Entity\User;
-use App\Enum\UserRole;
 use Doctrine\ORM\EntityManagerInterface;
 use Lexik\Bundle\JWTAuthenticationBundle\Services\JWTTokenManagerInterface;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
-use Symfony\Component\Uid\Uuid;
 
 abstract class AbstractApiTestCase extends WebTestCase
 {
@@ -127,7 +125,7 @@ abstract class AbstractApiTestCase extends WebTestCase
     {
         $this->client->request('DELETE', $uri, [], [], [
             'CONTENT_TYPE' => 'application/json',
-        ], !empty($data) ? json_encode($data) : null);
+        ], $data === [] ? null : json_encode($data));
     }
 
     protected function getResponseData(): array
@@ -141,7 +139,7 @@ abstract class AbstractApiTestCase extends WebTestCase
     {
         $setting = $this->em->getRepository(Setting::class)->findOneBy(['settingKey' => $key]);
 
-        if (!$setting) {
+        if (!$setting instanceof Setting) {
             $setting = new Setting();
             $setting->setSettingKey($key);
         }

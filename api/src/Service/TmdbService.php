@@ -3,19 +3,21 @@
 namespace App\Service;
 
 use App\Repository\SettingRepository;
+use Exception;
 use Psr\Log\LoggerInterface;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
+use RuntimeException;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class TmdbService
 {
-    private const BASE_URL = 'https://api.themoviedb.org/3';
-    private const IMAGE_BASE_URL = 'https://image.tmdb.org/t/p';
+    private const string BASE_URL = 'https://api.themoviedb.org/3';
+    private const string IMAGE_BASE_URL = 'https://image.tmdb.org/t/p';
 
     public function __construct(
-        private HttpClientInterface $httpClient,
-        private SettingRepository $settingRepository,
-        private LoggerInterface $logger,
+        private readonly HttpClientInterface $httpClient,
+        private readonly SettingRepository $settingRepository,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -41,11 +43,12 @@ class TmdbService
             return $this->request('GET', "/movie/{$tmdbId}", [
                 'query' => ['language' => $language],
             ]);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->warning('TMDB getMovieDetails failed', [
                 'tmdb_id' => $tmdbId,
                 'error' => $e->getMessage(),
             ]);
+
             return null;
         }
     }
@@ -62,11 +65,12 @@ class TmdbService
     {
         try {
             return $this->request('GET', "/movie/{$tmdbId}/images");
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->warning('TMDB getMovieImages failed', [
                 'tmdb_id' => $tmdbId,
                 'error' => $e->getMessage(),
             ]);
+
             return null;
         }
     }
@@ -93,12 +97,13 @@ class TmdbService
             ]);
 
             return $result['results'] ?? [];
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->warning('TMDB searchMovie failed', [
                 'title' => $title,
                 'year' => $year,
                 'error' => $e->getMessage(),
             ]);
+
             return [];
         }
     }
@@ -174,20 +179,20 @@ class TmdbService
         }
 
         if (!empty($details['genres'])) {
-            $genreNames = array_map(fn(array $g) => $g['name'], $details['genres']);
+            $genreNames = array_map(fn (array $g): string => $g['name'], $details['genres']);
             $data['genres'] = implode(', ', $genreNames);
         }
 
         if (isset($details['vote_average']) && $details['vote_average'] > 0) {
-            $data['rating'] = round((float) $details['vote_average'], 1);
+            $data['rating'] = round($details['vote_average'], 1);
         }
 
         if (!empty($details['runtime'])) {
-            $data['runtime_minutes'] = (int) $details['runtime'];
+            $data['runtime_minutes'] = (int)$details['runtime'];
         }
 
         if (!empty($details['release_date'])) {
-            $year = (int) substr($details['release_date'], 0, 4);
+            $year = (int)substr($details['release_date'], 0, 4);
             if ($year > 0) {
                 $data['year'] = $year;
             }
@@ -199,14 +204,14 @@ class TmdbService
     /**
      * Get the TMDB API key from settings.
      *
-     * @throws \RuntimeException If the API key is not configured
+     * @throws RuntimeException If the API key is not configured
      */
     private function getApiKey(): string
     {
         $setting = $this->settingRepository->findOneBy(['settingKey' => 'tmdb_api_key']);
 
         if ($setting === null || empty($setting->getSettingValue())) {
-            throw new \RuntimeException('TMDB API key is not configured. Set it in Settings.');
+            throw new RuntimeException('TMDB API key is not configured. Set it in Settings.');
         }
 
         return $setting->getSettingValue();
@@ -216,8 +221,10 @@ class TmdbService
      * Make an API request to TMDB.
      *
      * @param array<string, mixed> $options
+     *
      * @return array<string, mixed>
-     * @throws \RuntimeException
+     *
+     * @throws RuntimeException
      */
     private function request(string $method, string $endpoint, array $options = []): array
     {
@@ -233,7 +240,7 @@ class TmdbService
             'Accept' => 'application/json',
         ];
 
-        $options['timeout'] = $options['timeout'] ?? 15;
+        $options['timeout'] ??= 15;
 
         try {
             $response = $this->httpClient->request($method, $url, $options);
@@ -246,10 +253,10 @@ class TmdbService
                 'error' => $e->getMessage(),
             ]);
 
-            throw new \RuntimeException(
+            throw new RuntimeException(
                 sprintf('TMDB API error: %s', $e->getMessage()),
                 0,
-                $e
+                $e,
             );
         }
     }

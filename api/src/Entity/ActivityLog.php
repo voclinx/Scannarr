@@ -3,6 +3,7 @@
 namespace App\Entity;
 
 use App\Repository\ActivityLogRepository;
+use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
 use Symfony\Component\Uid\Uuid;
@@ -40,25 +41,92 @@ class ActivityLog
     private ?string $ipAddress = null;
 
     #[ORM\Column]
-    private \DateTimeImmutable $createdAt;
+    private DateTimeImmutable $createdAt;
 
     public function __construct()
     {
-        $this->createdAt = new \DateTimeImmutable();
+        $this->createdAt = new DateTimeImmutable();
     }
 
-    public function getId(): ?Uuid { return $this->id; }
-    public function getUser(): ?User { return $this->user; }
-    public function setUser(?User $user): static { $this->user = $user; return $this; }
-    public function getAction(): ?string { return $this->action; }
-    public function setAction(string $action): static { $this->action = $action; return $this; }
-    public function getEntityType(): ?string { return $this->entityType; }
-    public function setEntityType(?string $entityType): static { $this->entityType = $entityType; return $this; }
-    public function getEntityId(): ?Uuid { return $this->entityId; }
-    public function setEntityId(?Uuid $entityId): static { $this->entityId = $entityId; return $this; }
-    public function getDetails(): ?array { return $this->details; }
-    public function setDetails(?array $details): static { $this->details = $details; return $this; }
-    public function getIpAddress(): ?string { return $this->ipAddress; }
-    public function setIpAddress(?string $ipAddress): static { $this->ipAddress = $ipAddress; return $this; }
-    public function getCreatedAt(): \DateTimeImmutable { return $this->createdAt; }
+    public function getId(): ?Uuid
+    {
+        return $this->id;
+    }
+
+    public function getUser(): ?User
+    {
+        return $this->user;
+    }
+
+    public function setUser(?User $user): static
+    {
+        $this->user = $user;
+
+        return $this;
+    }
+
+    public function getAction(): ?string
+    {
+        return $this->action;
+    }
+
+    public function setAction(string $action): static
+    {
+        $this->action = $action;
+
+        return $this;
+    }
+
+    public function getEntityType(): ?string
+    {
+        return $this->entityType;
+    }
+
+    public function setEntityType(?string $entityType): static
+    {
+        $this->entityType = $entityType;
+
+        return $this;
+    }
+
+    public function getEntityId(): ?Uuid
+    {
+        return $this->entityId;
+    }
+
+    public function setEntityId(?Uuid $entityId): static
+    {
+        $this->entityId = $entityId;
+
+        return $this;
+    }
+
+    public function getDetails(): ?array
+    {
+        return $this->details;
+    }
+
+    public function setDetails(?array $details): static
+    {
+        $this->details = $details;
+
+        return $this;
+    }
+
+    public function getIpAddress(): ?string
+    {
+        return $this->ipAddress;
+    }
+
+    public function setIpAddress(?string $ipAddress): static
+    {
+        $this->ipAddress = $ipAddress;
+
+        return $this;
+    }
+
+    public function getCreatedAt(): DateTimeImmutable
+    {
+        return $this->createdAt;
+    }
 }

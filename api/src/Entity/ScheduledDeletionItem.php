@@ -3,6 +3,7 @@
 namespace App\Entity;
 
 use App\Repository\ScheduledDeletionItemRepository;
+use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
 use Symfony\Component\Uid\Uuid;
@@ -35,23 +36,80 @@ class ScheduledDeletionItem
     private ?string $errorMessage = null;
 
     #[ORM\Column]
-    private \DateTimeImmutable $createdAt;
+    private DateTimeImmutable $createdAt;
 
     public function __construct()
     {
-        $this->createdAt = new \DateTimeImmutable();
+        $this->createdAt = new DateTimeImmutable();
     }
 
-    public function getId(): ?Uuid { return $this->id; }
-    public function getScheduledDeletion(): ?ScheduledDeletion { return $this->scheduledDeletion; }
-    public function setScheduledDeletion(?ScheduledDeletion $scheduledDeletion): static { $this->scheduledDeletion = $scheduledDeletion; return $this; }
-    public function getMovie(): ?Movie { return $this->movie; }
-    public function setMovie(?Movie $movie): static { $this->movie = $movie; return $this; }
-    public function getMediaFileIds(): array { return $this->mediaFileIds; }
-    public function setMediaFileIds(array $mediaFileIds): static { $this->mediaFileIds = $mediaFileIds; return $this; }
-    public function getStatus(): string { return $this->status; }
-    public function setStatus(string $status): static { $this->status = $status; return $this; }
-    public function getErrorMessage(): ?string { return $this->errorMessage; }
-    public function setErrorMessage(?string $errorMessage): static { $this->errorMessage = $errorMessage; return $this; }
-    public function getCreatedAt(): \DateTimeImmutable { return $this->createdAt; }
+    public function getId(): ?Uuid
+    {
+        return $this->id;
+    }
+
+    public function getScheduledDeletion(): ?ScheduledDeletion
+    {
+        return $this->scheduledDeletion;
+    }
+
+    public function setScheduledDeletion(?ScheduledDeletion $scheduledDeletion): static
+    {
+        $this->scheduledDeletion = $scheduledDeletion;
+
+        return $this;
+    }
+
+    public function getMovie(): ?Movie
+    {
+        return $this->movie;
+    }
+
+    public function setMovie(?Movie $movie): static
+    {
+        $this->movie = $movie;
+
+        return $this;
+    }
+
+    public function getMediaFileIds(): array
+    {
+        return $this->mediaFileIds;
+    }
+
+    public function setMediaFileIds(array $mediaFileIds): static
+    {
+        $this->mediaFileIds = $mediaFileIds;
+
+        return $this;
+    }
+
+    public function getStatus(): string
+    {
+        return $this->status;
+    }
+
+    public function setStatus(string $status): static
+    {
+        $this->status = $status;
+
+        return $this;
+    }
+
+    public function getErrorMessage(): ?string
+    {
+        return $this->errorMessage;
+    }
+
+    public function setErrorMessage(?string $errorMessage): static
+    {
+        $this->errorMessage = $errorMessage;
+
+        return $this;
+    }
+
+    public function getCreatedAt(): DateTimeImmutable
+    {
+        return $this->createdAt;
+    }
 }

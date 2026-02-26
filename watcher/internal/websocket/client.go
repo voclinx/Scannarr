@@ -17,10 +17,11 @@ type Client struct {
 	reconnectDelay time.Duration
 	pingInterval   time.Duration
 
-	conn    *websocket.Conn
-	mu      sync.Mutex
-	done    chan struct{}
-	msgChan chan models.Message
+	conn      *websocket.Conn
+	mu        sync.Mutex
+	done      chan struct{}
+	closeOnce sync.Once
+	msgChan   chan models.Message
 
 	// OnCommand is called when a command is received from the API.
 	OnCommand func(msg models.Message)
@@ -99,18 +100,20 @@ func (c *Client) SendEvent(eventType string, data interface{}) {
 	})
 }
 
-// Close cleanly shuts down the client.
+// Close cleanly shuts down the client. It is safe to call multiple times.
 func (c *Client) Close() {
-	close(c.done)
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.conn != nil {
-		_ = c.conn.WriteMessage(
-			websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-		)
-		_ = c.conn.Close()
-	}
+	c.closeOnce.Do(func() {
+		close(c.done)
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.conn != nil {
+			_ = c.conn.WriteMessage(
+				websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+			)
+			_ = c.conn.Close()
+		}
+	})
 }
 
 // IsConnected returns whether the client has an active connection.

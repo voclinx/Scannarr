@@ -2,36 +2,31 @@
 
 namespace App\WebSocket;
 
+use Exception;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Message;
+use Psr\Http\Message\RequestInterface;
+use Psr\Log\LoggerInterface;
 use Ratchet\RFC6455\Handshake\RequestVerifier;
 use Ratchet\RFC6455\Handshake\ServerNegotiator;
 use Ratchet\RFC6455\Messaging\CloseFrameChecker;
 use Ratchet\RFC6455\Messaging\Frame;
 use Ratchet\RFC6455\Messaging\FrameInterface;
 use Ratchet\RFC6455\Messaging\MessageBuffer;
+use Ratchet\RFC6455\Messaging\MessageInterface;
+use React\EventLoop\Loop;
 use React\Socket\ConnectionInterface;
 use React\Socket\SocketServer;
-use Psr\Log\LoggerInterface;
+use Throwable;
 
 class WatcherWebSocketServer
 {
-    private string $authToken;
-    private LoggerInterface $logger;
-    private WatcherMessageProcessor $messageProcessor;
-
     /** @var array<int, array{conn: ConnectionInterface, buffer: MessageBuffer, authenticated: bool}> */
     private array $connections = [];
     private array $authenticatedConnections = [];
 
-    public function __construct(
-        string $authToken,
-        LoggerInterface $logger,
-        WatcherMessageProcessor $messageProcessor,
-    ) {
-        $this->authToken = $authToken;
-        $this->logger = $logger;
-        $this->messageProcessor = $messageProcessor;
+    public function __construct(private readonly string $authToken, private readonly LoggerInterface $logger, private readonly WatcherMessageProcessor $messageProcessor)
+    {
     }
 
     public function run(string $host = '0.0.0.0', int $port = 8081): void
@@ -41,18 +36,18 @@ class WatcherWebSocketServer
         // Main WebSocket socket
         $socket = new SocketServer("{$host}:{$port}");
 
-        $socket->on('connection', function (ConnectionInterface $conn) use ($negotiator) {
+        $socket->on('connection', function (ConnectionInterface $conn) use ($negotiator): void {
             $connId = spl_object_id($conn);
             $this->logger->info('New TCP connection', ['id' => $connId]);
 
             $httpBuffer = '';
 
             // Phase 1: HTTP upgrade handshake or internal HTTP command
-            $conn->on('data', $onHttpData = function (string $data) use ($connId, $conn, $negotiator, &$httpBuffer, &$onHttpData) {
+            $conn->on('data', $onHttpData = function (string $data) use ($connId, $conn, $negotiator, &$httpBuffer, &$onHttpData): void {
                 $httpBuffer .= $data;
 
                 // Wait for complete HTTP headers
-                if (strpos($httpBuffer, "\r\n\r\n") === false) {
+                if (!str_contains($httpBuffer, "\r\n\r\n")) {
                     return;
                 }
 
@@ -61,10 +56,11 @@ class WatcherWebSocketServer
 
                 try {
                     $request = Message::parseRequest($httpBuffer);
-                } catch (\Throwable $e) {
+                } catch (Throwable $e) {
                     $this->logger->warning('Invalid HTTP request', ['id' => $connId, 'error' => $e->getMessage()]);
                     $conn->write("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
                     $conn->close();
+
                     return;
                 }
 
@@ -74,12 +70,14 @@ class WatcherWebSocketServer
                 // Internal HTTP command endpoint
                 if ($path === '/internal/send-to-watcher' && $method === 'POST') {
                     $this->handleInternalCommand($conn, $request);
+
                     return;
                 }
 
                 // Internal status endpoint
                 if ($path === '/internal/status' && $method === 'GET') {
                     $this->handleInternalStatus($conn);
+
                     return;
                 }
 
@@ -87,6 +85,7 @@ class WatcherWebSocketServer
                 if ($path !== '/ws/watcher') {
                     $conn->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
                     $conn->close();
+
                     return;
                 }
 
@@ -97,6 +96,7 @@ class WatcherWebSocketServer
                     $statusCode = $response->getStatusCode();
                     $conn->write("HTTP/1.1 {$statusCode} Error\r\nContent-Length: 0\r\n\r\n");
                     $conn->close();
+
                     return;
                 }
 
@@ -111,7 +111,7 @@ class WatcherWebSocketServer
             });
 
             // Auth timeout: 10 seconds to complete handshake + auth
-            \React\EventLoop\Loop::addTimer(10.0, function () use ($connId) {
+            Loop::addTimer(10.0, function () use ($connId): void {
                 if (isset($this->connections[$connId]) && !$this->connections[$connId]['authenticated']) {
                     $this->logger->warning('Connection auth timeout', ['id' => $connId]);
                     $this->closeConnection($connId);
@@ -128,14 +128,15 @@ class WatcherWebSocketServer
      * Handle internal HTTP POST to send a command to the watcher.
      * Used by the API (PHP-FPM) to communicate with the watcher process.
      */
-    private function handleInternalCommand(ConnectionInterface $conn, \Psr\Http\Message\RequestInterface $request): void
+    private function handleInternalCommand(ConnectionInterface $conn, RequestInterface $request): void
     {
-        $body = (string) $request->getBody();
+        $body = (string)$request->getBody();
 
-        if (empty($body)) {
+        if ($body === '' || $body === '0') {
             $response = '{"error":"Empty body"}';
             $conn->write("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
             $conn->close();
+
             return;
         }
 
@@ -144,6 +145,7 @@ class WatcherWebSocketServer
             $response = '{"error":"Invalid JSON"}';
             $conn->write("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
             $conn->close();
+
             return;
         }
 
@@ -153,6 +155,7 @@ class WatcherWebSocketServer
             $response = '{"error":"Unauthorized"}';
             $conn->write("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
             $conn->close();
+
             return;
         }
 
@@ -162,6 +165,7 @@ class WatcherWebSocketServer
             $response = '{"error":"No watcher connected"}';
             $conn->write("HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
             $conn->close();
+
             return;
         }
 
@@ -193,10 +197,10 @@ class WatcherWebSocketServer
         $closeFrameChecker = new CloseFrameChecker();
         $messageBuffer = new MessageBuffer(
             $closeFrameChecker,
-            function (\Ratchet\RFC6455\Messaging\MessageInterface $message) use ($connId, $conn) {
-                $this->handleMessage($connId, $conn, (string) $message);
+            function (MessageInterface $message) use ($connId): void {
+                $this->handleMessage($connId, (string)$message);
             },
-            function (FrameInterface $frame) use ($connId, $conn) {
+            function (FrameInterface $frame) use ($connId, $conn): void {
                 if ($frame->getOpcode() === Frame::OP_PING) {
                     $pong = new Frame($frame->getPayload(), true, Frame::OP_PONG);
                     $conn->write($pong->getContents());
@@ -206,7 +210,6 @@ class WatcherWebSocketServer
                 }
             },
             true,
-            null,
         );
 
         $this->connections[$connId] = [
@@ -215,15 +218,15 @@ class WatcherWebSocketServer
             'authenticated' => false,
         ];
 
-        $conn->on('data', function ($data) use ($messageBuffer) {
+        $conn->on('data', function (string $data) use ($messageBuffer): void {
             $messageBuffer->onData($data);
         });
 
-        $conn->on('close', function () use ($connId) {
+        $conn->on('close', function () use ($connId): void {
             $this->handleClose($connId);
         });
 
-        $conn->on('error', function (\Exception $e) use ($connId) {
+        $conn->on('error', function (Exception $e) use ($connId): void {
             $this->logger->error('Connection error', ['id' => $connId, 'error' => $e->getMessage()]);
             $this->handleClose($connId);
         });
@@ -234,7 +237,7 @@ class WatcherWebSocketServer
      */
     public function sendToWatcher(string $json): void
     {
-        foreach ($this->authenticatedConnections as $connId => $_) {
+        foreach (array_keys($this->authenticatedConnections) as $connId) {
             if (isset($this->connections[$connId])) {
                 $frame = new Frame($json, true, Frame::OP_TEXT);
                 $this->connections[$connId]['conn']->write($frame->getContents());
@@ -242,11 +245,12 @@ class WatcherWebSocketServer
         }
     }
 
-    private function handleMessage(int $connId, ConnectionInterface $conn, string $payload): void
+    private function handleMessage(int $connId, string $payload): void
     {
         $data = json_decode($payload, true);
         if (!$data || !isset($data['type'])) {
             $this->logger->warning('Invalid message format', ['id' => $connId]);
+
             return;
         }
 
@@ -261,19 +265,21 @@ class WatcherWebSocketServer
                 $this->logger->warning('Invalid auth token', ['id' => $connId]);
                 $this->closeConnection($connId);
             }
+
             return;
         }
 
         // Reject unauthenticated messages
         if (!($this->connections[$connId]['authenticated'] ?? false)) {
             $this->logger->warning('Message from unauthenticated connection', ['id' => $connId, 'type' => $data['type']]);
+
             return;
         }
 
         // Delegate to message processor
         try {
             $this->messageProcessor->process($data);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->error('Message processing error', [
                 'type' => $data['type'],
                 'error' => $e->getMessage(),

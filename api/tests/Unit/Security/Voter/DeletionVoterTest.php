@@ -6,6 +6,7 @@ use App\Entity\ScheduledDeletion;
 use App\Entity\User;
 use App\Security\Voter\DeletionVoter;
 use PHPUnit\Framework\TestCase;
+use stdClass;
 use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
 use Symfony\Component\Security\Core\Authorization\Voter\VoterInterface;
 use Symfony\Component\Uid\Uuid;
@@ -107,7 +108,7 @@ class DeletionVoterTest extends TestCase
         $owner = $this->createUserWithId('ROLE_ADMIN');
         $token = $this->createToken($owner);
 
-        $result = $this->vote(DeletionVoter::CANCEL, new \stdClass(), $token);
+        $result = $this->vote(DeletionVoter::CANCEL, new stdClass(), $token);
 
         $this->assertEquals(VoterInterface::ACCESS_ABSTAIN, $result);
     }
@@ -256,7 +257,7 @@ class DeletionVoterTest extends TestCase
         $owner = $this->createUserWithId('ROLE_ADVANCED_USER');
         $deletion = $this->createDeletion($owner);
 
-        $token = $this->createToken(null);
+        $token = $this->createToken();
 
         $result = $this->vote(DeletionVoter::CANCEL, $deletion, $token);
 

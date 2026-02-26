@@ -15,7 +15,7 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 class SettingsController extends AbstractController
 {
     /** @var string[] Keys that are allowed to be stored/updated */
-    private const ALLOWED_KEYS = [
+    private const array ALLOWED_KEYS = [
         'tmdb_api_key',
         'discord_webhook_url',
         'discord_reminder_days',
@@ -25,7 +25,7 @@ class SettingsController extends AbstractController
     ];
 
     /** @var array<string, string> Key => type mapping */
-    private const KEY_TYPES = [
+    private const array KEY_TYPES = [
         'tmdb_api_key' => 'string',
         'discord_webhook_url' => 'string',
         'discord_reminder_days' => 'integer',
@@ -35,7 +35,7 @@ class SettingsController extends AbstractController
     ];
 
     public function __construct(
-        private SettingRepository $settingRepository,
+        private readonly SettingRepository $settingRepository,
     ) {
     }
 
@@ -61,7 +61,7 @@ class SettingsController extends AbstractController
         if (!$payload || !is_array($payload)) {
             return $this->json(
                 ['error' => ['code' => 400, 'message' => 'Invalid JSON']],
-                Response::HTTP_BAD_REQUEST
+                Response::HTTP_BAD_REQUEST,
             );
         }
 
@@ -73,16 +73,16 @@ class SettingsController extends AbstractController
             }
 
             $type = self::KEY_TYPES[$key] ?? 'string';
-            $stringValue = $value !== null ? (string) $value : null;
+            $stringValue = $value !== null ? (string)$value : null;
 
             $this->settingRepository->setValue($key, $stringValue, $type);
             $updatedKeys[] = $key;
         }
 
-        if (empty($updatedKeys)) {
+        if ($updatedKeys === []) {
             return $this->json(
                 ['error' => ['code' => 422, 'message' => 'No valid settings keys provided']],
-                Response::HTTP_UNPROCESSABLE_ENTITY
+                Response::HTTP_UNPROCESSABLE_ENTITY,
             );
         }
 

@@ -2,7 +2,6 @@
 
 namespace App\Command;
 
-use App\Enum\DeletionStatus;
 use App\Repository\ScheduledDeletionRepository;
 use App\Service\DeletionService;
 use App\Service\DiscordNotificationService;
@@ -12,6 +11,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Throwable;
 
 #[AsCommand(
     name: 'scanarr:process-deletions',
@@ -20,10 +20,10 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 class ProcessScheduledDeletionsCommand extends Command
 {
     public function __construct(
-        private ScheduledDeletionRepository $deletionRepository,
-        private DeletionService $deletionService,
-        private DiscordNotificationService $discordService,
-        private LoggerInterface $logger,
+        private readonly ScheduledDeletionRepository $deletionRepository,
+        private readonly DeletionService $deletionService,
+        private readonly DiscordNotificationService $discordService,
+        private readonly LoggerInterface $logger,
     ) {
         parent::__construct();
     }
@@ -35,8 +35,9 @@ class ProcessScheduledDeletionsCommand extends Command
 
         $deletions = $this->deletionRepository->findDueForExecution();
 
-        if (empty($deletions)) {
+        if ($deletions === []) {
             $io->info('No scheduled deletions due for execution today.');
+
             return Command::SUCCESS;
         }
 
@@ -48,9 +49,9 @@ class ProcessScheduledDeletionsCommand extends Command
         foreach ($deletions as $deletion) {
             $io->section(sprintf(
                 'Processing deletion #%s (scheduled: %s, %d items)',
-                (string) $deletion->getId(),
+                (string)$deletion->getId(),
                 $deletion->getScheduledDate()?->format('Y-m-d') ?? '??',
-                $deletion->getItems()->count()
+                $deletion->getItems()->count(),
             ));
 
             try {
@@ -59,37 +60,37 @@ class ProcessScheduledDeletionsCommand extends Command
                 $io->text(sprintf(
                     '  → Success: %d, Failed: %d',
                     $result['success'],
-                    $result['failed']
+                    $result['failed'],
                 ));
 
                 // Send Discord notification
                 if ($result['failed'] === 0) {
                     $this->discordService->sendDeletionSuccess($deletion);
-                    $totalSuccess++;
+                    ++$totalSuccess;
                 } else {
                     $this->discordService->sendDeletionError($deletion);
-                    $totalFailed++;
+                    ++$totalFailed;
                 }
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 $this->logger->error('Error processing scheduled deletion', [
-                    'deletion_id' => (string) $deletion->getId(),
+                    'deletion_id' => (string)$deletion->getId(),
                     'error' => $e->getMessage(),
                 ]);
 
                 $io->error(sprintf(
                     'Error processing deletion #%s: %s',
-                    (string) $deletion->getId(),
-                    $e->getMessage()
+                    (string)$deletion->getId(),
+                    $e->getMessage(),
                 ));
 
-                $totalFailed++;
+                ++$totalFailed;
             }
         }
 
         $io->success(sprintf(
             'Processing complete. Success: %d, Failed: %d',
             $totalSuccess,
-            $totalFailed
+            $totalFailed,
         ));
 
         return $totalFailed > 0 ? Command::FAILURE : Command::SUCCESS;

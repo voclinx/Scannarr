@@ -2,6 +2,9 @@
 
 namespace App\Controller;
 
+use App\Entity\ActivityLog;
+use App\Entity\MediaFile;
+use App\Entity\ScheduledDeletion;
 use App\Entity\Volume;
 use App\Enum\DeletionStatus;
 use App\Enum\VolumeStatus;
@@ -19,12 +22,13 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 class DashboardController extends AbstractController
 {
     public function __construct(
-        private EntityManagerInterface $em,
-        private MovieRepository $movieRepository,
-        private VolumeRepository $volumeRepository,
-        private ScheduledDeletionRepository $deletionRepository,
-        private ActivityLogRepository $activityLogRepository,
-    ) {}
+        private readonly EntityManagerInterface $em,
+        private readonly MovieRepository $movieRepository,
+        private readonly VolumeRepository $volumeRepository,
+        private readonly ScheduledDeletionRepository $deletionRepository,
+        private readonly ActivityLogRepository $activityLogRepository,
+    ) {
+    }
 
     #[Route('/dashboard', methods: ['GET'])]
     #[IsGranted('ROLE_GUEST')]
@@ -36,26 +40,26 @@ class DashboardController extends AbstractController
         // Total files and total size
         $fileStats = $this->em->createQueryBuilder()
             ->select('COUNT(mf.id) AS total_files, COALESCE(SUM(mf.fileSizeBytes), 0) AS total_size')
-            ->from('App\Entity\MediaFile', 'mf')
+            ->from(MediaFile::class, 'mf')
             ->getQuery()
             ->getSingleResult();
 
-        $totalFiles = (int) $fileStats['total_files'];
-        $totalSizeBytes = (int) $fileStats['total_size'];
+        $totalFiles = (int)$fileStats['total_files'];
+        $totalSizeBytes = (int)$fileStats['total_size'];
 
         // Orphan files (files not linked to any movie)
-        $orphanFilesCount = (int) $this->em->createQueryBuilder()
+        $orphanFilesCount = (int)$this->em->createQueryBuilder()
             ->select('COUNT(mf.id)')
-            ->from('App\Entity\MediaFile', 'mf')
+            ->from(MediaFile::class, 'mf')
             ->leftJoin('mf.movieFiles', 'mof')
             ->where('mof.id IS NULL')
             ->getQuery()
             ->getSingleScalarResult();
 
         // Upcoming deletions (pending or reminder_sent)
-        $upcomingDeletionsCount = (int) $this->em->createQueryBuilder()
+        $upcomingDeletionsCount = (int)$this->em->createQueryBuilder()
             ->select('COUNT(sd.id)')
-            ->from('App\Entity\ScheduledDeletion', 'sd')
+            ->from(ScheduledDeletion::class, 'sd')
             ->where('sd.status IN (:statuses)')
             ->setParameter('statuses', [DeletionStatus::PENDING, DeletionStatus::REMINDER_SENT])
             ->getQuery()
@@ -65,10 +69,10 @@ class DashboardController extends AbstractController
         $volumes = $this->volumeRepository->findBy(['status' => VolumeStatus::ACTIVE]);
 
         $volumeFileStats = [];
-        if (!empty($volumes)) {
+        if ($volumes !== []) {
             $rows = $this->em->createQueryBuilder()
                 ->select('IDENTITY(mf.volume) AS vol_id, COUNT(mf.id) AS file_count, COALESCE(SUM(mf.fileSizeBytes), 0) AS used_space')
-                ->from('App\Entity\MediaFile', 'mf')
+                ->from(MediaFile::class, 'mf')
                 ->where('mf.volume IN (:volumes)')
                 ->setParameter('volumes', $volumes)
                 ->groupBy('mf.volume')
@@ -77,14 +81,14 @@ class DashboardController extends AbstractController
 
             foreach ($rows as $row) {
                 $volumeFileStats[$row['vol_id']] = [
-                    'file_count' => (int) $row['file_count'],
-                    'used_space' => (int) $row['used_space'],
+                    'file_count' => (int)$row['file_count'],
+                    'used_space' => (int)$row['used_space'],
                 ];
             }
         }
 
-        $volumeStats = array_map(function (Volume $v) use ($volumeFileStats) {
-            $volId = (string) $v->getId();
+        $volumeStats = array_map(function (Volume $v) use ($volumeFileStats): array {
+            $volId = (string)$v->getId();
             $stats = $volumeFileStats[$volId] ?? ['file_count' => 0, 'used_space' => 0];
 
             return [
@@ -100,18 +104,16 @@ class DashboardController extends AbstractController
         $recentLogs = $this->activityLogRepository->findBy(
             [],
             ['createdAt' => 'DESC'],
-            20
+            20,
         );
 
-        $recentActivity = array_map(function ($log) {
-            return [
-                'action' => $log->getAction(),
-                'entity_type' => $log->getEntityType(),
-                'details' => $log->getDetails() ?? [],
-                'user' => $log->getUser()?->getUsername() ?? 'system',
-                'created_at' => $log->getCreatedAt()->format('c'),
-            ];
-        }, $recentLogs);
+        $recentActivity = array_map(fn (ActivityLog $log) => [
+            'action' => $log->getAction(),
+            'entity_type' => $log->getEntityType(),
+            'details' => $log->getDetails() ?? [],
+            'user' => $log->getUser()?->getUsername() ?? 'system',
+            'created_at' => $log->getCreatedAt()->format('c'),
+        ], $recentLogs);
 
         return $this->json([
             'data' => [

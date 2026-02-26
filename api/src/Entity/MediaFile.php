@@ -3,6 +3,7 @@
 namespace App\Entity;
 
 use App\Repository\MediaFileRepository;
+use DateTimeImmutable;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
@@ -63,10 +64,10 @@ class MediaFile
     private ?string $fileHash = null;
 
     #[ORM\Column]
-    private \DateTimeImmutable $detectedAt;
+    private DateTimeImmutable $detectedAt;
 
     #[ORM\Column]
-    private \DateTimeImmutable $updatedAt;
+    private DateTimeImmutable $updatedAt;
 
     /** @var Collection<int, MovieFile> */
     #[ORM\OneToMany(targetEntity: MovieFile::class, mappedBy: 'mediaFile', cascade: ['remove'])]
@@ -74,42 +75,179 @@ class MediaFile
 
     public function __construct()
     {
-        $this->detectedAt = new \DateTimeImmutable();
-        $this->updatedAt = new \DateTimeImmutable();
+        $this->detectedAt = new DateTimeImmutable();
+        $this->updatedAt = new DateTimeImmutable();
         $this->movieFiles = new ArrayCollection();
     }
 
-    public function getId(): ?Uuid { return $this->id; }
-    public function getVolume(): ?Volume { return $this->volume; }
-    public function setVolume(?Volume $volume): static { $this->volume = $volume; return $this; }
-    public function getFilePath(): ?string { return $this->filePath; }
-    public function setFilePath(string $filePath): static { $this->filePath = $filePath; return $this; }
-    public function getFileName(): ?string { return $this->fileName; }
-    public function setFileName(string $fileName): static { $this->fileName = $fileName; return $this; }
-    public function getFileSizeBytes(): int { return $this->fileSizeBytes; }
-    public function setFileSizeBytes(int $fileSizeBytes): static { $this->fileSizeBytes = $fileSizeBytes; return $this; }
-    public function getHardlinkCount(): int { return $this->hardlinkCount; }
-    public function setHardlinkCount(int $hardlinkCount): static { $this->hardlinkCount = $hardlinkCount; return $this; }
-    public function getResolution(): ?string { return $this->resolution; }
-    public function setResolution(?string $resolution): static { $this->resolution = $resolution; return $this; }
-    public function getCodec(): ?string { return $this->codec; }
-    public function setCodec(?string $codec): static { $this->codec = $codec; return $this; }
-    public function getQuality(): ?string { return $this->quality; }
-    public function setQuality(?string $quality): static { $this->quality = $quality; return $this; }
-    public function isLinkedRadarr(): bool { return $this->isLinkedRadarr; }
-    public function setIsLinkedRadarr(bool $isLinkedRadarr): static { $this->isLinkedRadarr = $isLinkedRadarr; return $this; }
-    public function isLinkedMediaPlayer(): bool { return $this->isLinkedMediaPlayer; }
-    public function setIsLinkedMediaPlayer(bool $isLinkedMediaPlayer): static { $this->isLinkedMediaPlayer = $isLinkedMediaPlayer; return $this; }
-    public function getRadarrInstance(): ?RadarrInstance { return $this->radarrInstance; }
-    public function setRadarrInstance(?RadarrInstance $radarrInstance): static { $this->radarrInstance = $radarrInstance; return $this; }
-    public function getFileHash(): ?string { return $this->fileHash; }
-    public function setFileHash(?string $fileHash): static { $this->fileHash = $fileHash; return $this; }
-    public function getDetectedAt(): \DateTimeImmutable { return $this->detectedAt; }
-    public function getUpdatedAt(): \DateTimeImmutable { return $this->updatedAt; }
+    public function getId(): ?Uuid
+    {
+        return $this->id;
+    }
+
+    public function getVolume(): ?Volume
+    {
+        return $this->volume;
+    }
+
+    public function setVolume(?Volume $volume): static
+    {
+        $this->volume = $volume;
+
+        return $this;
+    }
+
+    public function getFilePath(): ?string
+    {
+        return $this->filePath;
+    }
+
+    public function setFilePath(string $filePath): static
+    {
+        $this->filePath = $filePath;
+
+        return $this;
+    }
+
+    public function getFileName(): ?string
+    {
+        return $this->fileName;
+    }
+
+    public function setFileName(string $fileName): static
+    {
+        $this->fileName = $fileName;
+
+        return $this;
+    }
+
+    public function getFileSizeBytes(): int
+    {
+        return $this->fileSizeBytes;
+    }
+
+    public function setFileSizeBytes(int $fileSizeBytes): static
+    {
+        $this->fileSizeBytes = $fileSizeBytes;
+
+        return $this;
+    }
+
+    public function getHardlinkCount(): int
+    {
+        return $this->hardlinkCount;
+    }
+
+    public function setHardlinkCount(int $hardlinkCount): static
+    {
+        $this->hardlinkCount = $hardlinkCount;
+
+        return $this;
+    }
+
+    public function getResolution(): ?string
+    {
+        return $this->resolution;
+    }
+
+    public function setResolution(?string $resolution): static
+    {
+        $this->resolution = $resolution;
+
+        return $this;
+    }
+
+    public function getCodec(): ?string
+    {
+        return $this->codec;
+    }
+
+    public function setCodec(?string $codec): static
+    {
+        $this->codec = $codec;
+
+        return $this;
+    }
+
+    public function getQuality(): ?string
+    {
+        return $this->quality;
+    }
+
+    public function setQuality(?string $quality): static
+    {
+        $this->quality = $quality;
+
+        return $this;
+    }
+
+    public function isLinkedRadarr(): bool
+    {
+        return $this->isLinkedRadarr;
+    }
+
+    public function setIsLinkedRadarr(bool $isLinkedRadarr): static
+    {
+        $this->isLinkedRadarr = $isLinkedRadarr;
+
+        return $this;
+    }
+
+    public function isLinkedMediaPlayer(): bool
+    {
+        return $this->isLinkedMediaPlayer;
+    }
+
+    public function setIsLinkedMediaPlayer(bool $isLinkedMediaPlayer): static
+    {
+        $this->isLinkedMediaPlayer = $isLinkedMediaPlayer;
+
+        return $this;
+    }
+
+    public function getRadarrInstance(): ?RadarrInstance
+    {
+        return $this->radarrInstance;
+    }
+
+    public function setRadarrInstance(?RadarrInstance $radarrInstance): static
+    {
+        $this->radarrInstance = $radarrInstance;
+
+        return $this;
+    }
+
+    public function getFileHash(): ?string
+    {
+        return $this->fileHash;
+    }
+
+    public function setFileHash(?string $fileHash): static
+    {
+        $this->fileHash = $fileHash;
+
+        return $this;
+    }
+
+    public function getDetectedAt(): DateTimeImmutable
+    {
+        return $this->detectedAt;
+    }
+
+    public function getUpdatedAt(): DateTimeImmutable
+    {
+        return $this->updatedAt;
+    }
 
     #[ORM\PreUpdate]
-    public function setUpdatedAtValue(): void { $this->updatedAt = new \DateTimeImmutable(); }
+    public function setUpdatedAtValue(): void
+    {
+        $this->updatedAt = new DateTimeImmutable();
+    }
 
     /** @return Collection<int, MovieFile> */
-    public function getMovieFiles(): Collection { return $this->movieFiles; }
+    public function getMovieFiles(): Collection
+    {
+        return $this->movieFiles;
+    }
 }

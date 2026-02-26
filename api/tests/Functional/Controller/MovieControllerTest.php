@@ -98,7 +98,7 @@ class MovieControllerTest extends AbstractApiTestCase
         $this->authenticateAs($user);
 
         // Create 15 movies
-        for ($i = 1; $i <= 15; $i++) {
+        for ($i = 1; $i <= 15; ++$i) {
             $this->createMovie("Movie {$i}", 2020 + ($i % 5), 100000 + $i);
         }
 
@@ -171,7 +171,7 @@ class MovieControllerTest extends AbstractApiTestCase
         $this->assertGreaterThanOrEqual(3, count($response['data']));
 
         // Verify descending year order
-        $years = array_map(fn(array $m) => $m['year'], $response['data']);
+        $years = array_map(fn (array $m) => $m['year'], $response['data']);
         $sortedYears = $years;
         rsort($sortedYears);
         $this->assertEquals($sortedYears, $years, 'Movies should be sorted by year descending');
@@ -194,7 +194,7 @@ class MovieControllerTest extends AbstractApiTestCase
         $mediaFile = $this->createMediaFile($volume, 'Inception.2010.1080p.mkv', 2000000000);
         $this->createMovieFile($movie, $mediaFile);
 
-        $movieId = (string) $movie->getId();
+        $movieId = (string)$movie->getId();
 
         // Clear identity map to force fresh load from DB (avoids stale lazy collections)
         $this->em->clear();
@@ -216,8 +216,8 @@ class MovieControllerTest extends AbstractApiTestCase
         $file = $movieData['files'][0];
         $this->assertEquals('Inception.2010.1080p.mkv', $file['file_name']);
         $this->assertEquals(2000000000, $file['file_size_bytes']);
-        $this->assertEquals((string) $mediaFile->getId(), $file['id']);
-        $this->assertEquals((string) $volume->getId(), $file['volume_id']);
+        $this->assertEquals((string)$mediaFile->getId(), $file['id']);
+        $this->assertEquals((string)$volume->getId(), $file['volume_id']);
         $this->assertArrayHasKey('matched_by', $file);
         $this->assertEquals('filename', $file['matched_by']);
     }
@@ -239,8 +239,8 @@ class MovieControllerTest extends AbstractApiTestCase
         $mediaFile = $this->createMediaFile($volume, 'ToDelete.mkv', 500000000);
         $this->createMovieFile($movie, $mediaFile);
 
-        $movieId = (string) $movie->getId();
-        $mediaFileId = (string) $mediaFile->getId();
+        $movieId = (string)$movie->getId();
+        $mediaFileId = (string)$mediaFile->getId();
 
         $this->apiDelete("/api/v1/movies/{$movieId}", [
             'file_ids' => [$mediaFileId],
@@ -318,6 +318,6 @@ class MovieControllerTest extends AbstractApiTestCase
         $response = $this->getResponseData();
         $this->assertArrayHasKey('data', $response);
         $this->assertArrayHasKey('message', $response['data']);
-        $this->assertStringContainsString('sync', strtolower($response['data']['message']));
+        $this->assertStringContainsString('sync', strtolower((string)$response['data']['message']));
     }
 }

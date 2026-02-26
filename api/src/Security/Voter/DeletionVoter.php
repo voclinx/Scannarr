@@ -44,6 +44,7 @@ class DeletionVoter extends Voter
         // Advanced user can only modify/cancel their own
         if ($user->getRole() === 'ROLE_ADVANCED_USER') {
             $creator = $deletion->getCreatedBy();
+
             return $creator !== null && $creator->getId()->equals($user->getId());
         }
 

@@ -20,12 +20,13 @@ class MovieRepository extends ServiceEntityRepository
      * Find movies with filters, search, sort, and pagination.
      *
      * @param array<string, mixed> $filters
+     *
      * @return array{data: Movie[], total: int, page: int, limit: int, total_pages: int}
      */
     public function findWithFilters(array $filters): array
     {
-        $page = max(1, (int) ($filters['page'] ?? 1));
-        $limit = min(100, max(1, (int) ($filters['limit'] ?? 25)));
+        $page = max(1, (int)($filters['page'] ?? 1));
+        $limit = min(100, max(1, (int)($filters['limit'] ?? 25)));
         $sort = $filters['sort'] ?? 'title';
         $order = strtoupper($filters['order'] ?? 'ASC');
 
@@ -56,7 +57,7 @@ class MovieRepository extends ServiceEntityRepository
 
         // Count total
         $countQb = clone $qb;
-        $total = (int) $countQb->select('COUNT(m.id)')->getQuery()->getSingleScalarResult();
+        $total = (int)$countQb->select('COUNT(m.id)')->getQuery()->getSingleScalarResult();
 
         // Apply sort and pagination
         $qb->orderBy($sortField, $order)
@@ -70,7 +71,7 @@ class MovieRepository extends ServiceEntityRepository
             'total' => $total,
             'page' => $page,
             'limit' => $limit,
-            'total_pages' => (int) ceil($total / $limit),
+            'total_pages' => (int)ceil($total / $limit),
         ];
     }
 }

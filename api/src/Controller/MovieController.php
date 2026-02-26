@@ -4,12 +4,14 @@ namespace App\Controller;
 
 use App\Entity\ActivityLog;
 use App\Entity\Movie;
+use App\Entity\RadarrInstance;
 use App\Entity\User;
 use App\Repository\MediaFileRepository;
 use App\Repository\MovieFileRepository;
 use App\Repository\MovieRepository;
 use App\Service\RadarrService;
 use Doctrine\ORM\EntityManagerInterface;
+use Exception;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -23,12 +25,12 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 class MovieController extends AbstractController
 {
     public function __construct(
-        private MovieRepository $movieRepository,
-        private MovieFileRepository $movieFileRepository,
-        private MediaFileRepository $mediaFileRepository,
-        private EntityManagerInterface $em,
-        private RadarrService $radarrService,
-        private LoggerInterface $logger,
+        private readonly MovieRepository $movieRepository,
+        private readonly MovieFileRepository $movieFileRepository,
+        private readonly MediaFileRepository $mediaFileRepository,
+        private readonly EntityManagerInterface $em,
+        private readonly RadarrService $radarrService,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -50,7 +52,7 @@ class MovieController extends AbstractController
 
         $result = $this->movieRepository->findWithFilters($filters);
 
-        $data = array_map(fn(Movie $m) => $this->serializeForList($m), $result['data']);
+        $data = array_map($this->serializeForList(...), $result['data']);
 
         return $this->json([
             'data' => $data,
@@ -72,10 +74,10 @@ class MovieController extends AbstractController
     {
         $movie = $this->movieRepository->find($id);
 
-        if (!$movie) {
+        if (!$movie instanceof Movie) {
             return $this->json(
                 ['error' => ['code' => 404, 'message' => 'Movie not found']],
-                Response::HTTP_NOT_FOUND
+                Response::HTTP_NOT_FOUND,
             );
         }
 
@@ -91,19 +93,19 @@ class MovieController extends AbstractController
     {
         $movie = $this->movieRepository->find($id);
 
-        if (!$movie) {
+        if (!$movie instanceof Movie) {
             return $this->json(
                 ['error' => ['code' => 404, 'message' => 'Movie not found']],
-                Response::HTTP_NOT_FOUND
+                Response::HTTP_NOT_FOUND,
             );
         }
 
         $payload = json_decode($request->getContent(), true) ?? [];
 
         $fileIds = $payload['file_ids'] ?? [];
-        $deleteRadarrReference = (bool) ($payload['delete_radarr_reference'] ?? false);
-        $deleteMediaPlayerReference = (bool) ($payload['delete_media_player_reference'] ?? false);
-        $disableRadarrAutoSearch = (bool) ($payload['disable_radarr_auto_search'] ?? false);
+        $deleteRadarrReference = (bool)($payload['delete_radarr_reference'] ?? false);
+        $deleteMediaPlayerReference = (bool)($payload['delete_media_player_reference'] ?? false);
+        $disableRadarrAutoSearch = (bool)($payload['disable_radarr_auto_search'] ?? false);
 
         $filesDeleted = 0;
         $radarrDereferenced = false;
@@ -126,7 +128,7 @@ class MovieController extends AbstractController
 
                     if (file_exists($physicalPath)) {
                         if (@unlink($physicalPath)) {
-                            $filesDeleted++;
+                            ++$filesDeleted;
                         } else {
                             $this->logger->warning('Failed to delete physical file', [
                                 'path' => $physicalPath,
@@ -134,7 +136,7 @@ class MovieController extends AbstractController
                         }
                     } else {
                         // File already gone, still count it
-                        $filesDeleted++;
+                        ++$filesDeleted;
                     }
                 }
 
@@ -150,10 +152,10 @@ class MovieController extends AbstractController
                     $movie->getRadarrInstance(),
                     $movie->getRadarrId(),
                     false, // don't delete files via Radarr
-                    false  // don't add exclusion
+                    false,  // don't add exclusion
                 );
                 $radarrDereferenced = true;
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $this->logger->error('Failed to dereference from Radarr', [
                     'movie' => $movie->getTitle(),
                     'error' => $e->getMessage(),
@@ -168,7 +170,7 @@ class MovieController extends AbstractController
                 $radarrMovie['monitored'] = false;
                 $this->radarrService->updateMovie($movie->getRadarrInstance(), $movie->getRadarrId(), $radarrMovie);
                 $radarrAutoSearchDisabled = true;
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $this->logger->error('Failed to disable Radarr auto-search', [
                     'movie' => $movie->getTitle(),
                     'error' => $e->getMessage(),
@@ -258,7 +260,7 @@ class MovieController extends AbstractController
             }
 
             $filesSummary[] = [
-                'id' => (string) $mediaFile->getId(),
+                'id' => (string)$mediaFile->getId(),
                 'file_name' => $mediaFile->getFileName(),
                 'file_size_bytes' => $size,
                 'resolution' => $mediaFile->getResolution(),
@@ -267,7 +269,7 @@ class MovieController extends AbstractController
         }
 
         return [
-            'id' => (string) $movie->getId(),
+            'id' => (string)$movie->getId(),
             'tmdb_id' => $movie->getTmdbId(),
             'title' => $movie->getTitle(),
             'original_title' => $movie->getOriginalTitle(),
@@ -275,7 +277,7 @@ class MovieController extends AbstractController
             'synopsis' => $movie->getSynopsis(),
             'poster_url' => $movie->getPosterUrl(),
             'genres' => $movie->getGenres(),
-            'rating' => $movie->getRating() !== null ? (float) $movie->getRating() : null,
+            'rating' => $movie->getRating() !== null ? (float)$movie->getRating() : null,
             'runtime_minutes' => $movie->getRuntimeMinutes(),
             'file_count' => count($filesSummary),
             'max_file_size_bytes' => $maxFileSize,
@@ -300,8 +302,8 @@ class MovieController extends AbstractController
             }
 
             $files[] = [
-                'id' => (string) $mediaFile->getId(),
-                'volume_id' => (string) $mediaFile->getVolume()?->getId(),
+                'id' => (string)$mediaFile->getId(),
+                'volume_id' => (string)$mediaFile->getVolume()?->getId(),
                 'volume_name' => $mediaFile->getVolume()?->getName(),
                 'file_path' => $mediaFile->getFilePath(),
                 'file_name' => $mediaFile->getFileName(),
@@ -313,14 +315,14 @@ class MovieController extends AbstractController
                 'is_linked_radarr' => $mediaFile->isLinkedRadarr(),
                 'is_linked_media_player' => $mediaFile->isLinkedMediaPlayer(),
                 'matched_by' => $mf->getMatchedBy(),
-                'confidence' => $mf->getConfidence() !== null ? (float) $mf->getConfidence() : null,
+                'confidence' => $mf->getConfidence() !== null ? (float)$mf->getConfidence() : null,
             ];
         }
 
         $radarrInstance = $movie->getRadarrInstance();
 
         return [
-            'id' => (string) $movie->getId(),
+            'id' => (string)$movie->getId(),
             'tmdb_id' => $movie->getTmdbId(),
             'title' => $movie->getTitle(),
             'original_title' => $movie->getOriginalTitle(),
@@ -329,10 +331,10 @@ class MovieController extends AbstractController
             'poster_url' => $movie->getPosterUrl(),
             'backdrop_url' => $movie->getBackdropUrl(),
             'genres' => $movie->getGenres(),
-            'rating' => $movie->getRating() !== null ? (float) $movie->getRating() : null,
+            'rating' => $movie->getRating() !== null ? (float)$movie->getRating() : null,
             'runtime_minutes' => $movie->getRuntimeMinutes(),
-            'radarr_instance' => $radarrInstance !== null ? [
-                'id' => (string) $radarrInstance->getId(),
+            'radarr_instance' => $radarrInstance instanceof RadarrInstance ? [
+                'id' => (string)$radarrInstance->getId(),
                 'name' => $radarrInstance->getName(),
             ] : null,
             'radarr_monitored' => $movie->isRadarrMonitored() ?? false,

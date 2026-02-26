@@ -126,9 +126,8 @@ func TestScan_FindsMkvFiles(t *testing.T) {
 	}
 
 	// Give the write loop time to flush messages
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	client.Close()
-	time.Sleep(100 * time.Millisecond)
 
 	msgs := collectMessages(messages, 500*time.Millisecond)
 
@@ -188,9 +187,8 @@ func TestScan_HardlinkCount(t *testing.T) {
 		t.Fatalf("Scan returned error: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	client.Close()
-	time.Sleep(100 * time.Millisecond)
 
 	msgs := collectMessages(messages, 500*time.Millisecond)
 
@@ -256,9 +254,8 @@ func TestScan_SkipsNonMediaFiles(t *testing.T) {
 		t.Fatalf("Scan returned error: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	client.Close()
-	time.Sleep(100 * time.Millisecond)
 
 	msgs := collectMessages(messages, 500*time.Millisecond)
 
@@ -310,7 +307,6 @@ func TestScan_ProgressEvery100Files(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 	client.Close()
-	time.Sleep(100 * time.Millisecond)
 
 	msgs := collectMessages(messages, 1*time.Second)
 
@@ -372,7 +368,6 @@ func TestScan_CompletedStats(t *testing.T) {
 
 	time.Sleep(300 * time.Millisecond)
 	client.Close()
-	time.Sleep(100 * time.Millisecond)
 
 	msgs := collectMessages(messages, 500*time.Millisecond)
 
@@ -455,9 +450,8 @@ func TestScan_EmptyDirectory(t *testing.T) {
 	}()
 
 	wg.Wait()
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	client.Close()
-	time.Sleep(100 * time.Millisecond)
 
 	msgs := collectMessages(messages, 500*time.Millisecond)
 

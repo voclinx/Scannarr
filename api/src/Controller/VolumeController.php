@@ -15,16 +15,18 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
+use Throwable;
 
 #[Route('/api/v1/volumes')]
 class VolumeController extends AbstractController
 {
     public function __construct(
-        private EntityManagerInterface $em,
-        private VolumeRepository $volumeRepository,
-        private MediaFileRepository $mediaFileRepository,
-        private WatcherCommandService $watcherCommandService,
-    ) {}
+        private readonly EntityManagerInterface $em,
+        private readonly VolumeRepository $volumeRepository,
+        private readonly MediaFileRepository $mediaFileRepository,
+        private readonly WatcherCommandService $watcherCommandService,
+    ) {
+    }
 
     /**
      * List all volumes — accessible to any authenticated user (Guest+).
@@ -34,7 +36,7 @@ class VolumeController extends AbstractController
     {
         $volumes = $this->volumeRepository->findBy([], ['name' => 'ASC']);
 
-        $data = array_map(fn(Volume $v) => $this->serializeVolume($v), $volumes);
+        $data = array_map($this->serializeVolume(...), $volumes);
 
         return $this->json(['data' => $data]);
     }
@@ -95,10 +97,10 @@ class VolumeController extends AbstractController
         $totalSpace = @disk_total_space($path);
         $freeSpace = @disk_free_space($path);
         if ($totalSpace !== false) {
-            $volume->setTotalSpaceBytes((int) $totalSpace);
+            $volume->setTotalSpaceBytes((int)$totalSpace);
         }
         if ($totalSpace !== false && $freeSpace !== false) {
-            $volume->setUsedSpaceBytes((int) ($totalSpace - $freeSpace));
+            $volume->setUsedSpaceBytes((int)($totalSpace - $freeSpace));
         }
 
         $this->em->persist($volume);
@@ -114,7 +116,7 @@ class VolumeController extends AbstractController
         // Notify watcher to start watching this path
         try {
             $this->watcherCommandService->requestWatchAdd($hostPath);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             // Non-blocking — watcher might not be connected
         }
 
@@ -129,7 +131,7 @@ class VolumeController extends AbstractController
     public function update(string $id, Request $request): JsonResponse
     {
         $volume = $this->volumeRepository->find($id);
-        if (!$volume) {
+        if (!$volume instanceof Volume) {
             return $this->json([
                 'error' => ['code' => 404, 'message' => 'Volume not found'],
             ], 404);
@@ -145,13 +147,13 @@ class VolumeController extends AbstractController
         $oldHostPath = $volume->getHostPath();
 
         if (isset($data['name'])) {
-            $volume->setName(trim($data['name']));
+            $volume->setName(trim((string)$data['name']));
         }
         if (isset($data['path'])) {
-            $volume->setPath(trim($data['path']));
+            $volume->setPath(trim((string)$data['path']));
         }
         if (isset($data['host_path'])) {
-            $volume->setHostPath(trim($data['host_path']));
+            $volume->setHostPath(trim((string)$data['host_path']));
         }
         if (isset($data['type'])) {
             $type = VolumeType::tryFrom($data['type']);
@@ -186,7 +188,7 @@ class VolumeController extends AbstractController
             try {
                 $this->watcherCommandService->requestWatchRemove($oldHostPath);
                 $this->watcherCommandService->requestWatchAdd($newHostPath);
-            } catch (\Throwable) {
+            } catch (Throwable) {
                 // Non-blocking
             }
         }
@@ -202,7 +204,7 @@ class VolumeController extends AbstractController
     public function delete(string $id): JsonResponse
     {
         $volume = $this->volumeRepository->find($id);
-        if (!$volume) {
+        if (!$volume instanceof Volume) {
             return $this->json([
                 'error' => ['code' => 404, 'message' => 'Volume not found'],
             ], 404);
@@ -217,7 +219,7 @@ class VolumeController extends AbstractController
         // Notify watcher to stop watching this path
         try {
             $this->watcherCommandService->requestWatchRemove($hostPath);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             // Non-blocking
         }
 
@@ -233,7 +235,7 @@ class VolumeController extends AbstractController
     public function scan(string $id): JsonResponse
     {
         $volume = $this->volumeRepository->find($id);
-        if (!$volume) {
+        if (!$volume instanceof Volume) {
             return $this->json([
                 'error' => ['code' => 404, 'message' => 'Volume not found'],
             ], 404);
@@ -250,7 +252,7 @@ class VolumeController extends AbstractController
         return $this->json([
             'data' => [
                 'message' => "Scan initiated for volume '{$volume->getName()}'",
-                'volume_id' => (string) $volume->getId(),
+                'volume_id' => (string)$volume->getId(),
                 'scan_id' => $scanId,
             ],
         ], 202);
@@ -259,7 +261,7 @@ class VolumeController extends AbstractController
     private function serializeVolume(Volume $volume): array
     {
         return [
-            'id' => (string) $volume->getId(),
+            'id' => (string)$volume->getId(),
             'name' => $volume->getName(),
             'path' => $volume->getPath(),
             'host_path' => $volume->getHostPath(),

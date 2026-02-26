@@ -2,15 +2,17 @@
 
 namespace App\Tests\Functional\Controller;
 
+use App\Entity\MediaFile;
 use App\Entity\Movie;
 use App\Entity\ScheduledDeletion;
 use App\Entity\ScheduledDeletionItem;
+use App\Entity\User;
 use App\Entity\Volume;
-use App\Entity\MediaFile;
 use App\Enum\DeletionStatus;
 use App\Enum\VolumeStatus;
 use App\Enum\VolumeType;
 use App\Tests\AbstractApiTestCase;
+use DateTime;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Uid\Uuid;
@@ -75,14 +77,14 @@ class ScheduledDeletionControllerTest extends AbstractApiTestCase
      * Helper: create a ScheduledDeletion entity directly in the database.
      */
     private function createDeletion(
-        $user,
+        User $user,
         DeletionStatus $status = DeletionStatus::PENDING,
         ?string $scheduledDate = null,
         ?int $reminderDaysBefore = 3,
     ): ScheduledDeletion {
         $deletion = new ScheduledDeletion();
         $deletion->setCreatedBy($user);
-        $deletion->setScheduledDate(new \DateTime($scheduledDate ?? '+30 days'));
+        $deletion->setScheduledDate(new DateTime($scheduledDate ?? '+30 days'));
         $deletion->setStatus($status);
         $deletion->setReminderDaysBefore($reminderDaysBefore);
         $this->em->persist($deletion);
@@ -128,8 +130,8 @@ class ScheduledDeletionControllerTest extends AbstractApiTestCase
             'scheduled_date' => '2030-01-15',
             'items' => [
                 [
-                    'movie_id' => (string) $movie->getId(),
-                    'media_file_ids' => [(string) $mediaFile->getId()],
+                    'movie_id' => (string)$movie->getId(),
+                    'media_file_ids' => [(string)$mediaFile->getId()],
                 ],
             ],
         ]);
@@ -160,7 +162,7 @@ class ScheduledDeletionControllerTest extends AbstractApiTestCase
             'scheduled_date' => '2020-01-01',
             'items' => [
                 [
-                    'movie_id' => (string) $movie->getId(),
+                    'movie_id' => (string)$movie->getId(),
                     'media_file_ids' => [],
                 ],
             ],
@@ -183,7 +185,7 @@ class ScheduledDeletionControllerTest extends AbstractApiTestCase
         $user = $this->createAdvancedUser();
         $this->authenticateAs($user);
 
-        $fakeMovieId = (string) Uuid::v4();
+        $fakeMovieId = (string)Uuid::v4();
 
         $this->apiPost('/api/v1/scheduled-deletions', [
             'scheduled_date' => '2030-06-15',
@@ -215,7 +217,7 @@ class ScheduledDeletionControllerTest extends AbstractApiTestCase
         $deletion = $this->createDeletion($user, DeletionStatus::PENDING);
         $this->addDeletionItem($deletion, $movie);
 
-        $this->apiDelete('/api/v1/scheduled-deletions/' . (string) $deletion->getId());
+        $this->apiDelete('/api/v1/scheduled-deletions/' . $deletion->getId());
 
         $this->assertResponseStatusCode(200);
 
@@ -241,7 +243,7 @@ class ScheduledDeletionControllerTest extends AbstractApiTestCase
         $deletion = $this->createDeletion($user, DeletionStatus::COMPLETED);
         $this->addDeletionItem($deletion, $movie);
 
-        $this->apiDelete('/api/v1/scheduled-deletions/' . (string) $deletion->getId());
+        $this->apiDelete('/api/v1/scheduled-deletions/' . $deletion->getId());
 
         // The controller returns 409 (Conflict) for non-cancellable statuses
         $this->assertResponseStatusCode(409);
@@ -268,7 +270,7 @@ class ScheduledDeletionControllerTest extends AbstractApiTestCase
 
         // Create a deletion due today (or in the past)
         $deletion = $this->createDeletion($user, DeletionStatus::PENDING, 'today');
-        $this->addDeletionItem($deletion, $movie, [(string) $mediaFile->getId()]);
+        $this->addDeletionItem($deletion, $movie, [(string)$mediaFile->getId()]);
 
         // Run the command
         $application = new Application(self::$kernel);
@@ -306,7 +308,7 @@ class ScheduledDeletionControllerTest extends AbstractApiTestCase
         $movie = $this->createMovie('Missing File Movie', 2023);
 
         // Reference a non-existent media file UUID
-        $fakeMediaFileId = (string) Uuid::v4();
+        $fakeMediaFileId = (string)Uuid::v4();
 
         $deletion = $this->createDeletion($user, DeletionStatus::PENDING, 'today');
         $this->addDeletionItem($deletion, $movie, [$fakeMediaFileId]);
@@ -349,7 +351,7 @@ class ScheduledDeletionControllerTest extends AbstractApiTestCase
 
         // Create a deletion scheduled 3 days from now with reminder_days_before=3
         // This means today is exactly the reminder date, so the reminder should fire
-        $scheduledDate = (new \DateTime('+3 days'))->format('Y-m-d');
+        $scheduledDate = (new DateTime('+3 days'))->format('Y-m-d');
         $deletion = $this->createDeletion($user, DeletionStatus::PENDING, $scheduledDate, 3);
         $this->addDeletionItem($deletion, $movie);
 

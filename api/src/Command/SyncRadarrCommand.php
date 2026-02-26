@@ -8,7 +8,9 @@ use App\Repository\MovieRepository;
 use App\Repository\RadarrInstanceRepository;
 use App\Service\RadarrService;
 use App\Service\TmdbService;
+use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
+use Exception;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -23,12 +25,12 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 class SyncRadarrCommand extends Command
 {
     public function __construct(
-        private RadarrInstanceRepository $radarrInstanceRepository,
-        private MovieRepository $movieRepository,
-        private EntityManagerInterface $em,
-        private RadarrService $radarrService,
-        private TmdbService $tmdbService,
-        private LoggerInterface $logger,
+        private readonly RadarrInstanceRepository $radarrInstanceRepository,
+        private readonly MovieRepository $movieRepository,
+        private readonly EntityManagerInterface $em,
+        private readonly RadarrService $radarrService,
+        private readonly TmdbService $tmdbService,
+        private readonly LoggerInterface $logger,
     ) {
         parent::__construct();
     }
@@ -40,8 +42,9 @@ class SyncRadarrCommand extends Command
 
         $instances = $this->radarrInstanceRepository->findBy(['isActive' => true]);
 
-        if (empty($instances)) {
+        if ($instances === []) {
             $io->warning('No active Radarr instances found.');
+
             return Command::SUCCESS;
         }
 
@@ -57,7 +60,7 @@ class SyncRadarrCommand extends Command
                 $totalImported += $result['imported'];
                 $totalUpdated += $result['updated'];
                 $totalEnriched += $result['enriched'];
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $io->error(sprintf('Failed to sync %s: %s', $instance->getName(), $e->getMessage()));
                 $this->logger->error('Radarr sync failed', [
                     'instance' => $instance->getName(),
@@ -70,7 +73,7 @@ class SyncRadarrCommand extends Command
             'Sync complete: %d imported, %d updated, %d enriched via TMDB.',
             $totalImported,
             $totalUpdated,
-            $totalEnriched
+            $totalEnriched,
         ));
 
         return Command::SUCCESS;
@@ -95,7 +98,7 @@ class SyncRadarrCommand extends Command
         try {
             $rootFolders = $this->radarrService->getRootFolders($instance);
             $instance->setRootFolders($rootFolders);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->warning('Failed to refresh root folders', [
                 'instance' => $instance->getName(),
                 'error' => $e->getMessage(),
@@ -129,9 +132,9 @@ class SyncRadarrCommand extends Command
                 }
 
                 $this->em->persist($movie);
-                $imported++;
+                ++$imported;
             } else {
-                $updated++;
+                ++$updated;
             }
 
             // Update Radarr-specific fields
@@ -168,7 +171,7 @@ class SyncRadarrCommand extends Command
                 $imdbRating = $radarrMovie['ratings']['imdb']['value'] ?? null;
                 $rating = $tmdbRating ?? $imdbRating;
                 if ($rating !== null) {
-                    $movie->setRating((string) round((float) $rating, 1));
+                    $movie->setRating((string)round((float)$rating, 1));
                 }
             }
 
@@ -177,11 +180,11 @@ class SyncRadarrCommand extends Command
                 try {
                     $tmdbData = $this->tmdbService->enrichMovieData($tmdbId);
 
-                    if (!empty($tmdbData)) {
+                    if ($tmdbData !== []) {
                         $this->applyTmdbData($movie, $tmdbData);
-                        $enriched++;
+                        ++$enriched;
                     }
-                } catch (\Exception $e) {
+                } catch (Exception $e) {
                     $this->logger->debug('TMDB enrichment failed', [
                         'tmdb_id' => $tmdbId,
                         'title' => $title,
@@ -191,7 +194,7 @@ class SyncRadarrCommand extends Command
             }
 
             // Batch flush every 50 movies
-            $batchCount++;
+            ++$batchCount;
             if ($batchCount % 50 === 0) {
                 $this->em->flush();
                 $io->info(sprintf('Processed %d/%d movies...', $batchCount, count($radarrMovies)));
@@ -202,7 +205,7 @@ class SyncRadarrCommand extends Command
         $this->em->flush();
 
         // Update last sync timestamp
-        $instance->setLastSyncAt(new \DateTimeImmutable());
+        $instance->setLastSyncAt(new DateTimeImmutable());
         $this->em->flush();
 
         $io->info(sprintf(
@@ -210,7 +213,7 @@ class SyncRadarrCommand extends Command
             $instance->getName(),
             $imported,
             $updated,
-            $enriched
+            $enriched,
         ));
 
         return [
@@ -228,7 +231,7 @@ class SyncRadarrCommand extends Command
     private function applyTmdbData(Movie $movie, array $tmdbData): void
     {
         // Only update fields that are currently empty/null (don't overwrite existing data)
-        if (empty($movie->getSynopsis()) && !empty($tmdbData['synopsis'])) {
+        if (in_array($movie->getSynopsis(), [null, '', '0'], true) && !empty($tmdbData['synopsis'])) {
             $movie->setSynopsis($tmdbData['synopsis']);
         }
 
@@ -240,12 +243,12 @@ class SyncRadarrCommand extends Command
             $movie->setBackdropUrl($tmdbData['backdrop_url']);
         }
 
-        if (empty($movie->getGenres()) && !empty($tmdbData['genres'])) {
+        if (in_array($movie->getGenres(), [null, '', '0'], true) && !empty($tmdbData['genres'])) {
             $movie->setGenres($tmdbData['genres']);
         }
 
         if ($movie->getRating() === null && isset($tmdbData['rating'])) {
-            $movie->setRating((string) $tmdbData['rating']);
+            $movie->setRating((string)$tmdbData['rating']);
         }
 
         if ($movie->getRuntimeMinutes() === null && !empty($tmdbData['runtime_minutes'])) {
@@ -261,7 +264,7 @@ class SyncRadarrCommand extends Command
             $movie->setTitle($tmdbData['title']);
         }
 
-        if (empty($movie->getOriginalTitle()) && !empty($tmdbData['original_title'])) {
+        if (in_array($movie->getOriginalTitle(), [null, '', '0'], true) && !empty($tmdbData['original_title'])) {
             $movie->setOriginalTitle($tmdbData['original_title']);
         }
     }

@@ -6,6 +6,7 @@ use App\Entity\RefreshToken;
 use App\Entity\Setting;
 use App\Entity\User;
 use App\Tests\AbstractApiTestCase;
+use DateTime;
 
 class AuthControllerTest extends AbstractApiTestCase
 {
@@ -20,7 +21,7 @@ class AuthControllerTest extends AbstractApiTestCase
     {
         // Ensure no setup_completed setting exists (fresh state)
         $existing = $this->em->getRepository(Setting::class)->findOneBy(['settingKey' => 'setup_completed']);
-        if ($existing) {
+        if ($existing instanceof Setting) {
             $this->em->remove($existing);
             $this->em->flush();
         }
@@ -180,10 +181,10 @@ class AuthControllerTest extends AbstractApiTestCase
 
         // Create a refresh token directly in DB (avoids cross-request transaction issues)
         $refreshTokenString = bin2hex(random_bytes(32));
-        $refreshToken = new \App\Entity\RefreshToken();
+        $refreshToken = new RefreshToken();
         $refreshToken->setRefreshToken($refreshTokenString);
         $refreshToken->setUsername($user->getEmail());
-        $refreshToken->setValid(new \DateTime('+1 hour'));
+        $refreshToken->setValid(new DateTime('+1 hour'));
         $this->em->persist($refreshToken);
         $this->em->flush();
 
@@ -244,7 +245,7 @@ class AuthControllerTest extends AbstractApiTestCase
 
         $data = $this->getResponseData();
         $this->assertArrayHasKey('data', $data);
-        $this->assertEquals((string) $user->getId(), $data['data']['id']);
+        $this->assertEquals((string)$user->getId(), $data['data']['id']);
         $this->assertEquals('user@scanarr.io', $data['data']['email']);
         $this->assertEquals('testuser', $data['data']['username']);
         $this->assertEquals('ROLE_USER', $data['data']['role']);

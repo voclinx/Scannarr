@@ -19,6 +19,7 @@ DC_DEV  := docker compose -f docker-compose.yml -f docker-compose.dev.yml
 API     := docker exec scanarr-api
 FRONT   := docker exec scanarr-front
 DB      := docker exec scanarr-db
+GO_TEST := $(DC_DEV) --profile test run --rm watcher-test
 
 # ============================================================================
 # 🐳 Docker
@@ -203,12 +204,12 @@ test-front-coverage: ## Lancer Vitest avec couverture de code
 	$(FRONT) npx vitest run --coverage
 
 .PHONY: test-go
-test-go: ## Lancer les tests Go (Watcher)
-	cd watcher && go test ./... -v
+test-go: ## Lancer les tests Go (Watcher) via Docker
+	$(GO_TEST) go test ./... -v
 
 .PHONY: test-go-coverage
-test-go-coverage: ## Lancer les tests Go avec couverture
-	cd watcher && go test ./... -v -cover -coverprofile=coverage.out
+test-go-coverage: ## Lancer les tests Go avec couverture via Docker
+	$(GO_TEST) go test ./... -v -cover -coverprofile=coverage.out
 
 # ============================================================================
 # 🐿️ Watcher (Go)
