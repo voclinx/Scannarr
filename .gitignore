@@ -15,6 +15,7 @@ public/bundles/
 # IDE
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~
@@ -23,6 +24,7 @@ public/bundles/
 .DS_Store
 Thumbs.db
 *:Zone.Identifier
+*Zone.Identifier
 
 # Docker
 db_data/
@@ -35,7 +37,11 @@ api/public/bundles/
 api/.env.local
 api/.env.local.php
 api/.env.*.local
+api/.env.dev
 api/.php-cs-fixer.cache
+api/bin/phpunit
+api/compose.yaml
+api/compose.override.yaml
 
 # Vue.js / Node
 front/node_modules/
