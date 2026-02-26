@@ -24,8 +24,6 @@ services:
     volumes:
       - ./front:/app
       - /app/node_modules
-    ports:
-      - "${FRONT_PORT:-3000}:5173"
     command: npm run dev -- --host 0.0.0.0
 
   watcher-test:

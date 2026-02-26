@@ -55,7 +55,7 @@ services:
     depends_on:
       - api
     ports:
-      - "3000:80"
+      - "${FRONT_PORT:-3000}:${FRONT_CONTAINER_PORT:-80}"
 
   # NOTE: The watcher is NOT in Docker.
   # It runs as a native Go binary on the host server via systemd.

@@ -2,10 +2,12 @@
 
 namespace App\Controller;
 
+use App\Entity\RefreshToken;
 use App\Entity\User;
 use App\Repository\UserRepository;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
+use Lexik\Bundle\JWTAuthenticationBundle\Services\JWTTokenManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -21,6 +23,7 @@ class UserController extends AbstractController
         private readonly UserRepository $userRepository,
         private readonly UserPasswordHasherInterface $passwordHasher,
         private readonly ValidatorInterface $validator,
+        private readonly JWTTokenManagerInterface $jwtManager,
     ) {
     }
 
@@ -122,6 +125,11 @@ class UserController extends AbstractController
             ], 400);
         }
 
+        /** @var User $currentUser */
+        $currentUser = $this->getUser();
+        $isSelfEdit = $user->getId()->equals($currentUser->getId());
+        $oldEmail = $user->getEmail();
+
         if (isset($data['email'])) {
             $user->setEmail($data['email']);
         }
@@ -169,9 +177,28 @@ class UserController extends AbstractController
             ], 409);
         }
 
-        return $this->json([
-            'data' => $this->serializeUser($user),
-        ]);
+        $response = ['data' => $this->serializeUser($user)];
+
+        // If the user changed their own email, the JWT (signed with old email) becomes invalid.
+        // Regenerate tokens and update refresh tokens in DB.
+        $emailChanged = $isSelfEdit && $oldEmail !== $user->getEmail();
+        if ($emailChanged) {
+            $newAccessToken = $this->jwtManager->create($user);
+
+            // Update existing refresh tokens to use the new email
+            $refreshTokenRepo = $this->em->getRepository(RefreshToken::class);
+            $oldRefreshTokens = $refreshTokenRepo->findBy(['username' => $oldEmail]);
+            foreach ($oldRefreshTokens as $rt) {
+                $rt->setUsername($user->getUserIdentifier());
+            }
+            $this->em->flush();
+
+            $response['data']['new_tokens'] = [
+                'access_token' => $newAccessToken,
+            ];
+        }
+
+        return $this->json($response);
     }
 
     #[Route('/{id}', methods: ['DELETE'])]

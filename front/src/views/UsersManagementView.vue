@@ -142,7 +142,15 @@ async function handleSubmit(): Promise<void> {
       if (formPassword.value) {
         payload.password = formPassword.value
       }
-      await api.put(`/users/${editingUserId.value}`, payload)
+      const response = await api.put(`/users/${editingUserId.value}`, payload)
+
+      // If the user changed their own email, the backend returns new tokens
+      const newTokens = response.data?.data?.new_tokens
+      if (newTokens?.access_token) {
+        authStore.setTokens(newTokens.access_token, authStore.refreshToken ?? '')
+        await authStore.fetchMe()
+      }
+
       successMsg.value = 'Utilisateur modifié avec succès'
     }
 
