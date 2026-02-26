@@ -1,0 +1,16 @@
+# Production override — uses pre-built images from GitLab Container Registry
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml pull api front
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
+#
+# Required env vars (in .env on the server):
+#   REGISTRY_IMAGE  — e.g. registry.gitlab.com/youruser/scannarr
+#   TAG             — e.g. v1.0.0 or latest
+
+services:
+  api:
+    image: ${REGISTRY_IMAGE}/api:${TAG:-latest}
+
+  front:
+    image: ${REGISTRY_IMAGE}/front:${TAG:-latest}
