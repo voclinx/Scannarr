@@ -52,6 +52,20 @@ func main() {
 		handleCommand(msg, fileScanner, fileWatcher)
 	}
 
+	// Handle reconnection with dropped events — trigger a full resync scan
+	wsClient.OnReconnect = func() {
+		slog.Info("Resync scan triggered after reconnection with dropped events")
+		// Wait briefly for the connection to stabilize
+		time.Sleep(2 * time.Second)
+		for _, path := range cfg.WatchPaths {
+			scanID := uuid.New().String()
+			slog.Info("Resync scanning path", "path", path, "scan_id", scanID)
+			if err := fileScanner.Scan(path, scanID); err != nil {
+				slog.Error("Resync scan failed", "path", path, "error", err)
+			}
+		}
+	}
+
 	// Connect to WebSocket (with retry)
 	wsClient.ConnectWithRetry()
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -23,8 +24,20 @@ type Client struct {
 	closeOnce sync.Once
 	msgChan   chan models.Message
 
+	// droppedMessages is set to true when the buffer overflows.
+	// This signals that events were lost and a resync scan is needed.
+	droppedMessages atomic.Bool
+
+	// wasConnected tracks whether we had a successful connection before.
+	// Used to distinguish initial connection from reconnection.
+	wasConnected atomic.Bool
+
 	// OnCommand is called when a command is received from the API.
 	OnCommand func(msg models.Message)
+
+	// OnReconnect is called after a successful reconnection if messages
+	// were dropped during the disconnection period.
+	OnReconnect func()
 }
 
 // NewClient creates a new WebSocket client.
@@ -35,7 +48,7 @@ func NewClient(url, authToken string, reconnectDelay, pingInterval time.Duration
 		reconnectDelay: reconnectDelay,
 		pingInterval:   pingInterval,
 		done:           make(chan struct{}),
-		msgChan:        make(chan models.Message, 100),
+		msgChan:        make(chan models.Message, 10000),
 	}
 }
 
@@ -72,12 +85,24 @@ func (c *Client) ConnectWithRetry() {
 			continue
 		}
 
-		slog.Info("WebSocket connected", "url", c.url)
+		isReconnect := c.wasConnected.Load()
+		c.wasConnected.Store(true)
+
+		slog.Info("WebSocket connected", "url", c.url, "reconnect", isReconnect)
 		delay = c.reconnectDelay // reset backoff
 
 		go c.readLoop()
 		go c.writeLoop()
 		go c.pingLoop()
+
+		// If this is a reconnection and events were dropped, trigger a resync scan
+		if isReconnect && c.droppedMessages.Swap(false) {
+			slog.Warn("Events were dropped during disconnection, triggering resync scan")
+			if c.OnReconnect != nil {
+				go c.OnReconnect()
+			}
+		}
+
 		return
 	}
 }
@@ -87,7 +112,10 @@ func (c *Client) Send(msg models.Message) {
 	select {
 	case c.msgChan <- msg:
 	default:
-		slog.Warn("Message channel full, dropping message", "type", msg.Type)
+		if !c.droppedMessages.Load() {
+			c.droppedMessages.Store(true)
+			slog.Warn("Message buffer full, events are being dropped — a resync scan will be triggered on reconnection", "type", msg.Type)
+		}
 	}
 }
 

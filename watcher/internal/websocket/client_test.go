@@ -413,3 +413,128 @@ func TestClient_IsConnected_InitiallyFalse(t *testing.T) {
 		t.Error("IsConnected() = true before Connect(), want false")
 	}
 }
+
+// TestClient_DroppedMessages_TriggersResync verifies that when the message buffer
+// overflows during a disconnection, a resync scan is triggered after reconnection.
+func TestClient_DroppedMessages_TriggersResync(t *testing.T) {
+	resyncCalled := make(chan struct{}, 1)
+
+	var mu sync.Mutex
+	connectionCount := 0
+
+	upgrader := gorilla_ws.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		mu.Lock()
+		connectionCount++
+		count := connectionCount
+		mu.Unlock()
+
+		// Read auth message
+		_, _, _ = conn.ReadMessage()
+
+		if count == 1 {
+			// First connection: close to trigger reconnection
+			return
+		}
+
+		// Second connection: keep alive
+		time.Sleep(2 * time.Second)
+	}))
+	defer server.Close()
+
+	client := NewClient(httpToWs(server.URL), "token", 100*time.Millisecond, 30*time.Second)
+	client.OnReconnect = func() {
+		resyncCalled <- struct{}{}
+	}
+
+	err := client.Connect()
+	if err != nil {
+		t.Fatalf("Connect() returned error: %v", err)
+	}
+	defer client.Close()
+
+	// Simulate dropped messages by setting the flag directly
+	// (in production this happens when msgChan buffer overflows)
+	client.droppedMessages.Store(true)
+
+	// Wait for reconnection to happen (first connection closes immediately)
+	select {
+	case <-resyncCalled:
+		// Success: OnReconnect was called because droppedMessages was true
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for OnReconnect callback after dropped messages")
+	}
+
+	// Verify the flag was reset
+	if client.droppedMessages.Load() {
+		t.Error("droppedMessages should be reset to false after OnReconnect")
+	}
+}
+
+// TestClient_NoResync_WhenNoDroppedMessages verifies that OnReconnect is NOT called
+// when no messages were dropped during disconnection.
+func TestClient_NoResync_WhenNoDroppedMessages(t *testing.T) {
+	resyncCalled := make(chan struct{}, 1)
+
+	var mu sync.Mutex
+	connectionCount := 0
+
+	upgrader := gorilla_ws.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		mu.Lock()
+		connectionCount++
+		count := connectionCount
+		mu.Unlock()
+
+		// Read auth message
+		_, _, _ = conn.ReadMessage()
+
+		if count == 1 {
+			// First connection: close to trigger reconnection
+			return
+		}
+
+		// Second connection: keep alive
+		time.Sleep(2 * time.Second)
+	}))
+	defer server.Close()
+
+	client := NewClient(httpToWs(server.URL), "token", 100*time.Millisecond, 30*time.Second)
+	client.OnReconnect = func() {
+		resyncCalled <- struct{}{}
+	}
+
+	err := client.Connect()
+	if err != nil {
+		t.Fatalf("Connect() returned error: %v", err)
+	}
+	defer client.Close()
+
+	// Do NOT set droppedMessages — buffer didn't overflow
+
+	// Wait for reconnection, then a bit more
+	time.Sleep(1 * time.Second)
+
+	select {
+	case <-resyncCalled:
+		t.Error("OnReconnect was called but no messages were dropped")
+	default:
+		// Good: OnReconnect was not called
+	}
+}
