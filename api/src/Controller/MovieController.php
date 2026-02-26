@@ -17,7 +17,6 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\Process\Process;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 
@@ -228,11 +227,18 @@ class MovieController extends AbstractController
     #[IsGranted('ROLE_ADMIN')]
     public function sync(): JsonResponse
     {
-        // Run the command asynchronously
-        $process = new Process(['php', $this->projectDir . '/bin/console', 'scanarr:sync-radarr', '--no-interaction']);
-        $process->setWorkingDirectory($this->projectDir);
-        $process->setTimeout(null);
-        $process->start();
+        // Run the command in a fully detached background process
+        // Process::start() doesn't survive PHP-FPM request lifecycle,
+        // so we use exec with nohup to properly detach
+        $consolePath = $this->projectDir . '/bin/console';
+        $logPath = $this->projectDir . '/var/log/sync-radarr.log';
+        $command = sprintf(
+            'nohup php %s scanarr:sync-radarr --no-interaction >> %s 2>&1 &',
+            escapeshellarg($consolePath),
+            escapeshellarg($logPath),
+        );
+
+        exec($command);
 
         return $this->json([
             'data' => ['message' => 'Radarr sync started. Movies will be imported in the background.'],

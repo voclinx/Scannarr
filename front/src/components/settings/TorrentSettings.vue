@@ -16,6 +16,9 @@ const saveSuccess = ref(false)
 const saveError = ref<string | null>(null)
 const loadError = ref<string | null>(null)
 
+const testing = ref(false)
+const testResult = ref<{ success: boolean; message: string } | null>(null)
+
 async function handleSave(): Promise<void> {
   saving.value = true
   saveError.value = null
@@ -43,6 +46,27 @@ async function handleSave(): Promise<void> {
   } finally {
     saving.value = false
   }
+}
+
+async function handleTest(): Promise<void> {
+  testing.value = true
+  testResult.value = { success: false, message: 'Test en cours...' }
+
+  const result = await store.testQBittorrentConnection()
+
+  if (result.success) {
+    testResult.value = {
+      success: true,
+      message: `Connecté — ${result.version}`,
+    }
+  } else {
+    testResult.value = {
+      success: false,
+      message: result.error || 'Échec de la connexion',
+    }
+  }
+
+  testing.value = false
 }
 
 onMounted(async () => {
@@ -88,8 +112,23 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div class="pt-4">
+    <div class="pt-4 flex items-center gap-3">
       <Button label="Sauvegarder" icon="pi pi-save" @click="handleSave" :loading="saving" />
+      <Button
+        label="Tester"
+        icon="pi pi-bolt"
+        severity="secondary"
+        outlined
+        @click="handleTest"
+        :loading="testing"
+      />
+      <span
+        v-if="testResult"
+        :class="testResult.success ? 'text-green-600' : 'text-red-600'"
+        class="text-sm font-medium"
+      >
+        {{ testResult.message }}
+      </span>
     </div>
   </div>
 </template>

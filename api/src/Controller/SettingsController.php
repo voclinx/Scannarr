@@ -3,6 +3,7 @@
 namespace App\Controller;
 
 use App\Repository\SettingRepository;
+use App\Service\QBittorrentService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -36,6 +37,7 @@ class SettingsController extends AbstractController
 
     public function __construct(
         private readonly SettingRepository $settingRepository,
+        private readonly QBittorrentService $qBittorrentService,
     ) {
     }
 
@@ -92,5 +94,22 @@ class SettingsController extends AbstractController
                 'updated_keys' => $updatedKeys,
             ],
         ]);
+    }
+
+    #[Route('/qbittorrent/test', methods: ['POST'])]
+    public function testQBittorrentConnection(): JsonResponse
+    {
+        $result = $this->qBittorrentService->testConnection();
+
+        if ($result['success']) {
+            return $this->json(['data' => $result]);
+        }
+
+        return $this->json([
+            'error' => [
+                'code' => 400,
+                'message' => sprintf('Connection failed: %s', $result['error'] ?? 'Unknown error'),
+            ],
+        ], Response::HTTP_BAD_REQUEST);
     }
 }

@@ -161,12 +161,32 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  async function testQBittorrentConnection(): Promise<{
+    success: boolean
+    version?: string
+    error?: string
+  }> {
+    try {
+      const { data } = await api.post<{
+        data: { success: boolean; version: string }
+      }>('/settings/qbittorrent/test')
+      return data.data
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: { message?: string } } } }
+      return {
+        success: false,
+        error: error.response?.data?.error?.message || 'Connection test failed',
+      }
+    }
+  }
+
   return {
     // Settings
     settings,
     settingsLoading,
     fetchSettings,
     updateSettings,
+    testQBittorrentConnection,
     // Radarr
     radarrInstances,
     radarrLoading,
