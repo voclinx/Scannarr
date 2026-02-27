@@ -397,34 +397,54 @@ func handleCommand(msg models.Message, fileScanner *scanner.Scanner, fileWatcher
 }
 
 // logConfigChanges emits a structured slog entry describing what changed between two configs.
-// Called only on hot-reload (not first startup).
+// The message itself contains a human-readable summary so it is immediately visible in the log
+// dialog without needing to inspect the context. Called only on hot-reload (not first startup).
 func logConfigChanges(old, new *config.RuntimeConfig) {
-	args := []any{}
+	type change struct {
+		key   string
+		label string
+	}
+	var changes []change
 
 	added := diffSlice(new.WatchPaths, old.WatchPaths)
 	removed := diffSlice(old.WatchPaths, new.WatchPaths)
-	if len(added) > 0 {
-		args = append(args, "watch_paths_added", strings.Join(added, ", "))
+	for _, p := range added {
+		changes = append(changes, change{"watch_paths_added", fmt.Sprintf("watch_paths +%s", p)})
 	}
-	if len(removed) > 0 {
-		args = append(args, "watch_paths_removed", strings.Join(removed, ", "))
+	for _, p := range removed {
+		changes = append(changes, change{"watch_paths_removed", fmt.Sprintf("watch_paths -%s", p)})
 	}
 	if old.LogLevel != new.LogLevel {
-		args = append(args, "log_level", fmt.Sprintf("%s → %s", old.LogLevel, new.LogLevel))
+		changes = append(changes, change{"log_level", fmt.Sprintf("log_level %s → %s", old.LogLevel, new.LogLevel)})
 	}
 	if old.DisableDeletion != new.DisableDeletion {
-		args = append(args, "disable_deletion", fmt.Sprintf("%v → %v", old.DisableDeletion, new.DisableDeletion))
+		changes = append(changes, change{"disable_deletion", fmt.Sprintf("disable_deletion %v → %v", old.DisableDeletion, new.DisableDeletion)})
 	}
 	if old.WsReconnectDelaySecs != new.WsReconnectDelaySecs {
-		args = append(args, "ws_reconnect_delay_seconds", fmt.Sprintf("%d → %d", old.WsReconnectDelaySecs, new.WsReconnectDelaySecs))
+		changes = append(changes, change{"ws_reconnect_delay_seconds", fmt.Sprintf("ws_reconnect_delay_seconds %d → %d", old.WsReconnectDelaySecs, new.WsReconnectDelaySecs)})
 	}
 	if old.WsPingIntervalSecs != new.WsPingIntervalSecs {
-		args = append(args, "ws_ping_interval_seconds", fmt.Sprintf("%d → %d", old.WsPingIntervalSecs, new.WsPingIntervalSecs))
+		changes = append(changes, change{"ws_ping_interval_seconds", fmt.Sprintf("ws_ping_interval_seconds %d → %d", old.WsPingIntervalSecs, new.WsPingIntervalSecs)})
 	}
 
-	if len(args) > 0 {
-		slog.Info("Config updated", args...)
+	if len(changes) == 0 {
+		return
 	}
+
+	// Build human-readable message that shows all changes inline
+	labels := make([]string, len(changes))
+	for i, c := range changes {
+		labels[i] = c.label
+	}
+	msg := "Config updated: " + strings.Join(labels, ", ")
+
+	// Keep structured context for programmatic use
+	args := make([]any, 0, len(changes)*2)
+	for _, c := range changes {
+		args = append(args, c.key, c.label)
+	}
+
+	slog.Info(msg, args...)
 }
 
 // diffSlice returns elements present in a but not in b.
