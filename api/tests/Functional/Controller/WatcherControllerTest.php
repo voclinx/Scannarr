@@ -140,13 +140,13 @@ class WatcherControllerTest extends AbstractApiTestCase
 
         $this->apiPut('/api/v1/watchers/' . $watcher->getId() . '/config', [
             'log_level' => 'debug',
-            'watch_paths' => ['/mnt/media'],
+            'watch_paths' => [['path' => '/mnt/media', 'name' => 'media']],
         ]);
         $this->assertResponseStatusCode(200);
 
         $body = $this->getResponseData();
         $this->assertSame('debug', $body['data']['config']['log_level']);
-        $this->assertSame(['/mnt/media'], $body['data']['config']['watch_paths']);
+        $this->assertSame([['path' => '/mnt/media', 'name' => 'media']], $body['data']['config']['watch_paths']);
         // Other keys from default config should still be present (merge, not replace)
         $this->assertArrayHasKey('scan_on_start', $body['data']['config']);
     }

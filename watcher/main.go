@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -92,6 +93,9 @@ func main() {
 			return
 		}
 
+		// Snapshot old config for diff logging
+		oldCfg := *rtCfg
+
 		// Update runtime config
 		rtCfg = applyWatcherConfig(cfg, rtCfg)
 
@@ -125,6 +129,7 @@ func main() {
 		if isFirst {
 			// First config received (startup or post-restart): add all paths, then full scan if ScanOnStart=true.
 			applyWatchPathChanges(fileWatcher, nil, rtCfg.WatchPaths)
+
 			if cfg.ScanOnStart && len(rtCfg.WatchPaths) > 0 {
 				go func() {
 					time.Sleep(2 * time.Second)
@@ -138,7 +143,8 @@ func main() {
 				}()
 			}
 		} else {
-			// Hot reload or reconnection: only scan newly added paths (no full rescan).
+			// Hot reload: log what changed, then apply path changes.
+			logConfigChanges(&oldCfg, rtCfg)
 			applyWatchPathChanges(fileWatcher, fileScanner, rtCfg.WatchPaths)
 		}
 	}
@@ -388,6 +394,52 @@ func handleCommand(msg models.Message, fileScanner *scanner.Scanner, fileWatcher
 	default:
 		slog.Debug("Unknown command", "type", msg.Type)
 	}
+}
+
+// logConfigChanges emits a structured slog entry describing what changed between two configs.
+// Called only on hot-reload (not first startup).
+func logConfigChanges(old, new *config.RuntimeConfig) {
+	args := []any{}
+
+	added := diffSlice(new.WatchPaths, old.WatchPaths)
+	removed := diffSlice(old.WatchPaths, new.WatchPaths)
+	if len(added) > 0 {
+		args = append(args, "watch_paths_added", strings.Join(added, ", "))
+	}
+	if len(removed) > 0 {
+		args = append(args, "watch_paths_removed", strings.Join(removed, ", "))
+	}
+	if old.LogLevel != new.LogLevel {
+		args = append(args, "log_level", fmt.Sprintf("%s → %s", old.LogLevel, new.LogLevel))
+	}
+	if old.DisableDeletion != new.DisableDeletion {
+		args = append(args, "disable_deletion", fmt.Sprintf("%v → %v", old.DisableDeletion, new.DisableDeletion))
+	}
+	if old.WsReconnectDelaySecs != new.WsReconnectDelaySecs {
+		args = append(args, "ws_reconnect_delay_seconds", fmt.Sprintf("%d → %d", old.WsReconnectDelaySecs, new.WsReconnectDelaySecs))
+	}
+	if old.WsPingIntervalSecs != new.WsPingIntervalSecs {
+		args = append(args, "ws_ping_interval_seconds", fmt.Sprintf("%d → %d", old.WsPingIntervalSecs, new.WsPingIntervalSecs))
+	}
+
+	if len(args) > 0 {
+		slog.Info("Config updated", args...)
+	}
+}
+
+// diffSlice returns elements present in a but not in b.
+func diffSlice(a, b []string) []string {
+	bSet := make(map[string]bool, len(b))
+	for _, v := range b {
+		bSet[v] = true
+	}
+	var diff []string
+	for _, v := range a {
+		if !bSet[v] {
+			diff = append(diff, v)
+		}
+	}
+	return diff
 }
 
 // parseWatchPaths parses a comma-separated list of watch paths.
