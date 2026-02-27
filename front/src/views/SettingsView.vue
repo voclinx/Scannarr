@@ -8,7 +8,6 @@ import TabPanel from 'primevue/tabpanel'
 import WatcherSettings from '@/components/settings/WatcherSettings.vue'
 import RadarrSettings from '@/components/settings/RadarrSettings.vue'
 import MediaPlayerSettings from '@/components/settings/MediaPlayerSettings.vue'
-import VolumeSettings from '@/components/settings/VolumeSettings.vue'
 import TorrentSettings from '@/components/settings/TorrentSettings.vue'
 import DiscordSettings from '@/components/settings/DiscordSettings.vue'
 import PresetsSettings from '@/components/settings/PresetsSettings.vue'
@@ -45,35 +44,29 @@ const activeTab = ref('0')
           </Tab>
           <Tab value="3">
             <div class="flex items-center gap-2">
-              <i class="pi pi-database"></i>
-              <span>Volumes</span>
-            </div>
-          </Tab>
-          <Tab value="4">
-            <div class="flex items-center gap-2">
               <i class="pi pi-download"></i>
               <span>Torrent</span>
             </div>
           </Tab>
-          <Tab value="5">
+          <Tab value="4">
             <div class="flex items-center gap-2">
               <i class="pi pi-discord"></i>
               <span>Discord</span>
             </div>
           </Tab>
-          <Tab value="6">
+          <Tab value="5">
             <div class="flex items-center gap-2">
               <i class="pi pi-sliders-h"></i>
               <span>Presets</span>
             </div>
           </Tab>
-          <Tab value="7">
+          <Tab value="6">
             <div class="flex items-center gap-2">
               <i class="pi pi-shield"></i>
               <span>Trackers</span>
             </div>
           </Tab>
-          <Tab value="8">
+          <Tab value="7">
             <div class="flex items-center gap-2">
               <i class="pi pi-globe"></i>
               <span>TMDB</span>
@@ -99,30 +92,25 @@ const activeTab = ref('0')
           </TabPanel>
           <TabPanel value="3">
             <div class="p-4">
-              <VolumeSettings />
+              <TorrentSettings />
             </div>
           </TabPanel>
           <TabPanel value="4">
             <div class="p-4">
-              <TorrentSettings />
+              <DiscordSettings />
             </div>
           </TabPanel>
           <TabPanel value="5">
             <div class="p-4">
-              <DiscordSettings />
+              <PresetsSettings />
             </div>
           </TabPanel>
           <TabPanel value="6">
             <div class="p-4">
-              <PresetsSettings />
-            </div>
-          </TabPanel>
-          <TabPanel value="7">
-            <div class="p-4">
               <TrackerRulesSettings />
             </div>
           </TabPanel>
-          <TabPanel value="8">
+          <TabPanel value="7">
             <div class="p-4">
               <GeneralSettings />
             </div>

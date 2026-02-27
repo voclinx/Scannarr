@@ -6,7 +6,6 @@ use App\Entity\MediaFile;
 use App\Entity\Volume;
 use App\Repository\MediaFileRepository;
 use App\Repository\VolumeRepository;
-use App\Repository\WatcherLogRepository;
 use App\Repository\WatcherRepository;
 use App\Service\DeletionService;
 use App\Service\DiscordNotificationService;
@@ -33,7 +32,6 @@ class WatcherMessageProcessorTest extends TestCase
     private DeletionService $deletionService;
     private RadarrService $radarrService;
     private WatcherRepository $watcherRepository;
-    private WatcherLogRepository $watcherLogRepository;
     private LoggerInterface $logger;
     private WatcherMessageProcessor $processor;
 
@@ -48,7 +46,6 @@ class WatcherMessageProcessorTest extends TestCase
         $this->deletionService = $this->createStub(DeletionService::class);
         $this->radarrService = $this->createStub(RadarrService::class);
         $this->watcherRepository = $this->createStub(WatcherRepository::class);
-        $this->watcherLogRepository = $this->createStub(WatcherLogRepository::class);
         $this->logger = $this->createStub(LoggerInterface::class);
 
         // EntityManager is always open
@@ -64,7 +61,6 @@ class WatcherMessageProcessorTest extends TestCase
             $this->deletionService,
             $this->radarrService,
             $this->watcherRepository,
-            $this->watcherLogRepository,
             $this->logger,
         );
     }

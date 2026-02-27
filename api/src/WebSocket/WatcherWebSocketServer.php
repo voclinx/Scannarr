@@ -462,10 +462,13 @@ class WatcherWebSocketServer
 
         $this->logger->info('Watcher authenticated', ['watcher_id' => $watcherId, 'id' => $connId]);
 
-        // Send current config
-        $configPayload = array_merge($watcher->getConfig(), [
-            'config_hash' => $watcher->getConfigHash(),
-        ]);
+        // Send current config — transform watch_paths from [{path, name}] to flat string array for the Go watcher
+        $config = $watcher->getConfig();
+        $config['watch_paths'] = array_values(array_filter(array_map(
+            static fn($wp) => is_array($wp) ? ($wp['path'] ?? '') : (string)$wp,
+            $config['watch_paths'] ?? []
+        )));
+        $configPayload = array_merge($config, ['config_hash' => $watcher->getConfigHash()]);
         $this->sendToConnection($connId, ['type' => 'watcher.config', 'data' => $configPayload]);
 
         // Resend pending deletions on reconnect

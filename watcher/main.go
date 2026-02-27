@@ -21,6 +21,12 @@ import (
 	"github.com/voclinx/scanarr-watcher/internal/websocket"
 )
 
+// Package-level state guarded by mu.
+var (
+	mu              sync.Mutex
+	deletionDisabled bool
+)
+
 func main() {
 	// Step 1: Load minimal env config (2 variables)
 	envCfg, err := config.LoadEnv()
@@ -52,8 +58,8 @@ func main() {
 
 	// Step 4: Create WebSocket client with new 2-param constructor
 	wsClient := websocket.NewClient(envCfg.WsURL, envCfg.WatcherID)
-	wsClient.SetReconnectDelay(rtCfg.ReconnectDelay)
-	wsClient.SetPingInterval(rtCfg.PingInterval)
+	wsClient.SetReconnectDelay(time.Duration(rtCfg.WsReconnectDelaySecs) * time.Second)
+	wsClient.SetPingInterval(time.Duration(rtCfg.WsPingIntervalSecs) * time.Second)
 
 	// Restore cached token if available
 	if cachedState.AuthToken != "" {
@@ -88,6 +94,11 @@ func main() {
 
 		// Update runtime config
 		rtCfg = applyWatcherConfig(cfg, rtCfg)
+
+		// Propagate disable_deletion flag
+		mu.Lock()
+		deletionDisabled = rtCfg.DisableDeletion
+		mu.Unlock()
 
 		// Persist new state
 		newState := &state.State{
@@ -135,6 +146,40 @@ func main() {
 	// Step 7: Handle commands from API
 	startTime := time.Now()
 	wsClient.OnCommand = func(msg models.Message) {
+		// Guard against delete commands when deletion is disabled
+		if msg.Type == "command.files.delete" {
+			mu.Lock()
+			disabled := deletionDisabled
+			mu.Unlock()
+			if disabled {
+				dataBytes, _ := json.Marshal(msg.Data)
+				var deleteCmd models.CommandFilesDeleteData
+				if err := json.Unmarshal(dataBytes, &deleteCmd); err == nil {
+					results := make([]models.FilesDeleteResultItem, len(deleteCmd.Files))
+					for i, f := range deleteCmd.Files {
+						results[i] = models.FilesDeleteResultItem{
+							MediaFileID: f.MediaFileID,
+							Status:      "failed",
+							Error:       "deletion disabled by watcher config",
+						}
+					}
+					wsClient.SendEvent("files.delete.completed", models.FilesDeleteCompletedData{
+						RequestID:  deleteCmd.RequestID,
+						DeletionID: deleteCmd.DeletionID,
+						Total:      len(deleteCmd.Files),
+						Deleted:    0,
+						Failed:     len(deleteCmd.Files),
+						Results:    results,
+					})
+					slog.Warn("Deletion disabled — command rejected",
+						"request_id", deleteCmd.RequestID,
+						"deletion_id", deleteCmd.DeletionID,
+						"files", len(deleteCmd.Files),
+					)
+				}
+				return
+			}
+		}
 		handleCommand(msg, fileScanner, fileWatcher, fileDeleter)
 	}
 
@@ -192,21 +237,18 @@ func applyWatcherConfig(cfg models.WatcherConfigData, current *config.RuntimeCon
 		WatchPaths:             cfg.WatchPaths,
 		ScanOnStart:            cfg.ScanOnStart,
 		LogLevel:               cfg.LogLevel,
-		ReconnectDelay:         current.ReconnectDelay,
-		PingInterval:           current.PingInterval,
+		DisableDeletion:        cfg.DisableDeletion,
+		WsReconnectDelaySecs:   current.WsReconnectDelaySecs,
+		WsPingIntervalSecs:     current.WsPingIntervalSecs,
 		LogRetentionDays:       cfg.LogRetentionDays,
 		DebugLogRetentionHours: cfg.DebugLogRetentionHours,
 	}
 
-	if cfg.ReconnectDelay != "" {
-		if d, err := time.ParseDuration(cfg.ReconnectDelay); err == nil {
-			rt.ReconnectDelay = d
-		}
+	if cfg.WsReconnectDelaySecs > 0 {
+		rt.WsReconnectDelaySecs = cfg.WsReconnectDelaySecs
 	}
-	if cfg.PingInterval != "" {
-		if d, err := time.ParseDuration(cfg.PingInterval); err == nil {
-			rt.PingInterval = d
-		}
+	if cfg.WsPingIntervalSecs > 0 {
+		rt.WsPingIntervalSecs = cfg.WsPingIntervalSecs
 	}
 
 	if rt.LogLevel == "" {

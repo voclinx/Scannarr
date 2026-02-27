@@ -8,6 +8,7 @@ use App\Enum\WatcherStatus;
 use App\Repository\WatcherLogRepository;
 use App\Repository\WatcherRepository;
 use App\Service\WatcherCommandService;
+use App\Service\WatcherVolumeSyncService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -23,6 +24,7 @@ class WatcherController extends AbstractController
         private readonly WatcherRepository $watcherRepository,
         private readonly WatcherLogRepository $watcherLogRepository,
         private readonly WatcherCommandService $watcherCommandService,
+        private readonly WatcherVolumeSyncService $volumeSyncService,
     ) {
     }
 
@@ -75,6 +77,9 @@ class WatcherController extends AbstractController
         $watcher->setStatus(WatcherStatus::APPROVED);
         $this->em->flush();
 
+        // Sync volumes from watch_paths
+        $this->volumeSyncService->sync($watcher->getConfig()['watch_paths'] ?? []);
+
         // Send config to the watcher if it is currently connected (PENDING state)
         $this->watcherCommandService->sendConfig($watcher);
 
@@ -101,6 +106,11 @@ class WatcherController extends AbstractController
 
         $watcher->mergeConfig($data);
         $this->em->flush();
+
+        // Sync volumes if watch_paths changed
+        if (isset($data['watch_paths'])) {
+            $this->volumeSyncService->sync($data['watch_paths']);
+        }
 
         // Push updated config to connected watcher
         $this->watcherCommandService->sendConfig($watcher);

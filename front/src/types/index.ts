@@ -266,12 +266,18 @@ export interface TrackerRule {
 // Phase 5 — Watchers
 export type WatcherStatus = 'pending' | 'approved' | 'connected' | 'disconnected' | 'revoked';
 
+export interface WatcherPathMapping {
+  path: string;
+  name: string;
+}
+
 export interface WatcherConfig {
-  watch_paths: string[];
+  watch_paths: WatcherPathMapping[];
   scan_on_start: boolean;
   log_level: string;
-  reconnect_delay: string;
-  ping_interval: string;
+  disable_deletion: boolean;
+  ws_reconnect_delay_seconds: number;
+  ws_ping_interval_seconds: number;
   log_retention_days: number;
   debug_log_retention_hours: number;
 }

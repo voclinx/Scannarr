@@ -229,9 +229,10 @@ class Watcher
             'watch_paths' => [],
             'scan_on_start' => true,
             'log_level' => 'info',
-            'reconnect_delay' => '5s',
-            'ping_interval' => '30s',
-            'log_retention_days' => 30,
+            'disable_deletion' => false,
+            'ws_reconnect_delay_seconds' => 5,
+            'ws_ping_interval_seconds' => 30,
+            'log_retention_days' => 7,
             'debug_log_retention_hours' => 24,
         ];
     }

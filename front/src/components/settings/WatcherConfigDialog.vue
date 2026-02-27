@@ -6,7 +6,7 @@ import InputText from 'primevue/inputtext'
 import Checkbox from 'primevue/checkbox'
 import Select from 'primevue/select'
 import InputNumber from 'primevue/inputnumber'
-import type { Watcher, WatcherConfig } from '@/types'
+import type { Watcher, WatcherConfig, WatcherPathMapping } from '@/types'
 
 interface Props {
   visible: boolean
@@ -20,8 +20,9 @@ const emit = defineEmits<{
   save: [config: Partial<WatcherConfig>]
 }>()
 
-const config = ref<WatcherConfig>({ ...props.watcher.config })
+const config = ref<WatcherConfig>(JSON.parse(JSON.stringify(props.watcher.config)))
 const newPath = ref('')
+const newName = ref('')
 
 watch(
   () => props.watcher,
@@ -39,14 +40,26 @@ const logLevelOptions = [
 
 function addPath() {
   const p = newPath.value.trim()
-  if (p && !config.value.watch_paths.includes(p)) {
-    config.value.watch_paths = [...config.value.watch_paths, p]
+  if (!p) return
+  const exists = config.value.watch_paths.some((wp: WatcherPathMapping) => wp.path === p)
+  if (!exists) {
+    const name =
+      newName.value.trim() ||
+      p
+        .split('/')
+        .filter(Boolean)
+        .pop() ||
+      p
+    config.value.watch_paths = [...config.value.watch_paths, { path: p, name }]
   }
   newPath.value = ''
+  newName.value = ''
 }
 
-function removePath(path: string) {
-  config.value.watch_paths = config.value.watch_paths.filter((p) => p !== path)
+function removePath(index: number) {
+  config.value.watch_paths = config.value.watch_paths.filter(
+    (_: WatcherPathMapping, i: number) => i !== index,
+  )
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -67,37 +80,44 @@ function save() {
     :visible="visible"
     @update:visible="emit('update:visible', $event)"
     :header="`Configuration — ${watcher.name || watcher.watcher_id}`"
-    :style="{ width: '600px' }"
+    :style="{ width: '660px' }"
     modal
   >
     <div class="space-y-5">
       <!-- Watch paths -->
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-2">Chemins surveillés</label>
-        <div class="flex flex-wrap gap-2 mb-2">
-          <span
-            v-for="path in config.watch_paths"
-            :key="path"
-            class="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded font-mono"
+        <div class="space-y-1 mb-2">
+          <div
+            v-for="(wp, i) in config.watch_paths"
+            :key="wp.path"
+            class="flex items-center gap-2 px-2 py-1.5 bg-gray-50 border border-gray-200 rounded text-xs"
           >
-            {{ path }}
+            <span class="font-mono flex-1 truncate text-gray-800">{{ wp.path }}</span>
+            <span class="text-gray-500 shrink-0 italic">{{ wp.name }}</span>
             <button
               type="button"
-              class="ml-1 text-gray-500 hover:text-red-500"
-              @click="removePath(path)"
+              class="text-gray-400 hover:text-red-500 shrink-0"
+              @click="removePath(i)"
             >
               <i class="pi pi-times text-xs"></i>
             </button>
-          </span>
-          <span v-if="config.watch_paths.length === 0" class="text-sm text-gray-400 italic">
+          </div>
+          <div v-if="config.watch_paths.length === 0" class="text-sm text-gray-400 italic">
             Aucun chemin configuré
-          </span>
+          </div>
         </div>
         <div class="flex gap-2">
           <InputText
             v-model="newPath"
             placeholder="/mnt/media/movies"
             class="flex-1 text-sm font-mono"
+            @keydown="handleKeydown"
+          />
+          <InputText
+            v-model="newName"
+            placeholder="Nom (optionnel)"
+            class="w-40 text-sm"
             @keydown="handleKeydown"
           />
           <Button
@@ -110,12 +130,22 @@ function save() {
         </div>
       </div>
 
-      <!-- Scan on start -->
-      <div class="flex items-center gap-3">
-        <Checkbox v-model="config.scan_on_start" :binary="true" inputId="scan_on_start" />
-        <label for="scan_on_start" class="text-sm text-gray-700">
-          Scanner au démarrage
-        </label>
+      <!-- Scan on start + Disable deletion -->
+      <div class="flex flex-wrap items-center gap-6">
+        <div class="flex items-center gap-3">
+          <Checkbox v-model="config.scan_on_start" :binary="true" inputId="scan_on_start" />
+          <label for="scan_on_start" class="text-sm text-gray-700">Scanner au démarrage</label>
+        </div>
+        <div class="flex items-center gap-3">
+          <Checkbox
+            v-model="config.disable_deletion"
+            :binary="true"
+            inputId="disable_deletion"
+          />
+          <label for="disable_deletion" class="text-sm text-gray-700">
+            Désactiver les suppressions
+          </label>
+        </div>
       </div>
 
       <!-- Log level -->
@@ -134,25 +164,25 @@ function save() {
       <div class="grid grid-cols-2 gap-4">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">
-            Délai reconnexion
+            Délai reconnexion (s)
           </label>
-          <InputText
-            v-model="config.reconnect_delay"
-            placeholder="5s"
-            class="w-full text-sm font-mono"
+          <InputNumber
+            v-model="config.ws_reconnect_delay_seconds"
+            :min="1"
+            :max="300"
+            class="w-full"
           />
-          <p class="text-xs text-gray-500 mt-1">ex: 5s, 30s, 1m</p>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">
-            Intervalle ping
+            Intervalle ping (s)
           </label>
-          <InputText
-            v-model="config.ping_interval"
-            placeholder="30s"
-            class="w-full text-sm font-mono"
+          <InputNumber
+            v-model="config.ws_ping_interval_seconds"
+            :min="5"
+            :max="600"
+            class="w-full"
           />
-          <p class="text-xs text-gray-500 mt-1">ex: 30s, 1m</p>
         </div>
       </div>
 
@@ -162,12 +192,7 @@ function save() {
           <label class="block text-sm font-medium text-gray-700 mb-1">
             Rétention logs (jours)
           </label>
-          <InputNumber
-            v-model="config.log_retention_days"
-            :min="1"
-            :max="365"
-            class="w-full"
-          />
+          <InputNumber v-model="config.log_retention_days" :min="1" :max="365" class="w-full" />
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">

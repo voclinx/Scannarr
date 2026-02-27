@@ -17,14 +17,18 @@ class WatcherTest extends TestCase
         $this->assertArrayHasKey('watch_paths', $config);
         $this->assertArrayHasKey('scan_on_start', $config);
         $this->assertArrayHasKey('log_level', $config);
-        $this->assertArrayHasKey('reconnect_delay', $config);
-        $this->assertArrayHasKey('ping_interval', $config);
+        $this->assertArrayHasKey('disable_deletion', $config);
+        $this->assertArrayHasKey('ws_reconnect_delay_seconds', $config);
+        $this->assertArrayHasKey('ws_ping_interval_seconds', $config);
         $this->assertArrayHasKey('log_retention_days', $config);
         $this->assertArrayHasKey('debug_log_retention_hours', $config);
 
         $this->assertSame([], $config['watch_paths']);
         $this->assertTrue($config['scan_on_start']);
         $this->assertSame('info', $config['log_level']);
+        $this->assertFalse($config['disable_deletion']);
+        $this->assertSame(5, $config['ws_reconnect_delay_seconds']);
+        $this->assertSame(30, $config['ws_ping_interval_seconds']);
     }
 
     public function testDefaultStatus(): void

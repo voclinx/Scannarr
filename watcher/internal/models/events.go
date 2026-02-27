@@ -199,8 +199,9 @@ type WatcherConfigData struct {
 	WatchPaths             []string `json:"watch_paths"`
 	ScanOnStart            bool     `json:"scan_on_start"`
 	LogLevel               string   `json:"log_level"`
-	ReconnectDelay         string   `json:"reconnect_delay"`
-	PingInterval           string   `json:"ping_interval"`
+	DisableDeletion        bool     `json:"disable_deletion"`
+	WsReconnectDelaySecs   int      `json:"ws_reconnect_delay_seconds"`
+	WsPingIntervalSecs     int      `json:"ws_ping_interval_seconds"`
 	LogRetentionDays       int      `json:"log_retention_days"`
 	DebugLogRetentionHours int      `json:"debug_log_retention_hours"`
 	ConfigHash             string   `json:"config_hash"`

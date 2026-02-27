@@ -18,8 +18,9 @@ type RuntimeConfig struct {
 	WatchPaths             []string
 	ScanOnStart            bool
 	LogLevel               string
-	ReconnectDelay         time.Duration
-	PingInterval           time.Duration
+	DisableDeletion        bool
+	WsReconnectDelaySecs   int
+	WsPingIntervalSecs     int
 	LogRetentionDays       int
 	DebugLogRetentionHours int
 }
@@ -30,9 +31,10 @@ func DefaultRuntimeConfig() *RuntimeConfig {
 		WatchPaths:             []string{},
 		ScanOnStart:            false, // Don't scan until we get config from API
 		LogLevel:               "info",
-		ReconnectDelay:         5 * time.Second,
-		PingInterval:           30 * time.Second,
-		LogRetentionDays:       30,
+		DisableDeletion:        false,
+		WsReconnectDelaySecs:   5,
+		WsPingIntervalSecs:     30,
+		LogRetentionDays:       7,
 		DebugLogRetentionHours: 24,
 	}
 }

@@ -10,111 +10,31 @@ use App\Tests\AbstractApiTestCase;
 class VolumeControllerTest extends AbstractApiTestCase
 {
     // -----------------------------------------------------------------------
-    // TEST-VOL-001 : Créer un volume - succès
+    // TEST-VOL-001 : Lister les volumes
     // -----------------------------------------------------------------------
 
     /**
-     * @testdox TEST-VOL-001 Créer un volume - succès
+     * @testdox TEST-VOL-001 Lister les volumes (Guest+)
      */
-    public function testCreateVolumeSuccess(): void
+    public function testListVolumes(): void
     {
-        $admin = $this->createAdmin();
-        $this->authenticateAs($admin);
+        $guest = $this->createGuest();
+        $this->authenticateAs($guest);
 
-        $tmpPath = sys_get_temp_dir();
-
-        $this->apiPost('/api/v1/volumes', [
-            'name' => 'Test Volume',
-            'path' => $tmpPath,
-            'host_path' => '/mnt/host/media',
-            'type' => 'local',
-        ]);
-
-        $this->assertResponseStatusCode(201);
+        $this->apiGet('/api/v1/volumes');
+        $this->assertResponseStatusCode(200);
 
         $data = $this->getResponseData();
         $this->assertArrayHasKey('data', $data);
-        $this->assertEquals('Test Volume', $data['data']['name']);
-        $this->assertEquals($tmpPath, $data['data']['path']);
-        $this->assertEquals('/mnt/host/media', $data['data']['host_path']);
-        $this->assertEquals('local', $data['data']['type']);
-        $this->assertEquals('active', $data['data']['status']);
-        $this->assertNotEmpty($data['data']['id']);
-        $this->assertNotEmpty($data['data']['created_at']);
-        $this->assertNotEmpty($data['data']['updated_at']);
+        $this->assertIsArray($data['data']);
     }
 
     // -----------------------------------------------------------------------
-    // TEST-VOL-002 : Créer un volume - chemin dupliqué
+    // TEST-VOL-002 : Déclencher un scan
     // -----------------------------------------------------------------------
 
     /**
-     * @testdox TEST-VOL-002 Créer un volume - chemin dupliqué
-     */
-    public function testCreateVolumeDuplicatePath(): void
-    {
-        $admin = $this->createAdmin();
-        $this->authenticateAs($admin);
-
-        $tmpPath = sys_get_temp_dir();
-
-        // Create the first volume directly in DB
-        $volume = new Volume();
-        $volume->setName('Existing Volume');
-        $volume->setPath($tmpPath);
-        $volume->setHostPath('/mnt/host/existing');
-        $volume->setType(VolumeType::LOCAL);
-        $volume->setStatus(VolumeStatus::ACTIVE);
-        $this->em->persist($volume);
-        $this->em->flush();
-
-        // Attempt to create a second volume with the same path
-        $this->apiPost('/api/v1/volumes', [
-            'name' => 'Duplicate Volume',
-            'path' => $tmpPath,
-            'host_path' => '/mnt/host/duplicate',
-            'type' => 'local',
-        ]);
-
-        $this->assertResponseStatusCode(409);
-
-        $data = $this->getResponseData();
-        $this->assertArrayHasKey('error', $data);
-        $this->assertStringContainsString('already exists', $data['error']['message']);
-    }
-
-    // -----------------------------------------------------------------------
-    // TEST-VOL-003 : Créer un volume - chemin inexistant sur le filesystem
-    // -----------------------------------------------------------------------
-
-    /**
-     * @testdox TEST-VOL-003 Créer un volume - chemin inexistant sur le filesystem
-     */
-    public function testCreateVolumeNonexistentPath(): void
-    {
-        $admin = $this->createAdmin();
-        $this->authenticateAs($admin);
-
-        $this->apiPost('/api/v1/volumes', [
-            'name' => 'Bad Volume',
-            'path' => '/nonexistent/path',
-            'host_path' => '/mnt/host/bad',
-            'type' => 'local',
-        ]);
-
-        $this->assertResponseStatusCode(422);
-
-        $data = $this->getResponseData();
-        $this->assertArrayHasKey('error', $data);
-        $this->assertStringContainsString('not accessible', $data['error']['message']);
-    }
-
-    // -----------------------------------------------------------------------
-    // TEST-VOL-004 : Déclencher un scan
-    // -----------------------------------------------------------------------
-
-    /**
-     * @testdox TEST-VOL-004 Déclencher un scan
+     * @testdox TEST-VOL-002 Déclencher un scan
      */
     public function testTriggerVolumeScan(): void
     {
@@ -147,38 +67,40 @@ class VolumeControllerTest extends AbstractApiTestCase
     }
 
     // -----------------------------------------------------------------------
-    // TEST-VOL-005 : Supprimer un volume
+    // TEST-VOL-003 : Les endpoints create/delete/update sont supprimés
     // -----------------------------------------------------------------------
 
     /**
-     * @testdox TEST-VOL-005 Supprimer un volume
+     * @testdox TEST-VOL-003 POST /volumes (create) n'existe plus — 405
      */
-    public function testDeleteVolume(): void
+    public function testCreateVolumeEndpointRemoved(): void
+    {
+        $admin = $this->createAdmin();
+        $this->authenticateAs($admin);
+
+        $this->apiPost('/api/v1/volumes', ['name' => 'x', 'path' => '/tmp', 'host_path' => '/tmp', 'type' => 'local']);
+        $this->assertResponseStatusCode(405);
+    }
+
+    /**
+     * @testdox TEST-VOL-004 DELETE /volumes/{id} (delete) n'existe plus — 405
+     */
+    public function testDeleteVolumeEndpointRemoved(): void
     {
         $admin = $this->createAdmin();
         $this->authenticateAs($admin);
 
         $tmpPath = sys_get_temp_dir();
-
-        // Create a volume directly in DB
         $volume = new Volume();
-        $volume->setName('Delete Me');
+        $volume->setName('To check');
         $volume->setPath($tmpPath);
-        $volume->setHostPath('/mnt/host/delete');
+        $volume->setHostPath('/mnt/host/check');
         $volume->setType(VolumeType::LOCAL);
         $volume->setStatus(VolumeStatus::ACTIVE);
         $this->em->persist($volume);
         $this->em->flush();
 
-        $volumeId = (string)$volume->getId();
-
-        $this->apiDelete("/api/v1/volumes/{$volumeId}");
-
-        $this->assertResponseStatusCode(204);
-
-        // Verify the volume is gone from DB
-        $this->em->clear();
-        $deleted = $this->em->getRepository(Volume::class)->find($volumeId);
-        $this->assertNull($deleted);
+        $this->apiDelete("/api/v1/volumes/{$volume->getId()}");
+        $this->assertResponseStatusCode(404);
     }
 }
