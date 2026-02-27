@@ -64,6 +64,28 @@ class WatcherCommandService
     }
 
     /**
+     * Request the watcher to delete files.
+     *
+     * @param string $deletionId The ScheduledDeletion UUID
+     * @param array  $files      Array of [media_file_id, volume_path, file_path]
+     *
+     * @return bool True if the command was sent to the watcher, false if watcher offline
+     */
+    public function requestFilesDelete(string $deletionId, array $files): bool
+    {
+        $requestId = (string)Uuid::v4();
+
+        return $this->sendCommand([
+            'type' => 'command.files.delete',
+            'data' => [
+                'request_id' => $requestId,
+                'deletion_id' => $deletionId,
+                'files' => $files,
+            ],
+        ]);
+    }
+
+    /**
      * Get the WebSocket server status (connected watchers, etc.).
      */
     public function getStatus(): array
@@ -93,8 +115,10 @@ class WatcherCommandService
 
     /**
      * Send a command to the watcher via the internal HTTP endpoint.
+     *
+     * @return bool True if sent (HTTP 200), false if watcher offline (HTTP 503) or error
      */
-    private function sendCommand(array $command): void
+    private function sendCommand(array $command): bool
     {
         $url = $this->wsInternalUrl . '/internal/send-to-watcher';
         $json = json_encode($command);
@@ -109,30 +133,70 @@ class WatcherCommandService
                 ]),
                 'content' => $json,
                 'timeout' => 5,
+                'ignore_errors' => true,
             ],
         ]);
 
         try {
             $response = @file_get_contents($url, false, $context);
+
             if ($response === false) {
-                $this->logger->warning('Failed to send command to WS server', [
+                $this->logger->warning('Failed to send command to WS server (no response)', [
                     'type' => $command['type'],
                     'url' => $url,
                 ]);
 
-                return;
+                return false;
             }
 
-            $result = json_decode($response, true);
-            $this->logger->info('Command sent to watcher', [
+            $statusCode = $this->getHttpStatusCode($http_response_header ?? []);
+
+            if ($statusCode === 503) {
+                $this->logger->info('Watcher offline, command not sent', [
+                    'type' => $command['type'],
+                ]);
+
+                return false;
+            }
+
+            if ($statusCode >= 200 && $statusCode < 300) {
+                $result = json_decode($response, true);
+                $this->logger->info('Command sent to watcher', [
+                    'type' => $command['type'],
+                    'watchers' => $result['watchers'] ?? 0,
+                ]);
+
+                return true;
+            }
+
+            $this->logger->warning('Unexpected response from WS server', [
                 'type' => $command['type'],
-                'watchers' => $result['watchers'] ?? 0,
+                'status' => $statusCode,
+                'response' => $response,
             ]);
+
+            return false;
         } catch (Throwable $e) {
             $this->logger->error('Error sending command to WS server', [
                 'type' => $command['type'],
                 'error' => $e->getMessage(),
             ]);
+
+            return false;
         }
+    }
+
+    /**
+     * Extract HTTP status code from response headers.
+     */
+    private function getHttpStatusCode(array $headers): int
+    {
+        foreach ($headers as $header) {
+            if (preg_match('/^HTTP\/\d+\.?\d*\s+(\d+)/', $header, $matches)) {
+                return (int)$matches[1];
+            }
+        }
+
+        return 0;
     }
 }

@@ -48,29 +48,13 @@ async function handleTest(): Promise<void> {
   testResult.value = null
 
   try {
-    // Send a test message directly
-    const response = await fetch(webhookUrl.value, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        embeds: [
-          {
-            title: '🔔 Test Scanarr',
-            description: 'Les notifications Discord fonctionnent correctement !',
-            color: 3066993,
-            footer: { text: 'Scanarr — Test de notification' },
-            timestamp: new Date().toISOString(),
-          },
-        ],
-      }),
-    })
-
-    if (response.ok) {
-      testResult.value = { success: true, message: 'Notification envoyée avec succès !' }
+    const result = await store.testDiscordWebhook()
+    if (result.success) {
+      testResult.value = { success: true, message: result.message || 'Notification envoyée avec succès !' }
     } else {
       testResult.value = {
         success: false,
-        message: `Erreur HTTP ${response.status}`,
+        message: result.error || 'Erreur lors du test',
       }
     }
   } catch {

@@ -120,7 +120,7 @@ async function onDeleteConfirm(options: {
   try {
     const result = await moviesStore.deleteMovie(movieId, options)
     showDeleteModal.value = false
-    deleteSuccess.value = `${result.files_deleted} fichier(s) supprimé(s).`
+    deleteSuccess.value = `${result.files_count} fichier(s) supprimé(s). Statut : ${result.status}`
 
     if (result.warning) {
       deleteError.value = result.warning

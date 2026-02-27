@@ -4,15 +4,21 @@ namespace App\Controller;
 
 use App\Entity\ActivityLog;
 use App\Entity\MediaFile;
+use App\Entity\ScheduledDeletion;
+use App\Entity\ScheduledDeletionItem;
+use App\Entity\User;
+use App\Enum\DeletionStatus;
 use App\Repository\MediaFileRepository;
 use App\Security\Voter\FileVoter;
+use App\Service\DeletionService;
 use App\Service\RadarrService;
+use DateTime;
 use Doctrine\ORM\EntityManagerInterface;
-use Exception;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 
@@ -23,22 +29,13 @@ class FileController extends AbstractController
         private readonly EntityManagerInterface $em,
         private readonly MediaFileRepository $mediaFileRepository,
         private readonly RadarrService $radarrService,
+        private readonly DeletionService $deletionService,
         private readonly LoggerInterface $logger,
     ) {
     }
 
     /**
      * List files with search, filters and pagination — accessible to Guest+.
-     *
-     * Query params:
-     *   - volume_id: filter by volume UUID
-     *   - search: search in file_name and file_path
-     *   - sort: sort field (file_name, file_size_bytes, detected_at, hardlink_count) default: detected_at
-     *   - order: ASC or DESC (default: DESC)
-     *   - page: page number (default: 1)
-     *   - limit: items per page (default: 25, max: 100)
-     *   - is_linked_radarr: filter by radarr link (true/false)
-     *   - min_hardlinks: filter by minimum hardlink count
      */
     #[Route('', methods: ['GET'])]
     #[IsGranted('ROLE_GUEST')]
@@ -146,6 +143,8 @@ class FileController extends AbstractController
     /**
      * Delete a file — AdvancedUser+.
      * Body: { "delete_physical": true, "delete_radarr_reference": true }
+     *
+     * Creates an ephemeral ScheduledDeletion and delegates to the watcher for physical deletion.
      */
     #[Route('/{id}', methods: ['DELETE'])]
     #[IsGranted('ROLE_ADVANCED_USER')]
@@ -164,83 +163,76 @@ class FileController extends AbstractController
         $deletePhysical = (bool)($data['delete_physical'] ?? false);
         $deleteRadarrRef = (bool)($data['delete_radarr_reference'] ?? false);
 
-        $physicalDeleted = false;
-        $radarrDereferenced = false;
+        /** @var User $user */
+        $user = $this->getUser();
 
-        // Physical deletion
-        if ($deletePhysical) {
-            $volume = $file->getVolume();
-            $fullPath = rtrim((string)$volume->getPath(), '/') . '/' . $file->getFilePath();
-
-            if (file_exists($fullPath)) {
-                if (@unlink($fullPath)) {
-                    $physicalDeleted = true;
-                } else {
-                    return $this->json([
-                        'error' => ['code' => 500, 'message' => 'Failed to delete physical file'],
-                    ], 500);
-                }
-            } else {
-                // File already gone from disk — that's ok
-                $physicalDeleted = true;
-            }
-        }
-
-        // Radarr dereference
-        if ($deleteRadarrRef && $file->isLinkedRadarr()) {
-            foreach ($file->getMovieFiles() as $mf) {
+        // Find the linked movie (for the ScheduledDeletionItem)
+        $movie = null;
+        foreach ($file->getMovieFiles() as $mf) {
+            if ($mf->getMovie() !== null) {
                 $movie = $mf->getMovie();
-                if ($movie && $movie->getRadarrId() && $movie->getRadarrInstance()) {
-                    try {
-                        $this->radarrService->deleteMovie(
-                            $movie->getRadarrInstance(),
-                            $movie->getRadarrId(),
-                            false,
-                            false,
-                        );
-                        $radarrDereferenced = true;
-                    } catch (Exception $e) {
-                        $this->logger->error('Failed to dereference from Radarr', [
-                            'movie' => $movie->getTitle(),
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
-                }
+                break;
             }
         }
+
+        // Create ephemeral ScheduledDeletion
+        $deletion = new ScheduledDeletion();
+        $deletion->setCreatedBy($user);
+        $deletion->setScheduledDate(new DateTime('today'));
+        $deletion->setDeletePhysicalFiles($deletePhysical);
+        $deletion->setDeleteRadarrReference($deleteRadarrRef);
+
+        if ($movie !== null) {
+            $item = new ScheduledDeletionItem();
+            $item->setMovie($movie);
+            $item->setMediaFileIds([(string)$file->getId()]);
+            $deletion->addItem($item);
+        }
+
+        $this->em->persist($deletion);
+        $this->em->flush();
+
+        // Execute through the standard pipeline
+        $this->deletionService->executeDeletion($deletion);
 
         // Log the deletion
         $log = new ActivityLog();
         $log->setAction('file.deleted');
         $log->setEntityType('MediaFile');
         $log->setEntityId($file->getId());
-        $log->setUser($this->getUser());
+        $log->setUser($user);
         $log->setDetails([
             'file_name' => $file->getFileName(),
             'file_path' => $file->getFilePath(),
-            'volume' => $file->getVolume()->getName(),
-            'size_bytes' => $file->getFileSizeBytes(),
-            'physical_deleted' => $physicalDeleted,
-            'radarr_dereferenced' => $radarrDereferenced,
+            'volume' => $file->getVolume()?->getName(),
+            'deletion_id' => (string)$deletion->getId(),
+            'status' => $deletion->getStatus()->value,
         ]);
         $this->em->persist($log);
-
-        // Remove from DB
-        $this->em->remove($file);
         $this->em->flush();
+
+        $status = $deletion->getStatus();
+        $httpCode = match ($status) {
+            DeletionStatus::EXECUTING => Response::HTTP_ACCEPTED,
+            DeletionStatus::WAITING_WATCHER => Response::HTTP_ACCEPTED,
+            DeletionStatus::COMPLETED => Response::HTTP_OK,
+            default => Response::HTTP_OK,
+        };
 
         return $this->json([
             'data' => [
-                'message' => 'File deleted successfully',
-                'physical_deleted' => $physicalDeleted,
-                'radarr_dereferenced' => $radarrDereferenced,
+                'message' => 'Deletion initiated',
+                'deletion_id' => (string)$deletion->getId(),
+                'status' => $status->value,
             ],
-        ]);
+        ], $httpCode);
     }
 
     /**
      * Global delete — removes a file across ALL volumes (by file name).
      * Body: { "delete_physical": true, "delete_radarr_reference": true, "disable_radarr_auto_search": false }
+     *
+     * Creates an ephemeral ScheduledDeletion and delegates to the watcher for physical deletion.
      */
     #[Route('/{id}/global', methods: ['DELETE'])]
     #[IsGranted('ROLE_ADVANCED_USER')]
@@ -256,111 +248,99 @@ class FileController extends AbstractController
         $this->denyAccessUnlessGranted(FileVoter::DELETE, $sourceFile);
 
         $data = json_decode($request->getContent(), true) ?? [];
-        $deletePhysical = (bool) ($data['delete_physical'] ?? false);
-        $deleteRadarrRef = (bool) ($data['delete_radarr_reference'] ?? false);
-        $disableRadarrAutoSearch = (bool) ($data['disable_radarr_auto_search'] ?? false);
+        $deletePhysical = (bool)($data['delete_physical'] ?? false);
+        $deleteRadarrRef = (bool)($data['delete_radarr_reference'] ?? false);
+        $disableRadarrAutoSearch = (bool)($data['disable_radarr_auto_search'] ?? false);
+
+        /** @var User $user */
+        $user = $this->getUser();
 
         // Find all files with the same name across all volumes
         $allFiles = $this->mediaFileRepository->findByFileName($sourceFile->getFileName());
 
-        $filesDeleted = 0;
-        $volumesAffected = [];
-        $radarrDereferenced = false;
+        // Collect file IDs grouped by movie
+        $movieFiles = []; // movieId => [movie, file_ids]
         $warning = null;
 
         foreach ($allFiles as $file) {
-            $volume = $file->getVolume();
-            $volumeName = $volume->getName();
-
-            // Physical deletion
-            if ($deletePhysical) {
-                $fullPath = rtrim((string) $volume->getPath(), '/') . '/' . $file->getFilePath();
-
-                if (file_exists($fullPath)) {
-                    if (!@unlink($fullPath)) {
-                        $this->logger->warning('Failed to delete physical file during global delete', [
-                            'path' => $fullPath,
-                            'volume' => $volumeName,
-                        ]);
-                        continue;
-                    }
-                }
-            }
-
-            // Track affected volumes
-            if (!in_array($volumeName, $volumesAffected, true)) {
-                $volumesAffected[] = $volumeName;
-            }
-
-            // Radarr dereference (only once per movie)
-            if ($deleteRadarrRef && !$radarrDereferenced && $file->isLinkedRadarr()) {
-                foreach ($file->getMovieFiles() as $mf) {
+            $movie = null;
+            foreach ($file->getMovieFiles() as $mf) {
+                if ($mf->getMovie() !== null) {
                     $movie = $mf->getMovie();
-                    if ($movie && $movie->getRadarrId() && $movie->getRadarrInstance()) {
-                        try {
-                            $this->radarrService->deleteMovie(
-                                $movie->getRadarrInstance(),
-                                $movie->getRadarrId(),
-                                false,
-                                false,
-                            );
-                            $radarrDereferenced = true;
-                        } catch (Exception $e) {
-                            $this->logger->error('Failed to dereference from Radarr during global delete', [
-                                'movie' => $movie->getTitle(),
-                                'error' => $e->getMessage(),
-                            ]);
-                        }
-
-                        // Disable auto-search if requested
-                        if ($disableRadarrAutoSearch) {
-                            try {
-                                $radarrMovie = $this->radarrService->getMovie($movie->getRadarrInstance(), $movie->getRadarrId());
-                                $radarrMovie['monitored'] = false;
-                                $this->radarrService->updateMovie($movie->getRadarrInstance(), $movie->getRadarrId(), $radarrMovie);
-                            } catch (Exception $e) {
-                                $this->logger->error('Failed to disable Radarr auto-search', [
-                                    'error' => $e->getMessage(),
-                                ]);
-                            }
-                        }
-
-                        // Warning if auto-search still enabled
-                        if (!$disableRadarrAutoSearch && $movie->isRadarrMonitored()) {
-                            $warning = 'Radarr auto-search is still enabled for this movie. It may be re-downloaded.';
-                        }
-                    }
+                    break;
                 }
             }
 
-            // Log each file deletion
+            $movieId = $movie !== null ? (string)$movie->getId() : '__no_movie__';
+            if (!isset($movieFiles[$movieId])) {
+                $movieFiles[$movieId] = ['movie' => $movie, 'file_ids' => []];
+            }
+            $movieFiles[$movieId]['file_ids'][] = (string)$file->getId();
+
+            // Warning check (independent of Radarr dereference)
+            if ($movie !== null && !$disableRadarrAutoSearch && !$deleteRadarrRef && $movie->isRadarrMonitored()) {
+                $warning = 'Radarr auto-search is still enabled for this movie. It may be re-downloaded.';
+            }
+        }
+
+        // Create ephemeral ScheduledDeletion
+        $deletion = new ScheduledDeletion();
+        $deletion->setCreatedBy($user);
+        $deletion->setScheduledDate(new DateTime('today'));
+        $deletion->setDeletePhysicalFiles($deletePhysical);
+        $deletion->setDeleteRadarrReference($deleteRadarrRef);
+        $deletion->setDisableRadarrAutoSearch($disableRadarrAutoSearch);
+
+        foreach ($movieFiles as $movieData) {
+            $movie = $movieData['movie'];
+            if ($movie === null) {
+                continue;
+            }
+
+            $item = new ScheduledDeletionItem();
+            $item->setMovie($movie);
+            $item->setMediaFileIds($movieData['file_ids']);
+            $deletion->addItem($item);
+        }
+
+        $this->em->persist($deletion);
+        $this->em->flush();
+
+        // Execute through the standard pipeline
+        $this->deletionService->executeDeletion($deletion);
+
+        // Log each file deletion
+        foreach ($allFiles as $file) {
             $log = new ActivityLog();
             $log->setAction('file.global_deleted');
             $log->setEntityType('MediaFile');
             $log->setEntityId($file->getId());
-            $log->setUser($this->getUser());
+            $log->setUser($user);
             $log->setDetails([
                 'file_name' => $file->getFileName(),
                 'file_path' => $file->getFilePath(),
-                'volume' => $volumeName,
-                'size_bytes' => $file->getFileSizeBytes(),
-                'global_source_id' => (string) $sourceFile->getId(),
+                'volume' => $file->getVolume()?->getName(),
+                'global_source_id' => (string)$sourceFile->getId(),
+                'deletion_id' => (string)$deletion->getId(),
             ]);
             $this->em->persist($log);
-
-            // Remove from DB
-            $this->em->remove($file);
-            ++$filesDeleted;
         }
-
         $this->em->flush();
+
+        $status = $deletion->getStatus();
+        $httpCode = match ($status) {
+            DeletionStatus::EXECUTING => Response::HTTP_ACCEPTED,
+            DeletionStatus::WAITING_WATCHER => Response::HTTP_ACCEPTED,
+            DeletionStatus::COMPLETED => Response::HTTP_OK,
+            default => Response::HTTP_OK,
+        };
 
         $response = [
             'data' => [
-                'message' => 'File globally deleted',
-                'files_deleted' => $filesDeleted,
-                'volumes_affected' => $volumesAffected,
-                'radarr_dereferenced' => $radarrDereferenced,
+                'message' => 'Global deletion initiated',
+                'deletion_id' => (string)$deletion->getId(),
+                'status' => $status->value,
+                'files_count' => count($allFiles),
             ],
         ];
 
@@ -368,7 +348,7 @@ class FileController extends AbstractController
             $response['data']['warning'] = $warning;
         }
 
-        return $this->json($response);
+        return $this->json($response, $httpCode);
     }
 
     private function serializeFile(MediaFile $file): array

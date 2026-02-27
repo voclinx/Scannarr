@@ -261,6 +261,9 @@ class WatcherWebSocketServer
                 $this->connections[$connId]['authenticated'] = true;
                 $this->authenticatedConnections[$connId] = true;
                 $this->logger->info('Watcher authenticated', ['id' => $connId]);
+
+                // Resend pending deletion commands on watcher reconnection
+                $this->processPendingDeletionsOnReconnect($connId);
             } else {
                 $this->logger->warning('Invalid auth token', ['id' => $connId]);
                 $this->closeConnection($connId);
@@ -282,6 +285,31 @@ class WatcherWebSocketServer
         } catch (Throwable $e) {
             $this->logger->error('Message processing error', [
                 'type' => $data['type'],
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * On watcher reconnection, resend all pending deletion commands.
+     * This handles the case where the watcher was offline when a deletion was initiated.
+     */
+    private function processPendingDeletionsOnReconnect(int $connId): void
+    {
+        try {
+            $pendingCommands = $this->messageProcessor->getPendingDeletionCommands();
+            foreach ($pendingCommands as $command) {
+                $json = json_encode($command);
+                $frame = new Frame($json, true, Frame::OP_TEXT);
+                $this->connections[$connId]['conn']->write($frame->getContents());
+            }
+            if (count($pendingCommands) > 0) {
+                $this->logger->info('Sent pending deletions to reconnected watcher', [
+                    'count' => count($pendingCommands),
+                ]);
+            }
+        } catch (Throwable $e) {
+            $this->logger->error('Failed to process pending deletions on reconnect', [
                 'error' => $e->getMessage(),
             ]);
         }

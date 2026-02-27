@@ -247,19 +247,20 @@ class MovieControllerTest extends AbstractApiTestCase
             'delete_radarr_reference' => false,
         ]);
 
-        $this->assertResponseStatusCode(200);
+        // Async watcher-based deletion: returns 202 (WAITING_WATCHER/EXECUTING) or 200 (COMPLETED)
+        $statusCode = $this->client->getResponse()->getStatusCode();
+        $this->assertContains($statusCode, [200, 202], "Expected 200 or 202, got {$statusCode}");
 
         $response = $this->getResponseData();
         $this->assertArrayHasKey('data', $response);
-        $this->assertEquals('Movie deletion completed', $response['data']['message']);
-        $this->assertArrayHasKey('files_deleted', $response['data']);
-        $this->assertArrayHasKey('radarr_dereferenced', $response['data']);
-        $this->assertFalse($response['data']['radarr_dereferenced']);
+        $this->assertEquals('Deletion initiated', $response['data']['message']);
+        $this->assertArrayHasKey('deletion_id', $response['data']);
+        $this->assertArrayHasKey('status', $response['data']);
 
-        // Verify the MediaFile is removed from DB
-        $this->em->clear();
-        $deletedFile = $this->em->getRepository(MediaFile::class)->find($mediaFileId);
-        $this->assertNull($deletedFile, 'MediaFile should be removed from database after deletion');
+        // In the async model, the MediaFile is NOT removed yet (that happens when the
+        // watcher completes the physical deletion and sends files.delete.completed).
+        // We verify the deletion was properly created instead.
+        $this->assertNotEmpty($response['data']['deletion_id']);
 
         // Verify an activity log was created
         $logs = $this->em->getRepository(ActivityLog::class)->findBy([
@@ -300,11 +301,89 @@ class MovieControllerTest extends AbstractApiTestCase
     }
 
     // -----------------------------------------------------------------------
-    // TEST-MOVIE-007 : Sync Radarr - déclenchement
+    // TEST-MOVIE-007 : Suppression - file_ids n'appartenant pas au film
     // -----------------------------------------------------------------------
 
     /**
-     * @testdox TEST-MOVIE-007 Sync Radarr - déclenchement
+     * @testdox TEST-MOVIE-007 Suppression avec file_ids invalides (autre film)
+     */
+    public function testGlobalDeletionRejectsFileIdsFromAnotherMovie(): void
+    {
+        $advancedUser = $this->createAdvancedUser();
+        $this->authenticateAs($advancedUser);
+
+        // Create two movies with their own files
+        $movieA = $this->createMovie('Movie A', 2020, 80001);
+        $movieB = $this->createMovie('Movie B', 2021, 80002);
+        $volume = $this->createVolume('Shared Volume');
+
+        $mediaFileA = $this->createMediaFile($volume, 'MovieA.mkv', 500000000);
+        $mediaFileB = $this->createMediaFile($volume, 'MovieB.mkv', 600000000);
+
+        $this->createMovieFile($movieA, $mediaFileA);
+        $this->createMovieFile($movieB, $mediaFileB);
+
+        $movieAId = (string)$movieA->getId();
+        $mediaFileBId = (string)$mediaFileB->getId();
+
+        // Try to delete Movie A but pass Movie B's file_id
+        $this->apiDelete("/api/v1/movies/{$movieAId}", [
+            'file_ids' => [$mediaFileBId],
+            'delete_radarr_reference' => false,
+        ]);
+
+        $this->assertResponseStatusCode(400);
+
+        $response = $this->getResponseData();
+        $this->assertArrayHasKey('error', $response);
+        $this->assertEquals(400, $response['error']['code']);
+        $this->assertStringContainsString('do not belong', $response['error']['message']);
+        $this->assertContains($mediaFileBId, $response['error']['invalid_ids']);
+    }
+
+    /**
+     * @testdox TEST-MOVIE-007b Suppression avec file_ids mixtes (valide + invalide)
+     */
+    public function testGlobalDeletionRejectsMixedFileIds(): void
+    {
+        $advancedUser = $this->createAdvancedUser();
+        $this->authenticateAs($advancedUser);
+
+        $movieA = $this->createMovie('Movie A', 2020, 80003);
+        $movieB = $this->createMovie('Movie B', 2021, 80004);
+        $volume = $this->createVolume('Shared Volume 2');
+
+        $mediaFileA = $this->createMediaFile($volume, 'MovieA2.mkv', 500000000);
+        $mediaFileB = $this->createMediaFile($volume, 'MovieB2.mkv', 600000000);
+
+        $this->createMovieFile($movieA, $mediaFileA);
+        $this->createMovieFile($movieB, $mediaFileB);
+
+        $movieAId = (string)$movieA->getId();
+        $mediaFileAId = (string)$mediaFileA->getId();
+        $mediaFileBId = (string)$mediaFileB->getId();
+
+        // Pass one valid and one invalid file_id
+        $this->apiDelete("/api/v1/movies/{$movieAId}", [
+            'file_ids' => [$mediaFileAId, $mediaFileBId],
+            'delete_radarr_reference' => false,
+        ]);
+
+        $this->assertResponseStatusCode(400);
+
+        $response = $this->getResponseData();
+        $this->assertArrayHasKey('error', $response);
+        // Only the invalid one should be reported
+        $this->assertContains($mediaFileBId, $response['error']['invalid_ids']);
+        $this->assertNotContains($mediaFileAId, $response['error']['invalid_ids']);
+    }
+
+    // -----------------------------------------------------------------------
+    // TEST-MOVIE-008 : Sync Radarr - déclenchement
+    // -----------------------------------------------------------------------
+
+    /**
+     * @testdox TEST-MOVIE-008 Sync Radarr - déclenchement
      */
     public function testSyncRadarrTriggered(): void
     {

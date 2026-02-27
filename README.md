@@ -139,7 +139,7 @@ SCANARR_LOG_LEVEL=info
 sudo systemctl enable --now scanarr-watcher
 ```
 
-> Pour une installation détaillée (reverse proxy, sauvegarde, dépannage), voir [INSTALLATION.md](INSTALLATION.md).
+> Pour une installation détaillée (reverse proxy, sauvegarde, dépannage), voir [INSTALLATION.md](docs/INSTALLATION.md).
 
 ---
 

@@ -93,6 +93,54 @@ type CommandWatchData struct {
 	Path string `json:"path"`
 }
 
+// ──────────────────────────────────────────────
+// File deletion command and response models
+// ──────────────────────────────────────────────
+
+// CommandFilesDeleteData — command from API to watcher to delete files.
+type CommandFilesDeleteData struct {
+	RequestID  string              `json:"request_id"`
+	DeletionID string              `json:"deletion_id"`
+	Files      []FileDeleteRequest `json:"files"`
+}
+
+// FileDeleteRequest — a single file to delete.
+type FileDeleteRequest struct {
+	MediaFileID string `json:"media_file_id"`
+	VolumePath  string `json:"volume_path"` // e.g. "/mnt/nas1"
+	FilePath    string `json:"file_path"`   // relative to volume
+}
+
+// FilesDeleteProgressData — per-file progress response from watcher.
+type FilesDeleteProgressData struct {
+	RequestID   string `json:"request_id"`
+	DeletionID  string `json:"deletion_id"`
+	MediaFileID string `json:"media_file_id"`
+	Status      string `json:"status"` // "deleted" or "failed"
+	Error       string `json:"error,omitempty"`
+	DirsRemoved int    `json:"dirs_removed"`
+}
+
+// FilesDeleteCompletedData — completion summary from watcher.
+type FilesDeleteCompletedData struct {
+	RequestID   string                  `json:"request_id"`
+	DeletionID  string                  `json:"deletion_id"`
+	Total       int                     `json:"total"`
+	Deleted     int                     `json:"deleted"`
+	Failed      int                     `json:"failed"`
+	DirsRemoved int                     `json:"dirs_removed"`
+	Results     []FilesDeleteResultItem `json:"results"`
+}
+
+// FilesDeleteResultItem — result for a single file deletion.
+type FilesDeleteResultItem struct {
+	MediaFileID string `json:"media_file_id"`
+	Status      string `json:"status"`
+	Error       string `json:"error,omitempty"`
+	DirsRemoved int    `json:"dirs_removed"`
+	SizeBytes   int64  `json:"size_bytes"`
+}
+
 // AuthMessage is the initial authentication message.
 type AuthMessage struct {
 	Type string        `json:"type"`

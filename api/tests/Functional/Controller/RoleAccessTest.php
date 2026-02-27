@@ -152,10 +152,12 @@ class RoleAccessTest extends AbstractApiTestCase
             'delete_radarr_reference' => false,
         ]);
 
-        $this->assertResponseStatusCode(200);
+        // Async deletion: returns 200 (COMPLETED, no physical files) or 202 (WAITING_WATCHER/EXECUTING)
+        $statusCode = $this->client->getResponse()->getStatusCode();
+        $this->assertContains($statusCode, [200, 202], "Expected 200 or 202, got {$statusCode}");
 
         $responseData = $this->getResponseData();
-        $this->assertEquals('File deleted successfully', $responseData['data']['message']);
+        $this->assertEquals('Deletion initiated', $responseData['data']['message']);
     }
 
     // ---------------------------------------------------------------

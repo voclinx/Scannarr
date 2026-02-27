@@ -180,6 +180,25 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  async function testDiscordWebhook(): Promise<{
+    success: boolean
+    message?: string
+    error?: string
+  }> {
+    try {
+      const { data } = await api.post<{
+        data: { success: boolean; message: string }
+      }>('/settings/test-discord')
+      return data.data
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: { message?: string } } } }
+      return {
+        success: false,
+        error: error.response?.data?.error?.message || 'Discord webhook test failed',
+      }
+    }
+  }
+
   return {
     // Settings
     settings,
@@ -187,6 +206,7 @@ export const useSettingsStore = defineStore('settings', () => {
     fetchSettings,
     updateSettings,
     testQBittorrentConnection,
+    testDiscordWebhook,
     // Radarr
     radarrInstances,
     radarrLoading,

@@ -3,235 +3,155 @@
 namespace App\Service;
 
 use App\Entity\ActivityLog;
-use App\Entity\MediaFile;
 use App\Entity\Movie;
 use App\Entity\RadarrInstance;
 use App\Entity\ScheduledDeletion;
-use App\Entity\ScheduledDeletionItem;
 use App\Entity\User;
-use App\Entity\Volume;
 use App\Enum\DeletionStatus;
 use App\Repository\MediaFileRepository;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Exception;
 use Psr\Log\LoggerInterface;
-use Throwable;
 
+/**
+ * DeletionService — orchestrates deletion chain.
+ *
+ * Phase 1 (synchronous, runs in API):
+ *   1. Radarr dereference or disable auto-search (HTTP)
+ *   2. qBittorrent cleanup (HTTP, best-effort)
+ *   3. Send command.files.delete to watcher via WebSocket
+ *
+ * Phase 2 (asynchronous, runs in watcher):
+ *   - Physical file deletion + empty dir cleanup
+ *
+ * Phase 3 (async, WatcherMessageProcessor):
+ *   - DB cleanup, Plex/Jellyfin refresh, Discord notification
+ *
+ * The API NEVER does unlink(), rmdir(), or file_exists().
+ */
 class DeletionService
 {
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly MediaFileRepository $mediaFileRepository,
         private readonly RadarrService $radarrService,
+        private readonly QBittorrentService $qBittorrentService,
+        private readonly WatcherCommandService $watcherCommandService,
         private readonly LoggerInterface $logger,
     ) {
     }
 
     /**
-     * Execute a scheduled deletion — process all items.
+     * Execute a scheduled deletion — Phase 1 only.
      *
-     * @return array{success: int, failed: int, report: array<string, mixed>}
+     * After this method returns, the deletion status will be:
+     * - EXECUTING: command sent to watcher, waiting for completion
+     * - WAITING_WATCHER: watcher offline, will be retried on reconnection
+     * - COMPLETED: no files to delete (Radarr/qBit only)
      */
-    public function executeDeletion(ScheduledDeletion $deletion): array
+    public function executeDeletion(ScheduledDeletion $deletion): void
     {
         $deletion->setStatus(DeletionStatus::EXECUTING);
         $this->em->flush();
 
-        $successCount = 0;
-        $failedCount = 0;
-        $report = [
-            'started_at' => (new DateTimeImmutable())->format('c'),
-            'items' => [],
-        ];
+        $allFilesToDelete = [];
 
         foreach ($deletion->getItems() as $item) {
-            $itemReport = $this->processItem($deletion, $item);
+            $movie = $item->getMovie();
 
-            if ($item->getStatus() === 'deleted') {
-                ++$successCount;
-            } else {
-                ++$failedCount;
+            // Step 1: Radarr dereference (BEFORE any file deletion)
+            if ($deletion->isDeleteRadarrReference() && $movie instanceof Movie) {
+                $this->dereferenceFromRadarr($movie);
+            } elseif ($deletion->isDisableRadarrAutoSearch() && $movie instanceof Movie) {
+                $this->disableRadarrAutoSearch($movie);
             }
 
-            $report['items'][] = $itemReport;
-        }
-
-        $report['finished_at'] = (new DateTimeImmutable())->format('c');
-        $report['success_count'] = $successCount;
-        $report['failed_count'] = $failedCount;
-
-        // Set final status
-        if ($failedCount === 0) {
-            $deletion->setStatus(DeletionStatus::COMPLETED);
-        } else {
-            $deletion->setStatus(DeletionStatus::FAILED);
-        }
-
-        $deletion->setExecutedAt(new DateTimeImmutable());
-        $deletion->setExecutionReport($report);
-
-        // Log activity
-        $log = new ActivityLog();
-        $log->setAction('scheduled_deletion.executed');
-        $log->setEntityType('scheduled_deletion');
-        $log->setEntityId($deletion->getId());
-        $log->setDetails([
-            'success' => $successCount,
-            'failed' => $failedCount,
-            'total_items' => $deletion->getItems()->count(),
-        ]);
-
-        $user = $deletion->getCreatedBy();
-        if ($user instanceof User) {
-            $log->setUser($user);
-        }
-
-        $this->em->persist($log);
-        $this->em->flush();
-
-        return [
-            'success' => $successCount,
-            'failed' => $failedCount,
-            'report' => $report,
-        ];
-    }
-
-    /**
-     * Process a single deletion item.
-     *
-     * @return array<string, mixed>
-     */
-    private function processItem(ScheduledDeletion $deletion, ScheduledDeletionItem $item): array
-    {
-        $movie = $item->getMovie();
-        $movieTitle = $movie?->getTitle() ?? 'Unknown';
-        $movieYear = $movie?->getYear();
-
-        $itemReport = [
-            'movie' => $movieTitle,
-            'year' => $movieYear,
-            'files_deleted' => 0,
-            'files_failed' => 0,
-            'errors' => [],
-        ];
-
-        try {
-            $totalSpaceFreed = 0;
-
-            // 1. Delete physical files if requested
+            // Step 2: qBittorrent cleanup + collect files for watcher
             if ($deletion->isDeletePhysicalFiles()) {
                 foreach ($item->getMediaFileIds() as $mediaFileId) {
                     $mediaFile = $this->mediaFileRepository->find($mediaFileId);
-
                     if ($mediaFile === null) {
-                        $itemReport['errors'][] = "Media file not found: {$mediaFileId}";
-                        ++$itemReport['files_failed'];
                         continue;
                     }
 
-                    $deleted = $this->deletePhysicalFile($mediaFile);
-
-                    if ($deleted) {
-                        $totalSpaceFreed += $mediaFile->getFileSizeBytes();
-                        ++$itemReport['files_deleted'];
-
-                        // Remove from database (cascades to movie_files)
-                        $this->em->remove($mediaFile);
-                    } else {
-                        ++$itemReport['files_failed'];
-                        $itemReport['errors'][] = "Failed to delete: {$mediaFile->getFileName()}";
+                    $volume = $mediaFile->getVolume();
+                    if ($volume === null) {
+                        continue;
                     }
+
+                    // qBittorrent uses host paths
+                    $hostPath = $volume->getHostPath();
+                    if ($hostPath !== null && $hostPath !== '' && $this->qBittorrentService->isConfigured()) {
+                        $absoluteHostPath = rtrim($hostPath, '/') . '/' . $mediaFile->getFilePath();
+                        try {
+                            $this->qBittorrentService->findAndDeleteTorrent($absoluteHostPath);
+                        } catch (\Throwable $e) {
+                            $this->logger->warning('qBittorrent cleanup failed (best-effort)', [
+                                'file' => $absoluteHostPath,
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
+                    }
+
+                    // Collect file for watcher deletion — use hostPath for the watcher
+                    $volumeHostPath = $volume->getHostPath();
+                    if ($volumeHostPath === null || $volumeHostPath === '') {
+                        $volumeHostPath = $volume->getPath(); // fallback
+                    }
+
+                    $allFilesToDelete[] = [
+                        'media_file_id' => (string)$mediaFile->getId(),
+                        'volume_path' => rtrim($volumeHostPath ?? '', '/'),
+                        'file_path' => $mediaFile->getFilePath(),
+                    ];
                 }
-
-                $this->em->flush();
             }
+        }
 
-            $itemReport['space_freed_bytes'] = $totalSpaceFreed;
-
-            // 2. Delete Radarr reference if requested
-            if ($deletion->isDeleteRadarrReference() && $movie instanceof Movie) {
-                $radarrResult = $this->dereferenceFromRadarr($movie);
-                $itemReport['radarr_dereferenced'] = $radarrResult['success'];
-                if (!$radarrResult['success'] && $radarrResult['error'] !== null) {
-                    $itemReport['errors'][] = 'Radarr: ' . $radarrResult['error'];
-                }
-            }
-
-            // 3. Delete media player reference if requested (V2 placeholder)
-            if ($deletion->isDeleteMediaPlayerReference()) {
-                $itemReport['media_player_dereferenced'] = false;
-                // Not implemented in V1
-            }
-
-            // Determine item status
-            if (empty($itemReport['errors'])) {
-                $item->setStatus('deleted');
-            } elseif ($itemReport['files_deleted'] > 0) {
-                // Partial success
-                $item->setStatus('deleted');
-                $item->setErrorMessage(implode('; ', $itemReport['errors']));
-            } else {
-                $item->setStatus('failed');
-                $item->setErrorMessage(implode('; ', $itemReport['errors']));
-            }
-        } catch (Throwable $e) {
-            $this->logger->error('Error processing deletion item', [
-                'movie' => $movieTitle,
-                'error' => $e->getMessage(),
+        // If no physical files to delete, complete immediately
+        if (empty($allFilesToDelete)) {
+            $deletion->setStatus(DeletionStatus::COMPLETED);
+            $deletion->setExecutedAt(new DateTimeImmutable());
+            $deletion->setExecutionReport([
+                'finished_at' => (new DateTimeImmutable())->format('c'),
+                'success_count' => 0,
+                'failed_count' => 0,
+                'message' => 'No physical files to delete',
             ]);
 
-            $item->setStatus('failed');
-            $item->setErrorMessage($e->getMessage());
-            $itemReport['errors'][] = $e->getMessage();
+            // Log activity
+            $this->logDeletionActivity($deletion, 0, 0);
+            $this->em->flush();
+
+            return;
         }
 
-        return $itemReport;
-    }
+        // Step 3: Send delete command to watcher
+        $watcherReached = $this->watcherCommandService->requestFilesDelete(
+            (string)$deletion->getId(),
+            $allFilesToDelete,
+        );
 
-    /**
-     * Delete a physical file from disk.
-     */
-    private function deletePhysicalFile(MediaFile $mediaFile): bool
-    {
-        $volume = $mediaFile->getVolume();
-        if (!$volume instanceof Volume) {
-            $this->logger->warning('Cannot delete file: no volume associated', [
-                'file_id' => (string)$mediaFile->getId(),
+        if (!$watcherReached) {
+            $deletion->setStatus(DeletionStatus::WAITING_WATCHER);
+            $this->logger->info('Watcher offline, deletion queued for reconnection', [
+                'deletion_id' => (string)$deletion->getId(),
+                'files_count' => count($allFilesToDelete),
             ]);
-
-            return false;
         }
+        // If watcher reached → status stays EXECUTING, completion comes async via WS
 
-        $physicalPath = rtrim($volume->getPath() ?? '', '/') . '/' . $mediaFile->getFilePath();
-
-        if (!file_exists($physicalPath)) {
-            $this->logger->info('File already deleted from disk', ['path' => $physicalPath]);
-
-            // Consider it a success since the file is gone
-            return true;
-        }
-
-        if (@unlink($physicalPath)) {
-            $this->logger->info('File deleted successfully', ['path' => $physicalPath]);
-
-            return true;
-        }
-
-        $this->logger->error('Failed to delete file', [
-            'path' => $physicalPath,
-            'error' => error_get_last()['message'] ?? 'Unknown error',
-        ]);
-
-        return false;
+        $this->em->flush();
     }
 
     /**
      * Dereference a movie from Radarr (remove without deleting files in Radarr).
+     * addExclusion is always false — the user wants to be able to re-download later.
      *
      * @return array{success: bool, error: ?string}
      */
-    private function dereferenceFromRadarr(Movie $movie): array
+    public function dereferenceFromRadarr(Movie $movie): array
     {
         $radarrInstance = $movie->getRadarrInstance();
         $radarrId = $movie->getRadarrId();
@@ -245,12 +165,43 @@ class DeletionService
                 $radarrInstance,
                 $radarrId,
                 false, // Don't delete files via Radarr
-                false,  // Don't add exclusion
+                false,  // Don't add exclusion (allow re-download)
             );
 
             return ['success' => true, 'error' => null];
         } catch (Exception $e) {
             $this->logger->error('Failed to dereference from Radarr', [
+                'movie' => $movie->getTitle(),
+                'radarr_id' => $radarrId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Disable Radarr auto-search (set monitored=false).
+     *
+     * @return array{success: bool, error: ?string}
+     */
+    public function disableRadarrAutoSearch(Movie $movie): array
+    {
+        $radarrInstance = $movie->getRadarrInstance();
+        $radarrId = $movie->getRadarrId();
+
+        if (!$radarrInstance instanceof RadarrInstance || $radarrId === null) {
+            return ['success' => true, 'error' => null];
+        }
+
+        try {
+            $radarrMovie = $this->radarrService->getMovie($radarrInstance, $radarrId);
+            $radarrMovie['monitored'] = false;
+            $this->radarrService->updateMovie($radarrInstance, $radarrId, $radarrMovie);
+
+            return ['success' => true, 'error' => null];
+        } catch (Exception $e) {
+            $this->logger->error('Failed to disable Radarr auto-search', [
                 'movie' => $movie->getTitle(),
                 'radarr_id' => $radarrId,
                 'error' => $e->getMessage(),
@@ -277,5 +228,28 @@ class DeletionService
         }
 
         return $totalSize;
+    }
+
+    /**
+     * Log a deletion activity.
+     */
+    private function logDeletionActivity(ScheduledDeletion $deletion, int $success, int $failed): void
+    {
+        $log = new ActivityLog();
+        $log->setAction('scheduled_deletion.executed');
+        $log->setEntityType('scheduled_deletion');
+        $log->setEntityId($deletion->getId());
+        $log->setDetails([
+            'success' => $success,
+            'failed' => $failed,
+            'total_items' => $deletion->getItems()->count(),
+        ]);
+
+        $user = $deletion->getCreatedBy();
+        if ($user instanceof User) {
+            $log->setUser($user);
+        }
+
+        $this->em->persist($log);
     }
 }

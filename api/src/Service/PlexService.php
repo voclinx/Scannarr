@@ -72,6 +72,65 @@ class PlexService
     }
 
     /**
+     * Refresh a specific Plex library section.
+     */
+    public function refreshLibrary(MediaPlayerInstance $instance, string $sectionKey): bool
+    {
+        $url = rtrim($instance->getUrl() ?? '', '/') . "/library/sections/{$sectionKey}/refresh";
+
+        try {
+            $response = $this->httpClient->request('GET', $url, [
+                'headers' => [
+                    'X-Plex-Token' => $instance->getToken(),
+                ],
+                'timeout' => 10,
+            ]);
+
+            return $response->getStatusCode() === 200;
+        } catch (\Throwable $e) {
+            $this->logger->warning('Plex refresh failed', [
+                'instance' => $instance->getName(),
+                'section' => $sectionKey,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * Refresh all movie library sections on a Plex instance.
+     *
+     * @return int Number of sections successfully refreshed
+     */
+    public function refreshAllMovieSections(MediaPlayerInstance $instance): int
+    {
+        try {
+            $sections = $this->getLibrarySections($instance);
+        } catch (\Throwable $e) {
+            $this->logger->warning('Failed to get Plex library sections for refresh', [
+                'instance' => $instance->getName(),
+                'error' => $e->getMessage(),
+            ]);
+
+            return 0;
+        }
+
+        $refreshed = 0;
+        foreach ($sections as $section) {
+            if (($section['type'] ?? '') !== 'movie') {
+                continue;
+            }
+
+            if ($this->refreshLibrary($instance, $section['key'])) {
+                $refreshed++;
+            }
+        }
+
+        return $refreshed;
+    }
+
+    /**
      * Make a request to the Plex API.
      *
      * @return array<string, mixed>

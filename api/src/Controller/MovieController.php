@@ -5,13 +5,17 @@ namespace App\Controller;
 use App\Entity\ActivityLog;
 use App\Entity\Movie;
 use App\Entity\RadarrInstance;
+use App\Entity\ScheduledDeletion;
+use App\Entity\ScheduledDeletionItem;
 use App\Entity\User;
+use App\Enum\DeletionStatus;
 use App\Repository\MediaFileRepository;
 use App\Repository\MovieFileRepository;
 use App\Repository\MovieRepository;
+use App\Service\DeletionService;
 use App\Service\RadarrService;
+use DateTime;
 use Doctrine\ORM\EntityManagerInterface;
-use Exception;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -29,6 +33,7 @@ class MovieController extends AbstractController
         private readonly MediaFileRepository $mediaFileRepository,
         private readonly EntityManagerInterface $em,
         private readonly RadarrService $radarrService,
+        private readonly DeletionService $deletionService,
         private readonly LoggerInterface $logger,
         #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%kernel.project_dir%')]
         private readonly string $projectDir,
@@ -87,6 +92,9 @@ class MovieController extends AbstractController
 
     /**
      * DELETE /api/v1/movies/{id} — Global movie deletion (à la carte).
+     *
+     * Creates an ephemeral ScheduledDeletion and executes it through the standard pipeline.
+     * Physical file deletion is handled by the watcher via WebSocket.
      */
     #[Route('/{id}', methods: ['DELETE'])]
     #[IsGranted('ROLE_ADVANCED_USER')]
@@ -108,116 +116,89 @@ class MovieController extends AbstractController
         $deleteMediaPlayerReference = (bool)($payload['delete_media_player_reference'] ?? false);
         $disableRadarrAutoSearch = (bool)($payload['disable_radarr_auto_search'] ?? false);
 
-        $filesDeleted = 0;
-        $radarrDereferenced = false;
-        $radarrAutoSearchDisabled = false;
-        $warning = null;
-
-        // 1. Delete selected physical files
+        // Validate that all file_ids actually belong to this movie (via explicit DB query)
         if (!empty($fileIds)) {
-            foreach ($fileIds as $fileId) {
-                $mediaFile = $this->mediaFileRepository->find($fileId);
-
-                if ($mediaFile === null) {
-                    continue;
+            $movieFiles = $this->movieFileRepository->findBy(['movie' => $movie]);
+            $validFileIds = [];
+            foreach ($movieFiles as $mf) {
+                $mediaFile = $mf->getMediaFile();
+                if ($mediaFile !== null) {
+                    $validFileIds[] = (string) $mediaFile->getId();
                 }
-
-                // Get the physical path for deletion
-                $volume = $mediaFile->getVolume();
-                if ($volume !== null) {
-                    $physicalPath = rtrim($volume->getPath() ?? '', '/') . '/' . $mediaFile->getFilePath();
-
-                    if (file_exists($physicalPath)) {
-                        if (@unlink($physicalPath)) {
-                            ++$filesDeleted;
-                        } else {
-                            $this->logger->warning('Failed to delete physical file', [
-                                'path' => $physicalPath,
-                            ]);
-                        }
-                    } else {
-                        // File already gone, still count it
-                        ++$filesDeleted;
-                    }
-                }
-
-                // Remove from database (cascades to movie_files)
-                $this->em->remove($mediaFile);
             }
-        }
-
-        // 2. Dereference from Radarr
-        if ($deleteRadarrReference && $movie->getRadarrId() !== null && $movie->getRadarrInstance() !== null) {
-            try {
-                $this->radarrService->deleteMovie(
-                    $movie->getRadarrInstance(),
-                    $movie->getRadarrId(),
-                    false, // don't delete files via Radarr
-                    false,  // don't add exclusion
+            $invalidIds = array_diff($fileIds, $validFileIds);
+            if (!empty($invalidIds)) {
+                return $this->json(
+                    ['error' => ['code' => 400, 'message' => 'Some file_ids do not belong to this movie', 'invalid_ids' => array_values($invalidIds)]],
+                    Response::HTTP_BAD_REQUEST,
                 );
-                $radarrDereferenced = true;
-            } catch (Exception $e) {
-                $this->logger->error('Failed to dereference from Radarr', [
-                    'movie' => $movie->getTitle(),
-                    'error' => $e->getMessage(),
-                ]);
             }
         }
 
-        // 3. Disable Radarr auto-search
-        if ($disableRadarrAutoSearch && $movie->getRadarrId() !== null && $movie->getRadarrInstance() !== null) {
-            try {
-                $radarrMovie = $this->radarrService->getMovie($movie->getRadarrInstance(), $movie->getRadarrId());
-                $radarrMovie['monitored'] = false;
-                $this->radarrService->updateMovie($movie->getRadarrInstance(), $movie->getRadarrId(), $radarrMovie);
-                $radarrAutoSearchDisabled = true;
-            } catch (Exception $e) {
-                $this->logger->error('Failed to disable Radarr auto-search', [
-                    'movie' => $movie->getTitle(),
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        // 4. Warning if Radarr auto-search is still enabled
-        if (!$disableRadarrAutoSearch && $movie->isRadarrMonitored() && $movie->getRadarrInstance() !== null && !$deleteRadarrReference) {
-            $warning = 'Radarr auto-search is still enabled for this movie. It may be re-downloaded.';
-        }
-
-        // 5. Log activity
+        /** @var User $user */
         $user = $this->getUser();
+
+        // Create ephemeral ScheduledDeletion
+        $deletion = new ScheduledDeletion();
+        $deletion->setCreatedBy($user);
+        $deletion->setScheduledDate(new DateTime('today'));
+        $deletion->setDeletePhysicalFiles(!empty($fileIds));
+        $deletion->setDeleteRadarrReference($deleteRadarrReference);
+        $deletion->setDeleteMediaPlayerReference($deleteMediaPlayerReference);
+        $deletion->setDisableRadarrAutoSearch($disableRadarrAutoSearch);
+
+        $item = new ScheduledDeletionItem();
+        $item->setMovie($movie);
+        $item->setMediaFileIds($fileIds);
+        $deletion->addItem($item);
+
+        $this->em->persist($deletion);
+        $this->em->flush();
+
+        // Execute through the standard pipeline
+        $this->deletionService->executeDeletion($deletion);
+
+        // Log activity
         $log = new ActivityLog();
         $log->setAction('movie.deleted');
         $log->setEntityType('movie');
         $log->setEntityId($movie->getId());
         $log->setDetails([
             'title' => $movie->getTitle(),
-            'files_deleted' => $filesDeleted,
-            'radarr_dereferenced' => $radarrDereferenced,
+            'deletion_id' => (string)$deletion->getId(),
+            'status' => $deletion->getStatus()->value,
+            'radarr_dereferenced' => $deleteRadarrReference,
+            'files_count' => count($fileIds),
         ]);
-
-        if ($user instanceof User) {
-            $log->setUser($user);
-        }
-
+        $log->setUser($user);
         $this->em->persist($log);
         $this->em->flush();
 
+        // Determine HTTP status based on deletion status
+        $status = $deletion->getStatus();
+        $httpCode = match ($status) {
+            DeletionStatus::EXECUTING => Response::HTTP_ACCEPTED,
+            DeletionStatus::WAITING_WATCHER => Response::HTTP_ACCEPTED,
+            DeletionStatus::COMPLETED => Response::HTTP_OK,
+            default => Response::HTTP_OK,
+        };
+
         $response = [
             'data' => [
-                'message' => 'Movie deletion completed',
-                'files_deleted' => $filesDeleted,
-                'radarr_dereferenced' => $radarrDereferenced,
-                'radarr_auto_search_disabled' => $radarrAutoSearchDisabled,
-                'media_player_reference_kept' => !$deleteMediaPlayerReference,
+                'message' => 'Deletion initiated',
+                'deletion_id' => (string)$deletion->getId(),
+                'status' => $status->value,
+                'files_count' => count($fileIds),
+                'radarr_dereferenced' => $deleteRadarrReference,
             ],
         ];
 
-        if ($warning !== null) {
-            $response['data']['warning'] = $warning;
+        // Warning if Radarr auto-search is still enabled
+        if (!$disableRadarrAutoSearch && !$deleteRadarrReference && $movie->isRadarrMonitored() && $movie->getRadarrInstance() !== null) {
+            $response['data']['warning'] = 'Radarr auto-search is still enabled for this movie. It may be re-downloaded.';
         }
 
-        return $this->json($response);
+        return $this->json($response, $httpCode);
     }
 
     /**
@@ -228,8 +209,6 @@ class MovieController extends AbstractController
     public function sync(): JsonResponse
     {
         // Run the command in a fully detached background process
-        // Process::start() doesn't survive PHP-FPM request lifecycle,
-        // so we use exec with nohup to properly detach
         $consolePath = $this->projectDir . '/bin/console';
         $logPath = $this->projectDir . '/var/log/sync-radarr.log';
         $command = sprintf(

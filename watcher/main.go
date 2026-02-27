@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/voclinx/scanarr-watcher/internal/config"
+	"github.com/voclinx/scanarr-watcher/internal/deleter"
 	"github.com/voclinx/scanarr-watcher/internal/models"
 	"github.com/voclinx/scanarr-watcher/internal/scanner"
 	"github.com/voclinx/scanarr-watcher/internal/watcher"
@@ -46,10 +47,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create file deleter
+	fileDeleter := deleter.New(wsClient)
+
 	// Handle commands from API
 	startTime := time.Now()
 	wsClient.OnCommand = func(msg models.Message) {
-		handleCommand(msg, fileScanner, fileWatcher)
+		handleCommand(msg, fileScanner, fileWatcher, fileDeleter)
 	}
 
 	// Handle reconnection with dropped events — trigger a full resync scan
@@ -113,7 +117,7 @@ func main() {
 	slog.Info("Shutdown complete")
 }
 
-func handleCommand(msg models.Message, fileScanner *scanner.Scanner, fileWatcher *watcher.FileWatcher) {
+func handleCommand(msg models.Message, fileScanner *scanner.Scanner, fileWatcher *watcher.FileWatcher, fileDeleter *deleter.Deleter) {
 	switch msg.Type {
 	case "command.scan":
 		// Parse command data
@@ -156,6 +160,24 @@ func handleCommand(msg models.Message, fileScanner *scanner.Scanner, fileWatcher
 		} else {
 			slog.Info("Removed watch path", "path", watchCmd.Path)
 		}
+
+	case "command.files.delete":
+		dataBytes, err := json.Marshal(msg.Data)
+		if err != nil {
+			slog.Warn("Failed to marshal command data", "error", err)
+			return
+		}
+		var deleteCmd models.CommandFilesDeleteData
+		if err := json.Unmarshal(dataBytes, &deleteCmd); err != nil {
+			slog.Warn("Failed to parse command.files.delete data", "error", err)
+			return
+		}
+		slog.Info("Received delete command",
+			"request_id", deleteCmd.RequestID,
+			"deletion_id", deleteCmd.DeletionID,
+			"files", len(deleteCmd.Files),
+		)
+		go fileDeleter.ProcessDeleteCommand(deleteCmd)
 
 	default:
 		slog.Debug("Unknown command", "type", msg.Type)

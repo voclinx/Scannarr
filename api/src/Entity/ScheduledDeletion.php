@@ -46,6 +46,9 @@ class ScheduledDeletion
     #[ORM\Column]
     private bool $deleteMediaPlayerReference = false;
 
+    #[ORM\Column]
+    private bool $disableRadarrAutoSearch = false;
+
     #[ORM\Column(nullable: true)]
     private ?int $reminderDaysBefore = 3;
 
@@ -161,6 +164,18 @@ class ScheduledDeletion
     public function setDeleteMediaPlayerReference(bool $deleteMediaPlayerReference): static
     {
         $this->deleteMediaPlayerReference = $deleteMediaPlayerReference;
+
+        return $this;
+    }
+
+    public function isDisableRadarrAutoSearch(): bool
+    {
+        return $this->disableRadarrAutoSearch;
+    }
+
+    public function setDisableRadarrAutoSearch(bool $disableRadarrAutoSearch): static
+    {
+        $this->disableRadarrAutoSearch = $disableRadarrAutoSearch;
 
         return $this;
     }

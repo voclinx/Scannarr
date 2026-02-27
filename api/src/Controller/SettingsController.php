@@ -4,12 +4,14 @@ namespace App\Controller;
 
 use App\Repository\SettingRepository;
 use App\Service\QBittorrentService;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 #[Route('/api/v1/settings')]
 #[IsGranted('ROLE_ADMIN')]
@@ -38,6 +40,8 @@ class SettingsController extends AbstractController
     public function __construct(
         private readonly SettingRepository $settingRepository,
         private readonly QBittorrentService $qBittorrentService,
+        private readonly HttpClientInterface $httpClient,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -111,5 +115,67 @@ class SettingsController extends AbstractController
                 'message' => sprintf('Connection failed: %s', $result['error'] ?? 'Unknown error'),
             ],
         ], Response::HTTP_BAD_REQUEST);
+    }
+
+    /**
+     * POST /api/v1/settings/test-discord — Test Discord webhook from backend (avoids CORS).
+     */
+    #[Route('/test-discord', methods: ['POST'])]
+    public function testDiscordWebhook(): JsonResponse
+    {
+        $webhookUrl = $this->settingRepository->getValue('discord_webhook_url');
+
+        if (!$webhookUrl) {
+            return $this->json(
+                ['error' => ['code' => 422, 'message' => 'Discord webhook URL is not configured']],
+                Response::HTTP_UNPROCESSABLE_ENTITY,
+            );
+        }
+
+        try {
+            $response = $this->httpClient->request('POST', $webhookUrl, [
+                'json' => [
+                    'embeds' => [
+                        [
+                            'title' => '🔔 Test Scanarr',
+                            'description' => 'Les notifications Discord fonctionnent correctement !',
+                            'color' => 3066993,
+                            'footer' => ['text' => 'Scanarr — Test de notification'],
+                            'timestamp' => (new \DateTimeImmutable())->format('c'),
+                        ],
+                    ],
+                ],
+                'timeout' => 10,
+            ]);
+
+            $statusCode = $response->getStatusCode();
+
+            if ($statusCode >= 200 && $statusCode < 300) {
+                return $this->json([
+                    'data' => [
+                        'success' => true,
+                        'message' => 'Notification envoyée avec succès',
+                    ],
+                ]);
+            }
+
+            return $this->json([
+                'error' => [
+                    'code' => 400,
+                    'message' => sprintf('Discord returned HTTP %d', $statusCode),
+                ],
+            ], Response::HTTP_BAD_REQUEST);
+        } catch (\Throwable $e) {
+            $this->logger->warning('Discord webhook test failed', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->json([
+                'error' => [
+                    'code' => 400,
+                    'message' => sprintf('Discord webhook test failed: %s', $e->getMessage()),
+                ],
+            ], Response::HTTP_BAD_REQUEST);
+        }
     }
 }

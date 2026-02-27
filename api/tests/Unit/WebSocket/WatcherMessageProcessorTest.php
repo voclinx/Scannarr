@@ -6,6 +6,8 @@ use App\Entity\MediaFile;
 use App\Entity\Volume;
 use App\Repository\MediaFileRepository;
 use App\Repository\VolumeRepository;
+use App\Service\DiscordNotificationService;
+use App\Service\MediaPlayerRefreshService;
 use App\WebSocket\WatcherMessageProcessor;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
@@ -22,6 +24,8 @@ class WatcherMessageProcessorTest extends TestCase
     private ManagerRegistry $managerRegistry;
     private VolumeRepository $volumeRepository;
     private MediaFileRepository $mediaFileRepository;
+    private MediaPlayerRefreshService $mediaPlayerRefreshService;
+    private DiscordNotificationService $discordNotificationService;
     private LoggerInterface $logger;
     private WatcherMessageProcessor $processor;
 
@@ -31,6 +35,8 @@ class WatcherMessageProcessorTest extends TestCase
         $this->managerRegistry = $this->createStub(ManagerRegistry::class);
         $this->volumeRepository = $this->createStub(VolumeRepository::class);
         $this->mediaFileRepository = $this->createStub(MediaFileRepository::class);
+        $this->mediaPlayerRefreshService = $this->createStub(MediaPlayerRefreshService::class);
+        $this->discordNotificationService = $this->createStub(DiscordNotificationService::class);
         $this->logger = $this->createStub(LoggerInterface::class);
 
         // EntityManager is always open
@@ -41,6 +47,8 @@ class WatcherMessageProcessorTest extends TestCase
             $this->managerRegistry,
             $this->volumeRepository,
             $this->mediaFileRepository,
+            $this->mediaPlayerRefreshService,
+            $this->discordNotificationService,
             $this->logger,
         );
     }

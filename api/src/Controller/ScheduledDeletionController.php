@@ -114,6 +114,7 @@ class ScheduledDeletionController extends AbstractController
         $deletion->setDeletePhysicalFiles((bool)($payload['delete_physical_files'] ?? true));
         $deletion->setDeleteRadarrReference((bool)($payload['delete_radarr_reference'] ?? false));
         $deletion->setDeleteMediaPlayerReference((bool)($payload['delete_media_player_reference'] ?? false));
+        $deletion->setDisableRadarrAutoSearch((bool)($payload['disable_radarr_auto_search'] ?? false));
         $deletion->setReminderDaysBefore((int)($payload['reminder_days_before'] ?? 3));
 
         $totalFilesCount = 0;
@@ -154,6 +155,7 @@ class ScheduledDeletionController extends AbstractController
                 'delete_physical_files' => $deletion->isDeletePhysicalFiles(),
                 'delete_radarr_reference' => $deletion->isDeleteRadarrReference(),
                 'delete_media_player_reference' => $deletion->isDeleteMediaPlayerReference(),
+                'disable_radarr_auto_search' => $deletion->isDisableRadarrAutoSearch(),
                 'reminder_days_before' => $deletion->getReminderDaysBefore(),
                 'items_count' => $deletion->getItems()->count(),
                 'total_files_count' => $totalFilesCount,
@@ -241,6 +243,9 @@ class ScheduledDeletionController extends AbstractController
         }
         if (isset($payload['delete_media_player_reference'])) {
             $deletion->setDeleteMediaPlayerReference((bool)$payload['delete_media_player_reference']);
+        }
+        if (isset($payload['disable_radarr_auto_search'])) {
+            $deletion->setDisableRadarrAutoSearch((bool)$payload['disable_radarr_auto_search']);
         }
         if (isset($payload['reminder_days_before'])) {
             $deletion->setReminderDaysBefore((int)$payload['reminder_days_before']);
@@ -337,6 +342,7 @@ class ScheduledDeletionController extends AbstractController
             'delete_physical_files' => $deletion->isDeletePhysicalFiles(),
             'delete_radarr_reference' => $deletion->isDeleteRadarrReference(),
             'delete_media_player_reference' => $deletion->isDeleteMediaPlayerReference(),
+            'disable_radarr_auto_search' => $deletion->isDisableRadarrAutoSearch(),
             'items_count' => $deletion->getItems()->count(),
             'total_files_count' => $totalFiles,
             'created_by' => $deletion->getCreatedBy()?->getUsername(),
@@ -381,6 +387,7 @@ class ScheduledDeletionController extends AbstractController
             'delete_physical_files' => $deletion->isDeletePhysicalFiles(),
             'delete_radarr_reference' => $deletion->isDeleteRadarrReference(),
             'delete_media_player_reference' => $deletion->isDeleteMediaPlayerReference(),
+            'disable_radarr_auto_search' => $deletion->isDisableRadarrAutoSearch(),
             'reminder_days_before' => $deletion->getReminderDaysBefore(),
             'reminder_sent_at' => $deletion->getReminderSentAt()?->format('c'),
             'executed_at' => $deletion->getExecutedAt()?->format('c'),

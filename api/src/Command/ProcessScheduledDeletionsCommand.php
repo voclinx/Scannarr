@@ -2,9 +2,9 @@
 
 namespace App\Command;
 
+use App\Enum\DeletionStatus;
 use App\Repository\ScheduledDeletionRepository;
 use App\Service\DeletionService;
-use App\Service\DiscordNotificationService;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -22,7 +22,6 @@ class ProcessScheduledDeletionsCommand extends Command
     public function __construct(
         private readonly ScheduledDeletionRepository $deletionRepository,
         private readonly DeletionService $deletionService,
-        private readonly DiscordNotificationService $discordService,
         private readonly LoggerInterface $logger,
     ) {
         parent::__construct();
@@ -43,7 +42,7 @@ class ProcessScheduledDeletionsCommand extends Command
 
         $io->info(sprintf('Found %d deletion(s) to process.', count($deletions)));
 
-        $totalSuccess = 0;
+        $totalInitiated = 0;
         $totalFailed = 0;
 
         foreach ($deletions as $deletion) {
@@ -55,22 +54,21 @@ class ProcessScheduledDeletionsCommand extends Command
             ));
 
             try {
-                $result = $this->deletionService->executeDeletion($deletion);
+                $this->deletionService->executeDeletion($deletion);
 
-                $io->text(sprintf(
-                    '  → Success: %d, Failed: %d',
-                    $result['success'],
-                    $result['failed'],
-                ));
+                $status = $deletion->getStatus();
+                $io->text(sprintf('  → Status: %s', $status->value));
 
-                // Send Discord notification
-                if ($result['failed'] === 0) {
-                    $this->discordService->sendDeletionSuccess($deletion);
-                    ++$totalSuccess;
-                } else {
-                    $this->discordService->sendDeletionError($deletion);
-                    ++$totalFailed;
+                if ($status === DeletionStatus::COMPLETED) {
+                    $io->text('  → Completed immediately (no physical files to delete)');
+                } elseif ($status === DeletionStatus::EXECUTING) {
+                    $io->text('  → Command sent to watcher, awaiting completion');
+                } elseif ($status === DeletionStatus::WAITING_WATCHER) {
+                    $io->text('  → Watcher offline, will retry on reconnection');
                 }
+
+                // Discord notification is now handled by WatcherMessageProcessor on completion
+                ++$totalInitiated;
             } catch (Throwable $e) {
                 $this->logger->error('Error processing scheduled deletion', [
                     'deletion_id' => (string)$deletion->getId(),
@@ -88,8 +86,8 @@ class ProcessScheduledDeletionsCommand extends Command
         }
 
         $io->success(sprintf(
-            'Processing complete. Success: %d, Failed: %d',
-            $totalSuccess,
+            'Processing complete. Initiated: %d, Failed: %d',
+            $totalInitiated,
             $totalFailed,
         ));
 

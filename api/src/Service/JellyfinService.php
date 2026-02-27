@@ -59,6 +59,32 @@ class JellyfinService
     }
 
     /**
+     * Refresh all Jellyfin libraries (triggers a full scan).
+     */
+    public function refreshLibrary(MediaPlayerInstance $instance): bool
+    {
+        $url = rtrim($instance->getUrl() ?? '', '/') . '/Library/Refresh';
+
+        try {
+            $response = $this->httpClient->request('POST', $url, [
+                'headers' => [
+                    'X-Emby-Token' => $instance->getToken(),
+                ],
+                'timeout' => 10,
+            ]);
+
+            return $response->getStatusCode() === 204;
+        } catch (\Throwable $e) {
+            $this->logger->warning('Jellyfin refresh failed', [
+                'instance' => $instance->getName(),
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
      * Make a request to the Jellyfin API.
      *
      * @param array<string, mixed> $options

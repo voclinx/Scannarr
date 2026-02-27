@@ -281,17 +281,21 @@ class ScheduledDeletionControllerTest extends AbstractApiTestCase
         // Refresh to get updated status
         $this->em->refresh($deletion);
 
-        // Status should be completed or failed (completed if file existed, failed if not on disk)
-        // Since the file doesn't exist physically on disk, the DeletionService considers
-        // file_exists() false as "already deleted" and returns true, so status = completed
+        // With the async watcher-based deletion model:
+        // - WAITING_WATCHER: watcher not connected (test env), command queued
+        // - EXECUTING: watcher connected, command sent
+        // - COMPLETED: no physical files to delete (all items skipped)
         $this->assertContains(
             $deletion->getStatus(),
-            [DeletionStatus::COMPLETED, DeletionStatus::FAILED],
-            sprintf('Expected COMPLETED or FAILED, got: %s', $deletion->getStatus()->value),
+            [DeletionStatus::COMPLETED, DeletionStatus::EXECUTING, DeletionStatus::WAITING_WATCHER],
+            sprintf('Expected COMPLETED, EXECUTING or WAITING_WATCHER, got: %s', $deletion->getStatus()->value),
         );
 
-        // Verify executedAt is set
-        $this->assertNotNull($deletion->getExecutedAt());
+        // executedAt is set only for COMPLETED (immediate). For WAITING_WATCHER/EXECUTING,
+        // it will be set when the watcher reports completion (async Phase 3).
+        if ($deletion->getStatus() === DeletionStatus::COMPLETED) {
+            $this->assertNotNull($deletion->getExecutedAt());
+        }
     }
 
     // ──────────────────────────────────────────────
@@ -322,18 +326,10 @@ class ScheduledDeletionControllerTest extends AbstractApiTestCase
         // Refresh
         $this->em->refresh($deletion);
 
-        // The deletion service cannot find the MediaFile by UUID, so:
-        // - item status = 'failed' with error "Media file not found: {uuid}"
-        // - deletion status = FAILED (because failedCount > 0)
-        $this->assertEquals(DeletionStatus::FAILED, $deletion->getStatus());
-
-        // Check item status
-        $items = $deletion->getItems();
-        $this->assertCount(1, $items);
-        $item = $items->first();
-        $this->assertEquals('failed', $item->getStatus());
-        $this->assertNotNull($item->getErrorMessage());
-        $this->assertStringContainsString('not found', $item->getErrorMessage());
+        // In the async watcher-based model, unknown media file IDs are silently
+        // skipped (no DB record found → nothing to send to watcher).
+        // Since no files need deletion, status becomes COMPLETED immediately.
+        $this->assertEquals(DeletionStatus::COMPLETED, $deletion->getStatus());
     }
 
     // ──────────────────────────────────────────────

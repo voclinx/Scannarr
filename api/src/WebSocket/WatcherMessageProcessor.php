@@ -4,9 +4,13 @@ namespace App\WebSocket;
 
 use App\Entity\ActivityLog;
 use App\Entity\MediaFile;
+use App\Entity\ScheduledDeletion;
 use App\Entity\Volume;
+use App\Enum\DeletionStatus;
 use App\Repository\MediaFileRepository;
 use App\Repository\VolumeRepository;
+use App\Service\DiscordNotificationService;
+use App\Service\MediaPlayerRefreshService;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
@@ -39,6 +43,8 @@ class WatcherMessageProcessor
         private readonly ManagerRegistry $managerRegistry,
         private readonly VolumeRepository $volumeRepository,
         private readonly MediaFileRepository $mediaFileRepository,
+        private readonly MediaPlayerRefreshService $mediaPlayerRefreshService,
+        private readonly DiscordNotificationService $discordNotificationService,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -73,6 +79,8 @@ class WatcherMessageProcessor
                 'scan.file' => $this->handleScanFile($data),
                 'scan.completed' => $this->handleScanCompleted($data),
                 'watcher.status' => $this->handleWatcherStatus($data),
+                'files.delete.progress' => $this->handleFilesDeleteProgress($data),
+                'files.delete.completed' => $this->handleFilesDeleteCompleted($data),
                 default => $this->logger->warning('Unknown message type', ['type' => $type]),
             };
         } catch (Throwable $e) {
@@ -84,6 +92,231 @@ class WatcherMessageProcessor
             // Clear the EntityManager to avoid stale state
             $this->em->clear();
         }
+    }
+
+    // ──────────────────────────────────────────────
+    // File deletion events (from watcher)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Handle per-file deletion progress from the watcher.
+     * Just logs in V1 — detailed tracking can be added later.
+     */
+    private function handleFilesDeleteProgress(array $data): void
+    {
+        $this->logger->info('File deletion progress', [
+            'deletion_id' => $data['deletion_id'] ?? '',
+            'media_file_id' => $data['media_file_id'] ?? '',
+            'status' => $data['status'] ?? '',
+        ]);
+    }
+
+    /**
+     * Handle deletion completion from the watcher — Phase 3 finalization.
+     *
+     * 1. Remove successfully deleted media_files from DB
+     * 2. Update ScheduledDeletion items status
+     * 3. Set execution report + final status
+     * 4. Refresh Plex/Jellyfin (best-effort)
+     * 5. Discord notification
+     * 6. Activity log
+     */
+    private function handleFilesDeleteCompleted(array $data): void
+    {
+        $deletionId = $data['deletion_id'] ?? null;
+        if ($deletionId === null) {
+            $this->logger->warning('files.delete.completed without deletion_id');
+
+            return;
+        }
+
+        $deletion = $this->em->getRepository(ScheduledDeletion::class)->find($deletionId);
+        if ($deletion === null) {
+            $this->logger->warning('files.delete.completed for unknown deletion', [
+                'deletion_id' => $deletionId,
+            ]);
+
+            return;
+        }
+
+        $results = $data['results'] ?? [];
+        $successCount = $data['deleted'] ?? 0;
+        $failedCount = $data['failed'] ?? 0;
+
+        // 1. Remove successfully deleted media_files from DB, collect sizes as fallback
+        $fileSizes = [];
+        foreach ($results as $result) {
+            if (($result['status'] ?? '') === 'deleted') {
+                $mediaFile = $this->mediaFileRepository->find($result['media_file_id'] ?? '');
+                if ($mediaFile !== null) {
+                    $fileSizes[$result['media_file_id']] = $mediaFile->getFileSizeBytes();
+                    $this->em->remove($mediaFile);
+                }
+            }
+        }
+
+        // 2. Update item statuses
+        foreach ($deletion->getItems() as $item) {
+            $itemFileIds = $item->getMediaFileIds();
+            $itemErrors = [];
+            foreach ($results as $r) {
+                if (in_array($r['media_file_id'] ?? '', $itemFileIds, true) && ($r['status'] ?? '') === 'failed') {
+                    $itemErrors[] = $r['error'] ?? 'Unknown';
+                }
+            }
+            $item->setStatus(empty($itemErrors) ? 'deleted' : 'partial_failure');
+            if (!empty($itemErrors)) {
+                $item->setErrorMessage(implode('; ', $itemErrors));
+            }
+        }
+
+        // 3. Build enriched items for execution report (used by Discord notifications)
+        $itemReports = [];
+        $totalSpaceFreed = 0;
+        foreach ($deletion->getItems() as $item) {
+            $movie = $item->getMovie();
+            $itemErrors = [];
+            $itemSpaceFreed = 0;
+
+            foreach ($item->getMediaFileIds() as $fileId) {
+                foreach ($results as $r) {
+                    if (($r['media_file_id'] ?? '') === $fileId) {
+                        if (($r['status'] ?? '') === 'failed') {
+                            $itemErrors[] = $r['error'] ?? 'Unknown';
+                        }
+                        // Use watcher-reported size, fallback to DB size
+                        $size = $r['size_bytes'] ?? 0;
+                        if ($size === 0) {
+                            $size = $fileSizes[$fileId] ?? 0;
+                        }
+                        $itemSpaceFreed += $size;
+                    }
+                }
+            }
+
+            $itemReports[] = [
+                'movie' => $movie !== null ? $movie->getTitle() : 'Unknown',
+                'year' => $movie !== null ? $movie->getYear() : null,
+                'space_freed_bytes' => $itemSpaceFreed,
+                'errors' => $itemErrors,
+            ];
+            $totalSpaceFreed += $itemSpaceFreed;
+        }
+
+        // Execution report + final status
+        $deletion->setExecutionReport([
+            'finished_at' => (new DateTimeImmutable())->format('c'),
+            'success_count' => $successCount,
+            'failed_count' => $failedCount,
+            'dirs_removed' => $data['dirs_removed'] ?? 0,
+            'results' => $results,
+            'items' => $itemReports,
+            'total_space_freed' => $totalSpaceFreed,
+        ]);
+        $deletion->setExecutedAt(new DateTimeImmutable());
+
+        if ($successCount === 0 && $failedCount > 0) {
+            $deletion->setStatus(DeletionStatus::FAILED);
+        } else {
+            $deletion->setStatus(DeletionStatus::COMPLETED);
+        }
+
+        // 4. Refresh Plex/Jellyfin (best-effort)
+        if ($successCount > 0 && $deletion->isDeleteMediaPlayerReference()) {
+            try {
+                $this->mediaPlayerRefreshService->refreshAll();
+            } catch (Throwable $e) {
+                $this->logger->warning('Media player refresh failed after deletion', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // 5. Discord notification
+        try {
+            if ($deletion->getStatus() === DeletionStatus::COMPLETED) {
+                $this->discordNotificationService->sendDeletionSuccess($deletion);
+            } else {
+                $this->discordNotificationService->sendDeletionError($deletion);
+            }
+        } catch (Throwable $e) {
+            $this->logger->warning('Discord notification failed', ['error' => $e->getMessage()]);
+        }
+
+        // 6. Activity log
+        $log = new ActivityLog();
+        $log->setAction('scheduled_deletion.executed');
+        $log->setEntityType('scheduled_deletion');
+        $log->setEntityId($deletion->getId());
+        $log->setDetails(['success' => $successCount, 'failed' => $failedCount]);
+        if ($deletion->getCreatedBy() !== null) {
+            $log->setUser($deletion->getCreatedBy());
+        }
+        $this->em->persist($log);
+        $this->em->flush();
+
+        $this->logger->info('Deletion completed', [
+            'deletion_id' => $deletionId,
+            'success' => $successCount,
+            'failed' => $failedCount,
+            'status' => $deletion->getStatus()->value,
+        ]);
+    }
+
+    /**
+     * Get pending deletion commands to resend on watcher reconnection.
+     * Returns commands for all ScheduledDeletions in WAITING_WATCHER status.
+     *
+     * @return array<int, array{type: string, data: array<string, mixed>}>
+     */
+    public function getPendingDeletionCommands(): array
+    {
+        $waitingDeletions = $this->em->getRepository(ScheduledDeletion::class)
+            ->findBy(['status' => DeletionStatus::WAITING_WATCHER]);
+
+        $commands = [];
+        foreach ($waitingDeletions as $deletion) {
+            $files = [];
+            foreach ($deletion->getItems() as $item) {
+                foreach ($item->getMediaFileIds() as $mediaFileId) {
+                    $mediaFile = $this->mediaFileRepository->find($mediaFileId);
+                    if ($mediaFile === null || $mediaFile->getVolume() === null) {
+                        continue;
+                    }
+
+                    $volume = $mediaFile->getVolume();
+                    $volumeHostPath = $volume->getHostPath();
+                    if ($volumeHostPath === null || $volumeHostPath === '') {
+                        $volumeHostPath = $volume->getPath();
+                    }
+
+                    $files[] = [
+                        'media_file_id' => (string)$mediaFile->getId(),
+                        'volume_path' => rtrim($volumeHostPath ?? '', '/'),
+                        'file_path' => $mediaFile->getFilePath(),
+                    ];
+                }
+            }
+
+            if (empty($files)) {
+                $deletion->setStatus(DeletionStatus::COMPLETED);
+                $deletion->setExecutedAt(new DateTimeImmutable());
+                continue;
+            }
+
+            $deletion->setStatus(DeletionStatus::EXECUTING);
+            $commands[] = [
+                'type' => 'command.files.delete',
+                'data' => [
+                    'request_id' => (string)Uuid::v4(),
+                    'deletion_id' => (string)$deletion->getId(),
+                    'files' => $files,
+                ],
+            ];
+        }
+        $this->em->flush();
+
+        return $commands;
     }
 
     // ──────────────────────────────────────────────

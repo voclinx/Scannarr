@@ -86,18 +86,20 @@ export const useMoviesStore = defineStore('movies', () => {
       disable_radarr_auto_search: boolean
     },
   ): Promise<{
-    files_deleted: number
+    message: string
+    deletion_id: string
+    status: string
+    files_count: number
     radarr_dereferenced: boolean
-    radarr_auto_search_disabled: boolean
     warning?: string
   }> {
     const { data } = await api.delete<{
       data: {
         message: string
-        files_deleted: number
+        deletion_id: string
+        status: string
+        files_count: number
         radarr_dereferenced: boolean
-        radarr_auto_search_disabled: boolean
-        media_player_reference_kept: boolean
         warning?: string
       }
     }>(`/movies/${id}`, { data: options })
