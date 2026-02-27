@@ -16,6 +16,7 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'idx_media_files_volume', columns: ['volume_id'])]
 #[ORM\Index(name: 'idx_media_files_radarr', columns: ['is_linked_radarr'])]
 #[ORM\Index(name: 'idx_media_files_name', columns: ['file_name'])]
+#[ORM\Index(name: 'idx_media_files_partial_hash', columns: ['partial_hash'])]
 #[ORM\HasLifecycleCallbacks]
 class MediaFile
 {
@@ -62,6 +63,12 @@ class MediaFile
 
     #[ORM\Column(length: 64, nullable: true)]
     private ?string $fileHash = null;
+
+    #[ORM\Column(length: 128, nullable: true)]
+    private ?string $partialHash = null;
+
+    #[ORM\Column]
+    private bool $isProtected = false;
 
     #[ORM\Column]
     private DateTimeImmutable $detectedAt;
@@ -225,6 +232,30 @@ class MediaFile
     public function setFileHash(?string $fileHash): static
     {
         $this->fileHash = $fileHash;
+
+        return $this;
+    }
+
+    public function getPartialHash(): ?string
+    {
+        return $this->partialHash;
+    }
+
+    public function setPartialHash(?string $partialHash): static
+    {
+        $this->partialHash = $partialHash;
+
+        return $this;
+    }
+
+    public function isProtected(): bool
+    {
+        return $this->isProtected;
+    }
+
+    public function setIsProtected(bool $isProtected): static
+    {
+        $this->isProtected = $isProtected;
 
         return $this;
     }

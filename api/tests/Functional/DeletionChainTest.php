@@ -13,8 +13,12 @@ use App\Enum\DeletionStatus;
 use App\Enum\VolumeStatus;
 use App\Enum\VolumeType;
 use App\Tests\AbstractApiTestCase;
-use Symfony\Component\Console\Tester\CommandTester;
+use DateTime;
+use FilesystemIterator;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Component\Console\Tester\CommandTester;
 
 /**
  * TEST-CHAIN: Tests de la chaîne de suppression complète V1.2.
@@ -271,7 +275,7 @@ class DeletionChainTest extends AbstractApiTestCase
 
         // Même nom de fichier sur 2 volumes différents (hardlinks)
         $file1 = $this->createMediaFile($volume1, 'Movies/Shared.mkv', 'Shared.mkv', 5_000_000_000);
-        $file2 = $this->createMediaFile($volume2, 'Movies/Shared.mkv', 'Shared.mkv', 5_000_000_000);
+        $this->createMediaFile($volume2, 'Movies/Shared.mkv', 'Shared.mkv', 5_000_000_000);
 
         $fileId = (string)$file1->getId();
 
@@ -313,7 +317,7 @@ class DeletionChainTest extends AbstractApiTestCase
         // Créer une ScheduledDeletion en status PENDING, due aujourd'hui
         $deletion = new ScheduledDeletion();
         $deletion->setCreatedBy($user);
-        $deletion->setScheduledDate(new \DateTime('today'));
+        $deletion->setScheduledDate(new DateTime('today'));
         $deletion->setDeletePhysicalFiles(true);
         $deletion->setDeleteRadarrReference(false);
         $deletion->setDisableRadarrAutoSearch(false);
@@ -447,8 +451,8 @@ class DeletionChainTest extends AbstractApiTestCase
             'file_exists(' => [],
         ];
 
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($apiSrcDir, \FilesystemIterator::SKIP_DOTS),
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($apiSrcDir, FilesystemIterator::SKIP_DOTS),
         );
 
         foreach ($iterator as $file) {
@@ -499,8 +503,8 @@ class DeletionChainTest extends AbstractApiTestCase
 
         $occurrences = [];
 
-        $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($apiSrcDir, \FilesystemIterator::SKIP_DOTS),
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($apiSrcDir, FilesystemIterator::SKIP_DOTS),
         );
 
         foreach ($iterator as $file) {

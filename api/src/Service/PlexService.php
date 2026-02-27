@@ -8,6 +8,7 @@ use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Throwable;
 
 class PlexService
 {
@@ -87,7 +88,7 @@ class PlexService
             ]);
 
             return $response->getStatusCode() === 200;
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->warning('Plex refresh failed', [
                 'instance' => $instance->getName(),
                 'section' => $sectionKey,
@@ -107,7 +108,7 @@ class PlexService
     {
         try {
             $sections = $this->getLibrarySections($instance);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->warning('Failed to get Plex library sections for refresh', [
                 'instance' => $instance->getName(),
                 'error' => $e->getMessage(),
@@ -123,7 +124,7 @@ class PlexService
             }
 
             if ($this->refreshLibrary($instance, $section['key'])) {
-                $refreshed++;
+                ++$refreshed;
             }
         }
 

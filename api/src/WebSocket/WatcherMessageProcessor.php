@@ -6,11 +6,17 @@ use App\Entity\ActivityLog;
 use App\Entity\MediaFile;
 use App\Entity\ScheduledDeletion;
 use App\Entity\Volume;
+use App\Entity\Watcher;
+use App\Entity\WatcherLog;
 use App\Enum\DeletionStatus;
+use App\Enum\WatcherStatus;
 use App\Repository\MediaFileRepository;
 use App\Repository\VolumeRepository;
+use App\Repository\WatcherRepository;
+use App\Service\DeletionService;
 use App\Service\DiscordNotificationService;
 use App\Service\MediaPlayerRefreshService;
+use App\Service\RadarrService;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
@@ -45,6 +51,9 @@ class WatcherMessageProcessor
         private readonly MediaFileRepository $mediaFileRepository,
         private readonly MediaPlayerRefreshService $mediaPlayerRefreshService,
         private readonly DiscordNotificationService $discordNotificationService,
+        private readonly DeletionService $deletionService,
+        private readonly RadarrService $radarrService,
+        private readonly WatcherRepository $watcherRepository,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -58,6 +67,9 @@ class WatcherMessageProcessor
     {
         $type = $message['type'] ?? 'unknown';
         $data = $message['data'] ?? [];
+
+        // Extract watcher_id injected by the WebSocket server
+        $watcherId = $message['_watcher_id'] ?? null;
 
         $this->logger->info('Processing watcher message', ['type' => $type]);
 
@@ -78,9 +90,11 @@ class WatcherMessageProcessor
                 'scan.progress' => $this->handleScanProgress($data),
                 'scan.file' => $this->handleScanFile($data),
                 'scan.completed' => $this->handleScanCompleted($data),
-                'watcher.status' => $this->handleWatcherStatus($data),
+                'watcher.status' => $this->handleWatcherStatus($data, $watcherId),
+                'watcher.log' => $this->handleWatcherLog($data, $watcherId),
                 'files.delete.progress' => $this->handleFilesDeleteProgress($data),
                 'files.delete.completed' => $this->handleFilesDeleteCompleted($data),
+                'files.hardlink.completed' => $this->handleHardlinkCompleted($data),
                 default => $this->logger->warning('Unknown message type', ['type' => $type]),
             };
         } catch (Throwable $e) {
@@ -91,6 +105,78 @@ class WatcherMessageProcessor
             ]);
             // Clear the EntityManager to avoid stale state
             $this->em->clear();
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Watcher lifecycle management
+    // ──────────────────────────────────────────────
+
+    /**
+     * Find or create a Watcher entity from a hello message.
+     * Creates with PENDING status if unknown; updates hostname/version/lastSeenAt otherwise.
+     */
+    public function findOrCreateWatcher(string $watcherId, ?string $hostname, ?string $version): Watcher
+    {
+        $watcher = $this->watcherRepository->findByWatcherId($watcherId);
+
+        if (!$watcher instanceof Watcher) {
+            $watcher = new Watcher();
+            $watcher->setWatcherId($watcherId);
+            $watcher->setName($hostname ?? $watcherId);
+            $watcher->setStatus(WatcherStatus::PENDING);
+            $this->em->persist($watcher);
+        } else {
+            // Refresh from DB — the WS server is a long-running process whose entity manager
+            // may have a stale identity map entry (e.g. PENDING) from a previous connection,
+            // while the HTTP layer updated the status in the meantime (e.g. to APPROVED).
+            $this->em->refresh($watcher);
+        }
+
+        $watcher->setHostname($hostname);
+        $watcher->setVersion($version);
+        $watcher->setLastSeenAt(new DateTimeImmutable());
+        $this->em->flush();
+
+        return $watcher;
+    }
+
+    /**
+     * Authenticate a watcher by its auth token.
+     * Returns null if not found, revoked, or token mismatch.
+     */
+    public function authenticateWatcher(string $token): ?Watcher
+    {
+        $watcher = $this->watcherRepository->findByAuthToken($token);
+
+        if (!$watcher instanceof Watcher) {
+            return null;
+        }
+
+        if ($watcher->getStatus() === WatcherStatus::REVOKED) {
+            return null;
+        }
+
+        $watcher->setStatus(WatcherStatus::CONNECTED);
+        $watcher->setLastSeenAt(new DateTimeImmutable());
+        $this->em->flush();
+
+        return $watcher;
+    }
+
+    /**
+     * Mark a watcher as disconnected when its WebSocket connection closes.
+     */
+    public function handleWatcherDisconnect(string $watcherId): void
+    {
+        $watcher = $this->watcherRepository->findByWatcherId($watcherId);
+        if (!$watcher instanceof Watcher) {
+            return;
+        }
+
+        if ($watcher->getStatus() === WatcherStatus::CONNECTED) {
+            $watcher->setStatus(WatcherStatus::DISCONNECTED);
+            $this->em->flush();
         }
     }
 
@@ -164,8 +250,8 @@ class WatcherMessageProcessor
                     $itemErrors[] = $r['error'] ?? 'Unknown';
                 }
             }
-            $item->setStatus(empty($itemErrors) ? 'deleted' : 'partial_failure');
-            if (!empty($itemErrors)) {
+            $item->setStatus($itemErrors === [] ? 'deleted' : 'partial_failure');
+            if ($itemErrors !== []) {
                 $item->setErrorMessage(implode('; ', $itemErrors));
             }
         }
@@ -264,6 +350,106 @@ class WatcherMessageProcessor
     }
 
     /**
+     * Handle files.hardlink.completed from the watcher.
+     *
+     * On success: update DB, trigger Radarr rescan, then continue deletion chain.
+     * On failure: mark deletion as FAILED — never delete without a replacement.
+     */
+    private function handleHardlinkCompleted(array $data): void
+    {
+        $deletionId = $data['deletion_id'] ?? null;
+        $status = $data['status'] ?? 'failed';
+        $targetPath = $data['target_path'] ?? '';
+        $error = $data['error'] ?? '';
+
+        if ($deletionId === null) {
+            $this->logger->warning('files.hardlink.completed without deletion_id');
+
+            return;
+        }
+
+        $deletion = $this->em->getRepository(ScheduledDeletion::class)->find($deletionId);
+        if ($deletion === null) {
+            $this->logger->warning('files.hardlink.completed for unknown deletion', [
+                'deletion_id' => $deletionId,
+            ]);
+
+            return;
+        }
+
+        if ($status === 'failed') {
+            $this->logger->error('Hardlink creation failed — aborting deletion', [
+                'deletion_id' => $deletionId,
+                'error' => $error,
+            ]);
+            $deletion->setStatus(DeletionStatus::FAILED);
+            $deletion->setExecutionReport([
+                'finished_at' => (new DateTimeImmutable())->format('c'),
+                'error' => 'Hardlink creation failed: ' . $error,
+            ]);
+            $this->em->flush();
+
+            return;
+        }
+
+        // status === 'created'
+        $this->logger->info('Hardlink created successfully', [
+            'deletion_id' => $deletionId,
+            'target' => $targetPath,
+        ]);
+
+        // a. Create/update MediaFile for the new hardlink in media/
+        if ($targetPath !== '') {
+            $targetVolume = $this->resolveVolume($targetPath);
+            if ($targetVolume instanceof Volume) {
+                $relPath = $this->getRelativePath($targetPath, $targetVolume);
+                $existing = $this->mediaFileRepository->findByVolumeAndFilePath($targetVolume, $relPath);
+                if ($existing instanceof MediaFile) {
+                    $existing->setIsLinkedMediaPlayer(true);
+                } else {
+                    $newFile = new MediaFile();
+                    $newFile->setVolume($targetVolume);
+                    $newFile->setFilePath($relPath);
+                    $newFile->setFileName(basename((string)$targetPath));
+                    $newFile->setIsLinkedMediaPlayer(true);
+                    $this->em->persist($newFile);
+                }
+                $this->em->flush();
+            }
+        }
+
+        // b. Radarr rescan (best-effort)
+        foreach ($deletion->getItems() as $item) {
+            $movie = $item->getMovie();
+            if ($movie === null) {
+                continue;
+            }
+            $radarrInstance = $movie->getRadarrInstance();
+            $radarrId = $movie->getRadarrId();
+            if ($radarrInstance !== null && $radarrId !== null) {
+                try {
+                    $this->radarrService->rescanMovie($radarrInstance, $radarrId);
+                } catch (Throwable $e) {
+                    $this->logger->warning('Radarr rescan failed after hardlink', [
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        // c. Continue deletion chain — execute physical file deletion
+        try {
+            $this->deletionService->executeDeletion($deletion);
+        } catch (Throwable $e) {
+            $this->logger->error('Failed to continue deletion after hardlink', [
+                'error' => $e->getMessage(),
+            ]);
+            $deletion->setStatus(DeletionStatus::FAILED);
+            $this->em->flush();
+        }
+    }
+
+    /**
      * Get pending deletion commands to resend on watcher reconnection.
      * Returns commands for all ScheduledDeletions in WAITING_WATCHER status.
      *
@@ -298,7 +484,7 @@ class WatcherMessageProcessor
                 }
             }
 
-            if (empty($files)) {
+            if ($files === []) {
                 $deletion->setStatus(DeletionStatus::COMPLETED);
                 $deletion->setExecutedAt(new DateTimeImmutable());
                 continue;
@@ -345,6 +531,9 @@ class WatcherMessageProcessor
             $existing->setFileSizeBytes((int)($data['size_bytes'] ?? 0));
             $existing->setHardlinkCount((int)($data['hardlink_count'] ?? 1));
             $existing->setFileName($data['name'] ?? basename((string)$path));
+            if (isset($data['partial_hash']) && $data['partial_hash'] !== '') {
+                $existing->setPartialHash($data['partial_hash']);
+            }
             $this->em->flush();
             $this->logger->info('File updated (re-created)', ['path' => $relativePath, 'volume' => $volume->getName()]);
 
@@ -476,6 +665,9 @@ class WatcherMessageProcessor
 
         $mediaFile->setFileSizeBytes((int)($data['size_bytes'] ?? $mediaFile->getFileSizeBytes()));
         $mediaFile->setHardlinkCount((int)($data['hardlink_count'] ?? $mediaFile->getHardlinkCount()));
+        if (isset($data['partial_hash']) && $data['partial_hash'] !== '') {
+            $mediaFile->setPartialHash($data['partial_hash']);
+        }
         $this->em->flush();
 
         $this->logger->info('File modified', ['path' => $relativePath, 'size' => $data['size_bytes'] ?? 0]);
@@ -553,6 +745,9 @@ class WatcherMessageProcessor
             $mediaFile->setFileSizeBytes((int)($data['size_bytes'] ?? $mediaFile->getFileSizeBytes()));
             $mediaFile->setHardlinkCount((int)($data['hardlink_count'] ?? $mediaFile->getHardlinkCount()));
             $mediaFile->setFileName($data['name'] ?? basename((string)$path));
+            if (isset($data['partial_hash']) && $data['partial_hash'] !== '') {
+                $mediaFile->setPartialHash($data['partial_hash']);
+            }
         } else {
             $mediaFile = $this->createMediaFile($volume, $relativePath, $data);
             $this->em->persist($mediaFile);
@@ -633,16 +828,46 @@ class WatcherMessageProcessor
     }
 
     // ──────────────────────────────────────────────
-    // Watcher status
+    // Watcher status and log events
     // ──────────────────────────────────────────────
 
-    private function handleWatcherStatus(array $data): void
+    private function handleWatcherStatus(array $data, ?string $watcherId): void
     {
         $this->logger->debug('Watcher status', [
+            'watcher_id' => $watcherId,
             'status' => $data['status'] ?? 'unknown',
             'watched_paths' => $data['watched_paths'] ?? [],
             'uptime_seconds' => $data['uptime_seconds'] ?? 0,
         ]);
+    }
+
+    private function handleWatcherLog(array $data, ?string $watcherId): void
+    {
+        if ($watcherId === null) {
+            return;
+        }
+
+        $watcher = $this->watcherRepository->findByWatcherId($watcherId);
+        if (!$watcher instanceof Watcher) {
+            return;
+        }
+
+        $log = new WatcherLog();
+        $log->setWatcher($watcher);
+        $log->setLevel($data['level'] ?? 'info');
+        $log->setMessage($data['message'] ?? '');
+        $log->setContext($data['context'] ?? []);
+
+        if (isset($data['timestamp'])) {
+            try {
+                $log->setCreatedAt(new DateTimeImmutable($data['timestamp']));
+            } catch (Throwable) {
+                // keep default createdAt
+            }
+        }
+
+        $this->em->persist($log);
+        $this->em->flush();
     }
 
     // ──────────────────────────────────────────────
@@ -680,6 +905,10 @@ class WatcherMessageProcessor
         $mediaFile->setFileName($data['name'] ?? basename($relativePath));
         $mediaFile->setFileSizeBytes((int)($data['size_bytes'] ?? 0));
         $mediaFile->setHardlinkCount((int)($data['hardlink_count'] ?? 1));
+
+        if (isset($data['partial_hash']) && $data['partial_hash'] !== '') {
+            $mediaFile->setPartialHash($data['partial_hash']);
+        }
 
         return $mediaFile;
     }

@@ -84,6 +84,7 @@ export const useMoviesStore = defineStore('movies', () => {
       delete_radarr_reference: boolean
       delete_media_player_reference: boolean
       disable_radarr_auto_search: boolean
+      replacement_map?: Record<string, string>
     },
   ): Promise<{
     message: string
@@ -105,6 +106,15 @@ export const useMoviesStore = defineStore('movies', () => {
     }>(`/movies/${id}`, { data: options })
 
     return data.data
+  }
+
+  async function protectMovie(id: string, isProtected: boolean): Promise<void> {
+    await api.patch(`/movies/${id}/protect`, { is_protected: isProtected })
+    if (currentMovie.value?.id === id) {
+      currentMovie.value = { ...currentMovie.value, is_protected: isProtected }
+    }
+    const movie = movies.value.find((m) => m.id === id)
+    if (movie) movie.is_protected = isProtected
   }
 
   async function triggerSync(): Promise<void> {
@@ -150,6 +160,7 @@ export const useMoviesStore = defineStore('movies', () => {
     fetchMovies,
     fetchMovie,
     deleteMovie,
+    protectMovie,
     triggerSync,
     setPage,
     setSort,

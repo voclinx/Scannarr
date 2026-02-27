@@ -52,6 +52,8 @@ front/.env.*.local
 # Go
 watcher/scanarr-watcher
 watcher/scanarr-watcher.exe
+watcher/bin/
+watcher/watcher.env
 
 # Logs
 *.log

@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use App\Repository\SettingRepository;
 use App\Service\QBittorrentService;
+use DateTimeImmutable;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -12,6 +13,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Throwable;
 
 #[Route('/api/v1/settings')]
 #[IsGranted('ROLE_ADMIN')]
@@ -141,7 +143,7 @@ class SettingsController extends AbstractController
                             'description' => 'Les notifications Discord fonctionnent correctement !',
                             'color' => 3066993,
                             'footer' => ['text' => 'Scanarr — Test de notification'],
-                            'timestamp' => (new \DateTimeImmutable())->format('c'),
+                            'timestamp' => (new DateTimeImmutable())->format('c'),
                         ],
                     ],
                 ],
@@ -165,7 +167,7 @@ class SettingsController extends AbstractController
                     'message' => sprintf('Discord returned HTTP %d', $statusCode),
                 ],
             ], Response::HTTP_BAD_REQUEST);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->warning('Discord webhook test failed', [
                 'error' => $e->getMessage(),
             ]);

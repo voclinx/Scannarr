@@ -64,7 +64,9 @@ func httpToWs(url string) string {
 // for the connection to be established.
 func createTestClient(t *testing.T, wsURL string) *websocket.Client {
 	t.Helper()
-	client := websocket.NewClient(wsURL, "test-token", 1*time.Second, 30*time.Second)
+	client := websocket.NewClient(wsURL, "test-watcher-id")
+	client.SetReconnectDelay(1 * time.Second)
+	client.SetPingInterval(30 * time.Second)
 	if err := client.Connect(); err != nil {
 		t.Fatalf("failed to connect to test server: %v", err)
 	}

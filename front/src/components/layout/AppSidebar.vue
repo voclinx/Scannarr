@@ -19,6 +19,7 @@ const navItems: NavItem[] = [
   { label: 'Dashboard', icon: 'pi pi-home', to: '/', routeName: 'dashboard', minRole: 'ROLE_GUEST' },
   { label: 'Fichiers', icon: 'pi pi-folder', to: '/files', routeName: 'files', minRole: 'ROLE_GUEST' },
   { label: 'Films', icon: 'pi pi-video', to: '/movies', routeName: 'movies', minRole: 'ROLE_GUEST' },
+  { label: 'Suggestions', icon: 'pi pi-lightbulb', to: '/suggestions', routeName: 'suggestions', minRole: 'ROLE_USER' },
   { label: 'Suppressions', icon: 'pi pi-calendar-clock', to: '/deletions', routeName: 'deletions', minRole: 'ROLE_USER' },
   { label: 'Paramètres', icon: 'pi pi-cog', to: '/settings', routeName: 'settings', minRole: 'ROLE_ADMIN' },
   { label: 'Utilisateurs', icon: 'pi pi-users', to: '/users', routeName: 'users', minRole: 'ROLE_ADMIN' },

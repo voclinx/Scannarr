@@ -16,6 +16,7 @@ import DatePicker from 'primevue/datepicker'
 import InputNumber from 'primevue/inputnumber'
 import Checkbox from 'primevue/checkbox'
 import type { MovieFileDetail } from '@/types'
+import { useFormatters } from '@/composables/useFormatters'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,9 +24,13 @@ const moviesStore = useMoviesStore()
 const deletionsStore = useDeletionsStore()
 const authStore = useAuthStore()
 
+const { formatSize, formatRuntime, formatRatio, formatSeedTime, ratioSeverity, seedingStatusLabel, seedingStatusSeverity } = useFormatters()
+
 const showDeleteModal = ref(false)
 const deleteError = ref<string | null>(null)
 const deleteSuccess = ref<string | null>(null)
+const expandedRows = ref({})
+const replacementMap = ref<Record<string, string>>({})
 
 // Schedule deletion dialog
 const showScheduleDialog = ref(false)
@@ -78,20 +83,6 @@ async function handleSchedule(): Promise<void> {
   }
 }
 
-function formatSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const k = 1024
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return (bytes / Math.pow(k, i)).toFixed(i > 1 ? 1 : 0) + ' ' + units[i]
-}
-
-function formatRuntime(minutes: number): string {
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  return h > 0 ? `${h}h${m > 0 ? ` ${m}min` : ''}` : `${m}min`
-}
-
 function matchedByLabel(matchedBy: string): string {
   const labels: Record<string, string> = {
     radarr_api: 'Radarr API',
@@ -107,6 +98,12 @@ function confidenceColor(confidence: number): 'success' | 'warn' | 'danger' {
   return 'danger'
 }
 
+async function toggleProtection(): Promise<void> {
+  const movie = moviesStore.currentMovie
+  if (!movie) return
+  await moviesStore.protectMovie(movie.id, !movie.is_protected)
+}
+
 async function onDeleteConfirm(options: {
   file_ids: string[]
   delete_radarr_reference: boolean
@@ -118,7 +115,10 @@ async function onDeleteConfirm(options: {
   deleteSuccess.value = null
 
   try {
-    const result = await moviesStore.deleteMovie(movieId, options)
+    const result = await moviesStore.deleteMovie(movieId, {
+      ...options,
+      replacement_map: Object.keys(replacementMap.value).length > 0 ? replacementMap.value : undefined,
+    })
     showDeleteModal.value = false
     deleteSuccess.value = `${result.files_count} fichier(s) supprimé(s). Statut : ${result.status}`
 
@@ -218,6 +218,13 @@ onMounted(async () => {
             </div>
             <div class="flex gap-2" v-if="authStore.hasMinRole('ROLE_ADVANCED_USER') && moviesStore.currentMovie.files.length > 0">
               <Button
+                icon="pi pi-shield"
+                :label="moviesStore.currentMovie.is_protected ? 'Protégé' : 'Protéger'"
+                :severity="moviesStore.currentMovie.is_protected ? 'info' : 'secondary'"
+                size="small"
+                @click="toggleProtection"
+              />
+              <Button
                 label="Planifier"
                 icon="pi pi-calendar"
                 severity="warn"
@@ -261,6 +268,21 @@ onMounted(async () => {
               value="Suivi Radarr"
               severity="success"
             />
+            <Tag
+              v-if="moviesStore.currentMovie.seeding_status"
+              :value="seedingStatusLabel(moviesStore.currentMovie.seeding_status)"
+              :severity="seedingStatusSeverity(moviesStore.currentMovie.seeding_status)"
+            />
+            <Tag
+              v-if="moviesStore.currentMovie.best_ratio != null"
+              :value="`Ratio: ${formatRatio(moviesStore.currentMovie.best_ratio)}`"
+              :severity="ratioSeverity(moviesStore.currentMovie.best_ratio)"
+            />
+            <Tag
+              v-if="moviesStore.currentMovie.cross_seed_count"
+              :value="`CS: ${moviesStore.currentMovie.cross_seed_count}`"
+              severity="secondary"
+            />
           </div>
 
           <!-- Genres -->
@@ -285,6 +307,7 @@ onMounted(async () => {
         </h2>
 
         <DataTable
+          v-model:expandedRows="expandedRows"
           :value="moviesStore.currentMovie.files"
           dataKey="id"
           stripedRows
@@ -295,6 +318,8 @@ onMounted(async () => {
               Aucun fichier lié à ce film
             </div>
           </template>
+
+          <Column expander style="width: 3rem" />
 
           <Column field="file_name" header="Fichier" style="min-width: 300px">
             <template #body="{ data }: { data: MovieFileDetail }">
@@ -337,6 +362,13 @@ onMounted(async () => {
             </template>
           </Column>
 
+          <Column field="cross_seed_count" header="CS" style="width: 60px">
+            <template #body="{ data }: { data: MovieFileDetail }">
+              <span v-if="data.cross_seed_count > 0" class="text-blue-500 font-medium">{{ data.cross_seed_count }}</span>
+              <span v-else class="text-gray-400">—</span>
+            </template>
+          </Column>
+
           <Column header="Liaison" style="width: 130px">
             <template #body="{ data }: { data: MovieFileDetail }">
               <div class="flex flex-col gap-1">
@@ -351,6 +383,28 @@ onMounted(async () => {
               </div>
             </template>
           </Column>
+
+          <template #expansion="{ data }: { data: MovieFileDetail }">
+            <div v-if="data.torrents?.length" class="pl-8 py-2">
+              <DataTable :value="data.torrents" size="small">
+                <Column field="tracker_domain" header="Tracker" />
+                <Column field="ratio" header="Ratio">
+                  <template #body="{ data: t }">
+                    <Tag :value="formatRatio(t.ratio)" :severity="ratioSeverity(t.ratio)" />
+                  </template>
+                </Column>
+                <Column field="seed_time_seconds" header="Seed">
+                  <template #body="{ data: t }">{{ formatSeedTime(t.seed_time_seconds) }}</template>
+                </Column>
+                <Column field="status" header="Statut">
+                  <template #body="{ data: t }">
+                    <Tag :value="t.status" :severity="t.status === 'seeding' ? 'success' : 'secondary'" />
+                  </template>
+                </Column>
+              </DataTable>
+            </div>
+            <p v-else class="pl-8 py-2 text-gray-400 text-sm">Aucun torrent associé</p>
+          </template>
         </DataTable>
       </div>
 

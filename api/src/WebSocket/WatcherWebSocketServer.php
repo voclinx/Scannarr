@@ -2,6 +2,7 @@
 
 namespace App\WebSocket;
 
+use App\Entity\Watcher;
 use Exception;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Message;
@@ -21,12 +22,25 @@ use Throwable;
 
 class WatcherWebSocketServer
 {
-    /** @var array<int, array{conn: ConnectionInterface, buffer: MessageBuffer, authenticated: bool}> */
+    /**
+     * connId → {conn, buffer, authenticated, watcherId}
+     *
+     * @var array<int, array{conn: ConnectionInterface, buffer: MessageBuffer, authenticated: bool, watcherId: string|null}>
+     */
     private array $connections = [];
-    private array $authenticatedConnections = [];
 
-    public function __construct(private readonly string $authToken, private readonly LoggerInterface $logger, private readonly WatcherMessageProcessor $messageProcessor)
-    {
+    /**
+     * watcherId → connId (inverse mapping for targeted sends).
+     *
+     * @var array<string, int>
+     */
+    private array $watcherConnections = [];
+
+    public function __construct(
+        private readonly string $internalToken,
+        private readonly LoggerInterface $logger,
+        private readonly WatcherMessageProcessor $messageProcessor,
+    ) {
     }
 
     public function run(string $host = '0.0.0.0', int $port = 8081): void
@@ -110,10 +124,14 @@ class WatcherWebSocketServer
                 $this->setupWebSocketConnection($connId, $conn);
             });
 
-            // Auth timeout: 10 seconds to complete handshake + auth
-            Loop::addTimer(10.0, function () use ($connId): void {
-                if (isset($this->connections[$connId]) && !$this->connections[$connId]['authenticated']) {
-                    $this->logger->warning('Connection auth timeout', ['id' => $connId]);
+            // Auth timeout: 30s for connections that have NOT sent a watcher.hello
+            // (PENDING watchers may stay connected indefinitely)
+            Loop::addTimer(30.0, function () use ($connId): void {
+                if (isset($this->connections[$connId])
+                    && !$this->connections[$connId]['authenticated']
+                    && $this->connections[$connId]['watcherId'] === null
+                ) {
+                    $this->logger->warning('Connection auth timeout (no hello received)', ['id' => $connId]);
                     $this->closeConnection($connId);
                 }
             });
@@ -151,7 +169,7 @@ class WatcherWebSocketServer
 
         // Verify internal auth token
         $token = $request->getHeaderLine('X-Internal-Token');
-        if ($token !== $this->authToken) {
+        if ($token !== $this->internalToken) {
             $response = '{"error":"Unauthorized"}';
             $conn->write("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
             $conn->close();
@@ -159,9 +177,12 @@ class WatcherWebSocketServer
             return;
         }
 
-        $connectedWatchers = count($this->authenticatedConnections);
+        // Extract optional target_watcher_id
+        $targetWatcherId = $data['target_watcher_id'] ?? null;
 
-        if ($connectedWatchers === 0) {
+        $connectedCount = count($this->watcherConnections);
+
+        if ($connectedCount === 0 && $targetWatcherId === null) {
             $response = '{"error":"No watcher connected"}';
             $conn->write("HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
             $conn->close();
@@ -169,14 +190,17 @@ class WatcherWebSocketServer
             return;
         }
 
-        // Send to all connected watchers
-        $this->sendToWatcher($body);
+        // Send to target or broadcast
+        $this->sendToWatcher($body, $targetWatcherId);
 
-        $response = json_encode(['ok' => true, 'watchers' => $connectedWatchers]);
+        $response = json_encode(['ok' => true, 'watchers' => $connectedCount]);
         $conn->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
         $conn->close();
 
-        $this->logger->info('Internal command sent to watcher', ['type' => $data['type'] ?? 'unknown']);
+        $this->logger->info('Internal command sent to watcher', [
+            'type' => $data['type'] ?? 'unknown',
+            'target' => $targetWatcherId,
+        ]);
     }
 
     /**
@@ -184,9 +208,19 @@ class WatcherWebSocketServer
      */
     private function handleInternalStatus(ConnectionInterface $conn): void
     {
+        $watchers = [];
+        foreach ($this->watcherConnections as $watcherId => $connId) {
+            $watchers[] = [
+                'watcher_id' => $watcherId,
+                'conn_id' => $connId,
+                'authenticated' => $this->connections[$connId]['authenticated'] ?? false,
+            ];
+        }
+
         $response = json_encode([
-            'connected_watchers' => count($this->authenticatedConnections),
+            'connected_watchers' => count($this->watcherConnections),
             'total_connections' => count($this->connections),
+            'watchers' => $watchers,
         ]);
         $conn->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
         $conn->close();
@@ -216,6 +250,7 @@ class WatcherWebSocketServer
             'conn' => $conn,
             'buffer' => $messageBuffer,
             'authenticated' => false,
+            'watcherId' => null,
         ];
 
         $conn->on('data', function (string $data) use ($messageBuffer): void {
@@ -233,16 +268,44 @@ class WatcherWebSocketServer
     }
 
     /**
-     * Send a command to the watcher (if connected and authenticated).
+     * Send a JSON string to a specific watcher (by watcherId) or broadcast to all authenticated.
      */
-    public function sendToWatcher(string $json): void
+    public function sendToWatcher(string $json, ?string $targetWatcherId = null): void
     {
-        foreach (array_keys($this->authenticatedConnections) as $connId) {
-            if (isset($this->connections[$connId])) {
+        if ($targetWatcherId !== null) {
+            // Targeted send — also try PENDING connections (for watcher.config after approval)
+            if (isset($this->watcherConnections[$targetWatcherId])) {
+                $connId = $this->watcherConnections[$targetWatcherId];
+                $this->sendToConnection($connId, json_decode($json, true) ?? []);
+            } else {
+                // Watcher not connected — log silently
+                $this->logger->debug('Target watcher not connected', ['watcher_id' => $targetWatcherId]);
+            }
+
+            return;
+        }
+
+        // Broadcast to all authenticated connections
+        foreach ($this->watcherConnections as $connId) {
+            if (isset($this->connections[$connId]) && $this->connections[$connId]['authenticated']) {
                 $frame = new Frame($json, true, Frame::OP_TEXT);
                 $this->connections[$connId]['conn']->write($frame->getContents());
             }
         }
+    }
+
+    /**
+     * Send data to a specific connection.
+     */
+    private function sendToConnection(int $connId, array $data): void
+    {
+        if (!isset($this->connections[$connId])) {
+            return;
+        }
+
+        $json = json_encode($data);
+        $frame = new Frame($json, true, Frame::OP_TEXT);
+        $this->connections[$connId]['conn']->write($frame->getContents());
     }
 
     private function handleMessage(int $connId, string $payload): void
@@ -254,30 +317,45 @@ class WatcherWebSocketServer
             return;
         }
 
-        // Handle auth message
+        // ── New protocol: watcher.hello / watcher.auth ──
+
+        if ($data['type'] === 'watcher.hello') {
+            $this->handleWatcherHello($connId, $data['data'] ?? []);
+
+            return;
+        }
+
+        if ($data['type'] === 'watcher.auth') {
+            $this->handleWatcherAuth($connId, $data['data'] ?? []);
+
+            return;
+        }
+
+        // ── Legacy fallback: auth message (backward compat) ──
         if ($data['type'] === 'auth') {
             $token = $data['data']['token'] ?? '';
-            if ($token === $this->authToken) {
+            if ($token === $this->internalToken) {
                 $this->connections[$connId]['authenticated'] = true;
-                $this->authenticatedConnections[$connId] = true;
-                $this->logger->info('Watcher authenticated', ['id' => $connId]);
-
-                // Resend pending deletion commands on watcher reconnection
+                $this->logger->info('Watcher authenticated (legacy)', ['id' => $connId]);
                 $this->processPendingDeletionsOnReconnect($connId);
             } else {
-                $this->logger->warning('Invalid auth token', ['id' => $connId]);
+                $this->logger->warning('Invalid legacy auth token', ['id' => $connId]);
                 $this->closeConnection($connId);
             }
 
             return;
         }
 
-        // Reject unauthenticated messages
+        // ── Require authentication for all other messages ──
         if (!($this->connections[$connId]['authenticated'] ?? false)) {
             $this->logger->warning('Message from unauthenticated connection', ['id' => $connId, 'type' => $data['type']]);
 
             return;
         }
+
+        // Inject watcher_id before delegating to processor
+        $watcherId = $this->connections[$connId]['watcherId'] ?? null;
+        $data['_watcher_id'] = $watcherId;
 
         // Delegate to message processor
         try {
@@ -291,6 +369,110 @@ class WatcherWebSocketServer
     }
 
     /**
+     * Handle watcher.hello — first message from a new-protocol watcher.
+     */
+    private function handleWatcherHello(int $connId, array $data): void
+    {
+        $watcherId = $data['watcher_id'] ?? null;
+        $hostname = $data['hostname'] ?? null;
+        $version = $data['version'] ?? null;
+
+        if ($watcherId === null || $watcherId === '') {
+            $this->logger->warning('watcher.hello without watcher_id', ['id' => $connId]);
+            $this->closeConnection($connId);
+
+            return;
+        }
+
+        try {
+            $watcher = $this->messageProcessor->findOrCreateWatcher($watcherId, $hostname, $version);
+        } catch (Throwable $e) {
+            $this->logger->error('Failed to find/create watcher', [
+                'id' => $connId,
+                'watcher_id' => $watcherId,
+                'error' => $e->getMessage(),
+            ]);
+            $this->closeConnection($connId);
+
+            return;
+        }
+
+        // Update connId→watcherId mapping
+        $this->connections[$connId]['watcherId'] = $watcherId;
+
+        // Also register in watcherConnections for targeted sends
+        $this->watcherConnections[$watcherId] = $connId;
+
+        if ($watcher->getStatus()->value === 'revoked') {
+            $this->logger->info('Revoked watcher attempted connection', [
+                'watcher_id' => $watcherId,
+                'id' => $connId,
+            ]);
+            $this->sendToConnection($connId, ['type' => 'watcher.rejected', 'data' => ['reason' => 'revoked']]);
+            $this->closeConnection($connId);
+
+            return;
+        }
+
+        if ($watcher->getStatus()->value === 'pending') {
+            $this->logger->info('Watcher pending approval', ['watcher_id' => $watcherId, 'id' => $connId]);
+            $this->sendToConnection($connId, ['type' => 'watcher.pending', 'data' => ['watcher_id' => $watcherId]]);
+
+            return; // Stay connected, waiting for admin approval
+        }
+
+        // Watcher is approved/connected/disconnected — ask for auth
+        $this->sendToConnection($connId, ['type' => 'watcher.auth_required', 'data' => ['watcher_id' => $watcherId]]);
+    }
+
+    /**
+     * Handle watcher.auth — token authentication from a known watcher.
+     */
+    private function handleWatcherAuth(int $connId, array $data): void
+    {
+        $token = $data['token'] ?? '';
+
+        if ($token === '') {
+            $this->closeConnection($connId);
+
+            return;
+        }
+
+        try {
+            $watcher = $this->messageProcessor->authenticateWatcher($token);
+        } catch (Throwable $e) {
+            $this->logger->error('Auth error', ['id' => $connId, 'error' => $e->getMessage()]);
+            $this->closeConnection($connId);
+
+            return;
+        }
+
+        if (!$watcher instanceof Watcher) {
+            $this->logger->warning('Invalid auth token', ['id' => $connId]);
+            $this->sendToConnection($connId, ['type' => 'watcher.rejected', 'data' => ['reason' => 'invalid_token']]);
+            $this->closeConnection($connId);
+
+            return;
+        }
+
+        $watcherId = $watcher->getWatcherId();
+        $this->connections[$connId]['authenticated'] = true;
+        $this->connections[$connId]['watcherId'] = $watcherId;
+        $this->watcherConnections[$watcherId] = $connId;
+
+        $this->logger->info('Watcher authenticated', ['watcher_id' => $watcherId, 'id' => $connId]);
+
+        // Send current config
+        $configPayload = array_merge($watcher->getConfig(), [
+            'config_hash' => $watcher->getConfigHash(),
+        ]);
+        $this->sendToConnection($connId, ['type' => 'watcher.config', 'data' => $configPayload]);
+
+        // Resend pending deletions on reconnect
+        $this->processPendingDeletionsOnReconnect($connId);
+    }
+
+    /**
      * On watcher reconnection, resend all pending deletion commands.
      * This handles the case where the watcher was offline when a deletion was initiated.
      */
@@ -299,9 +481,7 @@ class WatcherWebSocketServer
         try {
             $pendingCommands = $this->messageProcessor->getPendingDeletionCommands();
             foreach ($pendingCommands as $command) {
-                $json = json_encode($command);
-                $frame = new Frame($json, true, Frame::OP_TEXT);
-                $this->connections[$connId]['conn']->write($frame->getContents());
+                $this->sendToConnection($connId, $command);
             }
             if (count($pendingCommands) > 0) {
                 $this->logger->info('Sent pending deletions to reconnected watcher', [
@@ -317,9 +497,28 @@ class WatcherWebSocketServer
 
     private function handleClose(int $connId): void
     {
-        $this->logger->info('Connection closed', ['id' => $connId]);
+        $watcherId = $this->connections[$connId]['watcherId'] ?? null;
+
+        $this->logger->info('Connection closed', ['id' => $connId, 'watcher_id' => $watcherId]);
+
         unset($this->connections[$connId]);
-        unset($this->authenticatedConnections[$connId]);
+
+        if ($watcherId !== null) {
+            // Clean up watcherConnections only if it points to this connId
+            if (($this->watcherConnections[$watcherId] ?? null) === $connId) {
+                unset($this->watcherConnections[$watcherId]);
+            }
+
+            // Update watcher status in DB
+            try {
+                $this->messageProcessor->handleWatcherDisconnect($watcherId);
+            } catch (Throwable $e) {
+                $this->logger->error('Failed to update watcher status on disconnect', [
+                    'watcher_id' => $watcherId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     private function closeConnection(int $connId): void

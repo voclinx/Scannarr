@@ -15,7 +15,7 @@ services:
 
     App\WebSocket\WatcherWebSocketServer:
         arguments:
-            $authToken: '%watcher_auth_token%'
+            $internalToken: '%watcher_auth_token%'
 
     App\Service\WatcherCommandService:
         arguments:

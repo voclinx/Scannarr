@@ -3,6 +3,7 @@
 namespace App\Repository;
 
 use App\Entity\Movie;
+use App\Entity\RadarrInstance;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -14,6 +15,14 @@ class MovieRepository extends ServiceEntityRepository
     public function __construct(ManagerRegistry $registry)
     {
         parent::__construct($registry, Movie::class);
+    }
+
+    /**
+     * Find a movie by its Radarr ID and instance.
+     */
+    public function findByRadarrIdAndInstance(int $radarrId, RadarrInstance $instance): ?Movie
+    {
+        return $this->findOneBy(['radarrId' => $radarrId, 'radarrInstance' => $instance]);
     }
 
     /**

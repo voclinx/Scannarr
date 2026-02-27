@@ -3,12 +3,18 @@
 namespace App\Service;
 
 use App\Repository\SettingRepository;
+use JsonException;
 use Psr\Log\LoggerInterface;
+use RuntimeException;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Throwable;
 
 class QBittorrentService
 {
+    private ?string $cachedSid = null;
+    private ?float $sidExpiry = null;
+    private const int SID_TTL_SECONDS = 1800; // 30 minutes
+
     public function __construct(
         private readonly HttpClientInterface $httpClient,
         private readonly LoggerInterface $logger,
@@ -41,7 +47,7 @@ class QBittorrentService
         }
 
         try {
-            $sid = $this->authenticate();
+            $sid = $this->getSid();
             $baseUrl = rtrim($this->settingRepository->getValue('qbittorrent_url') ?? '', '/');
 
             $versionResponse = $this->httpClient->request('GET', $baseUrl . '/api/v2/app/version', [
@@ -66,6 +72,44 @@ class QBittorrentService
     }
 
     /**
+     * Get all torrents from qBittorrent.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getAllTorrents(): array
+    {
+        $sid = $this->getSid();
+        $baseUrl = rtrim($this->settingRepository->getValue('qbittorrent_url') ?? '', '/');
+
+        try {
+            $response = $this->httpClient->request('GET', $baseUrl . '/api/v2/torrents/info', [
+                'headers' => ['Cookie' => 'SID=' . $sid],
+                'timeout' => 30,
+            ]);
+
+            $statusCode = $response->getStatusCode();
+
+            if ($statusCode === 403) {
+                $this->cachedSid = null;
+                $sid = $this->getSid();
+
+                $response = $this->httpClient->request('GET', $baseUrl . '/api/v2/torrents/info', [
+                    'headers' => ['Cookie' => 'SID=' . $sid],
+                    'timeout' => 30,
+                ]);
+            }
+
+            return json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        } catch (Throwable $e) {
+            $this->logger->error('Failed to fetch all torrents from qBittorrent', [
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+    }
+
+    /**
      * Find a torrent by matching its content_path against a file path.
      *
      * @param string $absoluteFilePath The absolute host path to the file
@@ -79,15 +123,7 @@ class QBittorrentService
         }
 
         try {
-            $sid = $this->authenticate();
-            $baseUrl = rtrim($this->settingRepository->getValue('qbittorrent_url') ?? '', '/');
-
-            $response = $this->httpClient->request('GET', $baseUrl . '/api/v2/torrents/info', [
-                'headers' => ['Cookie' => 'SID=' . $sid],
-                'timeout' => 30,
-            ]);
-
-            $torrents = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+            $torrents = $this->getAllTorrents();
             $normalizedFilePath = rtrim($absoluteFilePath, '/');
 
             foreach ($torrents as $torrent) {
@@ -137,8 +173,8 @@ class QBittorrentService
     /**
      * Delete a torrent by its hash.
      *
-     * @param string $hash        The torrent info hash
-     * @param bool   $deleteFiles Whether to delete files on disk (always false — Scanarr manages physical deletion)
+     * @param string $hash The torrent info hash
+     * @param bool $deleteFiles Whether to delete files on disk (always false — Scanarr manages physical deletion)
      */
     public function deleteTorrent(string $hash, bool $deleteFiles = false): bool
     {
@@ -147,7 +183,7 @@ class QBittorrentService
         }
 
         try {
-            $sid = $this->authenticate();
+            $sid = $this->getSid();
             $baseUrl = rtrim($this->settingRepository->getValue('qbittorrent_url') ?? '', '/');
 
             $this->httpClient->request('POST', $baseUrl . '/api/v2/torrents/delete', [
@@ -165,6 +201,47 @@ class QBittorrentService
         } catch (Throwable $e) {
             $this->logger->warning('Failed to delete torrent', [
                 'hash' => $hash,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * Delete multiple torrents by their hashes.
+     *
+     * @param array<string> $hashes The torrent info hashes
+     * @param bool $deleteFiles Whether to delete files on disk
+     */
+    public function deleteTorrents(array $hashes, bool $deleteFiles = false): bool
+    {
+        if (!$this->isConfigured() || $hashes === []) {
+            return false;
+        }
+
+        try {
+            $sid = $this->getSid();
+            $baseUrl = rtrim($this->settingRepository->getValue('qbittorrent_url') ?? '', '/');
+
+            $this->httpClient->request('POST', $baseUrl . '/api/v2/torrents/delete', [
+                'headers' => ['Cookie' => 'SID=' . $sid],
+                'body' => [
+                    'hashes' => implode('|', $hashes),
+                    'deleteFiles' => $deleteFiles ? 'true' : 'false',
+                ],
+                'timeout' => 10,
+            ]);
+
+            $this->logger->info('Torrents deleted from qBittorrent', [
+                'count' => count($hashes),
+                'hashes' => $hashes,
+            ]);
+
+            return true;
+        } catch (Throwable $e) {
+            $this->logger->warning('Failed to delete torrents', [
+                'hashes' => $hashes,
                 'error' => $e->getMessage(),
             ]);
 
@@ -200,11 +277,95 @@ class QBittorrentService
     }
 
     /**
+     * Get files for a specific torrent.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getTorrentFiles(string $hash): array
+    {
+        $sid = $this->getSid();
+        $baseUrl = rtrim($this->settingRepository->getValue('qbittorrent_url') ?? '', '/');
+
+        $response = $this->httpClient->request('GET', $baseUrl . '/api/v2/torrents/files', [
+            'headers' => ['Cookie' => 'SID=' . $sid],
+            'query' => ['hash' => $hash],
+            'timeout' => 10,
+        ]);
+
+        return json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * Get qBittorrent path mappings from settings.
+     *
+     * @return array<int, array{qbit: string, host: string}>
+     */
+    public function getPathMappings(): array
+    {
+        $json = $this->settingRepository->getValue('qbittorrent_path_mappings');
+
+        if ($json === null || $json === '') {
+            return [];
+        }
+
+        try {
+            $mappings = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+
+            if (!is_array($mappings)) {
+                return [];
+            }
+
+            return $mappings;
+        } catch (JsonException) {
+            $this->logger->warning('Invalid qBittorrent path mappings JSON', ['value' => $json]);
+
+            return [];
+        }
+    }
+
+    /**
+     * Map a qBittorrent path to a host path using configured mappings.
+     */
+    public function mapQbitPathToHost(string $qbitPath): string
+    {
+        foreach ($this->getPathMappings() as $mapping) {
+            $qbitPrefix = $mapping['qbit'] ?? '';
+            $hostPrefix = $mapping['host'] ?? '';
+
+            if ($qbitPrefix !== '' && str_starts_with($qbitPath, $qbitPrefix)) {
+                return $hostPrefix . substr($qbitPath, strlen($qbitPrefix));
+            }
+        }
+
+        return $qbitPath;
+    }
+
+    /**
+     * Get a cached SID or authenticate fresh.
+     *
+     * @return string The SID session cookie
+     *
+     * @throws RuntimeException If authentication fails
+     */
+    private function getSid(): string
+    {
+        if ($this->cachedSid !== null && $this->sidExpiry !== null && microtime(true) < $this->sidExpiry) {
+            return $this->cachedSid;
+        }
+
+        $sid = $this->authenticate();
+        $this->cachedSid = $sid;
+        $this->sidExpiry = microtime(true) + self::SID_TTL_SECONDS;
+
+        return $sid;
+    }
+
+    /**
      * Authenticate with qBittorrent and return the SID cookie.
      *
      * @return string The SID session cookie
      *
-     * @throws \RuntimeException If authentication fails
+     * @throws RuntimeException If authentication fails
      */
     private function authenticate(): string
     {
@@ -224,7 +385,7 @@ class QBittorrentService
 
         $loginBody = $loginResponse->getContent();
         if ($loginBody !== 'Ok.') {
-            throw new \RuntimeException('qBittorrent authentication failed: invalid credentials');
+            throw new RuntimeException('qBittorrent authentication failed: invalid credentials');
         }
 
         $cookies = $loginResponse->getHeaders()['set-cookie'] ?? [];
@@ -237,7 +398,7 @@ class QBittorrentService
         }
 
         if (!$sid) {
-            throw new \RuntimeException('qBittorrent authentication succeeded but no session cookie received');
+            throw new RuntimeException('qBittorrent authentication succeeded but no session cookie received');
         }
 
         return $sid;

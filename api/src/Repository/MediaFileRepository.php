@@ -92,4 +92,18 @@ class MediaFileRepository extends ServiceEntityRepository
     {
         return $this->count(['volume' => $volume]);
     }
+
+    /**
+     * Find media files by exact file size in bytes.
+     *
+     * @return MediaFile[]
+     */
+    public function findByFileSizeBytes(int $sizeBytes): array
+    {
+        return $this->createQueryBuilder('mf')
+            ->where('mf.fileSizeBytes = :size')
+            ->setParameter('size', $sizeBytes)
+            ->getQuery()
+            ->getResult();
+    }
 }

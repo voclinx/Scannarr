@@ -4,6 +4,7 @@ namespace App\Service;
 
 use App\Repository\MediaPlayerInstanceRepository;
 use Psr\Log\LoggerInterface;
+use Throwable;
 
 class MediaPlayerRefreshService
 {
@@ -51,7 +52,7 @@ class MediaPlayerRefreshService
                 } elseif ($type === 'jellyfin') {
                     $success = $this->jellyfinService->refreshLibrary($instance);
                     if ($success) {
-                        $result['jellyfin_refreshed']++;
+                        ++$result['jellyfin_refreshed'];
                         $this->logger->info('Jellyfin library refreshed', [
                             'instance' => $instance->getName(),
                         ]);
@@ -59,7 +60,7 @@ class MediaPlayerRefreshService
                         $result['errors'][] = sprintf('Jellyfin refresh failed for %s', $instance->getName());
                     }
                 }
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 $errorMessage = sprintf(
                     '%s refresh failed for %s: %s',
                     ucfirst($type),

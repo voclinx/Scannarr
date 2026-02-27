@@ -8,6 +8,7 @@ use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Throwable;
 
 class JellyfinService
 {
@@ -74,7 +75,7 @@ class JellyfinService
             ]);
 
             return $response->getStatusCode() === 204;
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->logger->warning('Jellyfin refresh failed', [
                 'instance' => $instance->getName(),
                 'error' => $e->getMessage(),

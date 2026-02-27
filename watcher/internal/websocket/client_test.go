@@ -34,64 +34,117 @@ func httpToWs(url string) string {
 	return "ws" + strings.TrimPrefix(url, "http")
 }
 
-// TEST-GO-014: Connect with valid token succeeds - verify auth message received
-func TestClient_ConnectAndAuth(t *testing.T) {
-	authReceived := make(chan models.AuthMessage, 1)
+// readMessage reads a decoded models.Message from a connection.
+func readMessage(conn *gorilla_ws.Conn) (models.Message, error) {
+	_, raw, err := conn.ReadMessage()
+	if err != nil {
+		return models.Message{}, err
+	}
+	var msg models.Message
+	return msg, json.Unmarshal(raw, &msg)
+}
+
+// TEST-GO-014: Client sends watcher.hello on connect (new protocol)
+func TestClient_SendsHelloOnConnect(t *testing.T) {
+	helloReceived := make(chan models.Message, 1)
 
 	server := newTestServer(t, func(conn *gorilla_ws.Conn) {
 		defer conn.Close()
 
-		// Read the auth message
-		_, raw, err := conn.ReadMessage()
+		msg, err := readMessage(conn)
 		if err != nil {
 			t.Logf("read error: %v", err)
 			return
 		}
-
-		var authMsg models.AuthMessage
-		if err := json.Unmarshal(raw, &authMsg); err != nil {
-			t.Logf("unmarshal error: %v", err)
-			return
-		}
-		authReceived <- authMsg
-
-		// Keep the connection open for a bit
+		helloReceived <- msg
 		time.Sleep(500 * time.Millisecond)
 	})
 	defer server.Close()
 
-	client := NewClient(httpToWs(server.URL), "my-secret-token", 1*time.Second, 30*time.Second)
+	client := NewClient(httpToWs(server.URL), "my-watcher-id")
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Connect() returned error: %v", err)
 	}
 	defer client.Close()
 
-	// Verify the client is connected
-	if !client.IsConnected() {
-		t.Error("IsConnected() = false after Connect(), want true")
-	}
-
-	// Verify the auth message was received by the server
 	select {
-	case authMsg := <-authReceived:
-		if authMsg.Type != "auth" {
-			t.Errorf("auth message type = %q, want %q", authMsg.Type, "auth")
-		}
-		if authMsg.Data.Token != "my-secret-token" {
-			t.Errorf("auth token = %q, want %q", authMsg.Data.Token, "my-secret-token")
+	case msg := <-helloReceived:
+		if msg.Type != "watcher.hello" {
+			t.Errorf("first message type = %q, want %q", msg.Type, "watcher.hello")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for auth message")
+		t.Fatal("timeout waiting for watcher.hello")
 	}
 }
 
-// TEST-GO-015 + TEST-GO-016: Reconnection after disconnect
+// TEST-GO-015: Client responds to watcher.auth_required with watcher.auth when token is set
+func TestClient_AuthFlow(t *testing.T) {
+	authReceived := make(chan string, 1)
+
+	server := newTestServer(t, func(conn *gorilla_ws.Conn) {
+		defer conn.Close()
+
+		// Read watcher.hello
+		_, err := readMessage(conn)
+		if err != nil {
+			t.Logf("read hello error: %v", err)
+			return
+		}
+
+		// Send watcher.auth_required
+		if err := conn.WriteJSON(models.Message{
+			Type:      "watcher.auth_required",
+			Timestamp: time.Now().UTC(),
+			Data:      map[string]string{"watcher_id": "my-watcher-id"},
+		}); err != nil {
+			t.Logf("write auth_required error: %v", err)
+			return
+		}
+
+		// Read watcher.auth response
+		msg, err := readMessage(conn)
+		if err != nil {
+			t.Logf("read auth error: %v", err)
+			return
+		}
+
+		if msg.Type == "watcher.auth" {
+			dataBytes, _ := json.Marshal(msg.Data)
+			var authData models.WatcherAuthData
+			if err := json.Unmarshal(dataBytes, &authData); err == nil {
+				authReceived <- authData.Token
+			}
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	})
+	defer server.Close()
+
+	client := NewClient(httpToWs(server.URL), "my-watcher-id")
+	client.SetToken("my-secret-token")
+
+	err := client.Connect()
+	if err != nil {
+		t.Fatalf("Connect() returned error: %v", err)
+	}
+	defer client.Close()
+
+	select {
+	case token := <-authReceived:
+		if token != "my-secret-token" {
+			t.Errorf("auth token = %q, want %q", token, "my-secret-token")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for watcher.auth")
+	}
+}
+
+// TEST-GO-016: Reconnection after disconnect
 func TestClient_ReconnectAfterDisconnect(t *testing.T) {
 	var mu sync.Mutex
 	connectionCount := 0
 
-	// This server counts connections. Each connection reads the auth message then closes.
 	upgrader := gorilla_ws.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
@@ -107,7 +160,7 @@ func TestClient_ReconnectAfterDisconnect(t *testing.T) {
 		count := connectionCount
 		mu.Unlock()
 
-		// Read auth message
+		// Read hello message
 		_, _, _ = conn.ReadMessage()
 
 		if count == 1 {
@@ -120,7 +173,9 @@ func TestClient_ReconnectAfterDisconnect(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(httpToWs(server.URL), "token", 100*time.Millisecond, 30*time.Second)
+	client := NewClient(httpToWs(server.URL), "my-watcher-id")
+	client.SetReconnectDelay(100 * time.Millisecond)
+
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Connect() returned error: %v", err)
@@ -134,13 +189,12 @@ func TestClient_ReconnectAfterDisconnect(t *testing.T) {
 	count := connectionCount
 	mu.Unlock()
 
-	// Should have reconnected at least once (connection count >= 2)
 	if count < 2 {
 		t.Errorf("connection count = %d, want >= 2 (initial + reconnect)", count)
 	}
 }
 
-// TEST-GO-017: Ping periodic - verify ping messages are sent at the configured interval
+// TEST-GO-017: Ping periodic
 func TestClient_PingPeriodic(t *testing.T) {
 	pingReceived := make(chan struct{}, 10)
 
@@ -154,14 +208,12 @@ func TestClient_PingPeriodic(t *testing.T) {
 		}
 		defer conn.Close()
 
-		// Set a ping handler to detect pings from the client
 		conn.SetPingHandler(func(appData string) error {
 			pingReceived <- struct{}{}
-			// Respond with pong
 			return conn.WriteControl(gorilla_ws.PongMessage, []byte(appData), time.Now().Add(5*time.Second))
 		})
 
-		// Read auth message first
+		// Read hello message
 		_, _, _ = conn.ReadMessage()
 
 		// Keep reading to process control frames (pings)
@@ -174,33 +226,32 @@ func TestClient_PingPeriodic(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Use a short ping interval to speed up the test
 	pingInterval := 200 * time.Millisecond
-	client := NewClient(httpToWs(server.URL), "token", 1*time.Second, pingInterval)
+	client := NewClient(httpToWs(server.URL), "my-watcher-id")
+	client.SetPingInterval(pingInterval)
+
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Connect() returned error: %v", err)
 	}
 	defer client.Close()
 
-	// Wait for at least 2 ping intervals
 	time.Sleep(500 * time.Millisecond)
 
-	// Count received pings
 	count := len(pingReceived)
 	if count < 1 {
 		t.Errorf("ping count = %d, want >= 1 (with %v interval over 500ms)", count, pingInterval)
 	}
 }
 
-// TEST-GO-018: Command.scan received - verify OnCommand callback is triggered
+// TEST-GO-018: Command received via OnCommand callback
 func TestClient_OnCommand_Scan(t *testing.T) {
 	commandReceived := make(chan models.Message, 1)
 
 	server := newTestServer(t, func(conn *gorilla_ws.Conn) {
 		defer conn.Close()
 
-		// Read auth message
+		// Read hello message
 		_, _, err := conn.ReadMessage()
 		if err != nil {
 			return
@@ -220,12 +271,11 @@ func TestClient_OnCommand_Scan(t *testing.T) {
 			return
 		}
 
-		// Keep connection open
 		time.Sleep(1 * time.Second)
 	})
 	defer server.Close()
 
-	client := NewClient(httpToWs(server.URL), "token", 1*time.Second, 30*time.Second)
+	client := NewClient(httpToWs(server.URL), "my-watcher-id")
 	client.OnCommand = func(msg models.Message) {
 		commandReceived <- msg
 	}
@@ -246,29 +296,33 @@ func TestClient_OnCommand_Scan(t *testing.T) {
 	}
 }
 
-// TEST-GO-019: Command.watch.add received
-func TestClient_OnCommand_WatchAdd(t *testing.T) {
-	commandReceived := make(chan models.Message, 1)
+// TestClient_OnConfig_ReceivesConfig verifies that OnConfig is called on watcher.config messages.
+func TestClient_OnConfig_ReceivesConfig(t *testing.T) {
+	configReceived := make(chan models.WatcherConfigData, 1)
 
 	server := newTestServer(t, func(conn *gorilla_ws.Conn) {
 		defer conn.Close()
 
-		// Read auth message
+		// Read hello
 		_, _, err := conn.ReadMessage()
 		if err != nil {
 			return
 		}
 
-		// Send a command.watch.add message
-		watchCmd := models.Message{
-			Type:      "command.watch.add",
-			Timestamp: time.Now().UTC(),
-			Data: models.CommandWatchData{
-				Path: "/mnt/media/new-volume",
-			},
+		// Send watcher.config
+		cfg := models.WatcherConfigData{
+			WatchPaths:  []string{"/mnt/media"},
+			ScanOnStart: true,
+			LogLevel:    "debug",
+			ConfigHash:  "abc123",
+			AuthToken:   "new-token",
 		}
-		if err := conn.WriteJSON(watchCmd); err != nil {
-			t.Logf("failed to send command.watch.add: %v", err)
+		if err := conn.WriteJSON(models.Message{
+			Type:      "watcher.config",
+			Timestamp: time.Now().UTC(),
+			Data:      cfg,
+		}); err != nil {
+			t.Logf("failed to send watcher.config: %v", err)
 			return
 		}
 
@@ -276,9 +330,9 @@ func TestClient_OnCommand_WatchAdd(t *testing.T) {
 	})
 	defer server.Close()
 
-	client := NewClient(httpToWs(server.URL), "token", 1*time.Second, 30*time.Second)
-	client.OnCommand = func(msg models.Message) {
-		commandReceived <- msg
+	client := NewClient(httpToWs(server.URL), "my-watcher-id")
+	client.OnConfig = func(cfg models.WatcherConfigData) {
+		configReceived <- cfg
 	}
 
 	err := client.Connect()
@@ -288,63 +342,19 @@ func TestClient_OnCommand_WatchAdd(t *testing.T) {
 	defer client.Close()
 
 	select {
-	case msg := <-commandReceived:
-		if msg.Type != "command.watch.add" {
-			t.Errorf("command type = %q, want %q", msg.Type, "command.watch.add")
+	case cfg := <-configReceived:
+		if len(cfg.WatchPaths) != 1 || cfg.WatchPaths[0] != "/mnt/media" {
+			t.Errorf("WatchPaths = %v, want [/mnt/media]", cfg.WatchPaths)
+		}
+		if cfg.ConfigHash != "abc123" {
+			t.Errorf("ConfigHash = %q, want %q", cfg.ConfigHash, "abc123")
+		}
+		// Verify token was stored
+		if client.GetToken() != "new-token" {
+			t.Errorf("GetToken() = %q, want %q", client.GetToken(), "new-token")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for command.watch.add callback")
-	}
-}
-
-// TEST-GO-020: Command.watch.remove received
-func TestClient_OnCommand_WatchRemove(t *testing.T) {
-	commandReceived := make(chan models.Message, 1)
-
-	server := newTestServer(t, func(conn *gorilla_ws.Conn) {
-		defer conn.Close()
-
-		// Read auth message
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			return
-		}
-
-		// Send a command.watch.remove message
-		watchCmd := models.Message{
-			Type:      "command.watch.remove",
-			Timestamp: time.Now().UTC(),
-			Data: models.CommandWatchData{
-				Path: "/mnt/media/old-volume",
-			},
-		}
-		if err := conn.WriteJSON(watchCmd); err != nil {
-			t.Logf("failed to send command.watch.remove: %v", err)
-			return
-		}
-
-		time.Sleep(1 * time.Second)
-	})
-	defer server.Close()
-
-	client := NewClient(httpToWs(server.URL), "token", 1*time.Second, 30*time.Second)
-	client.OnCommand = func(msg models.Message) {
-		commandReceived <- msg
-	}
-
-	err := client.Connect()
-	if err != nil {
-		t.Fatalf("Connect() returned error: %v", err)
-	}
-	defer client.Close()
-
-	select {
-	case msg := <-commandReceived:
-		if msg.Type != "command.watch.remove" {
-			t.Errorf("command type = %q, want %q", msg.Type, "command.watch.remove")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for command.watch.remove callback")
+		t.Fatal("timeout waiting for watcher.config callback")
 	}
 }
 
@@ -355,10 +365,9 @@ func TestClient_SendEvent(t *testing.T) {
 	server := newTestServer(t, func(conn *gorilla_ws.Conn) {
 		defer conn.Close()
 
-		// Read auth message
+		// Read hello
 		_, _, _ = conn.ReadMessage()
 
-		// Read subsequent messages
 		for {
 			_, raw, err := conn.ReadMessage()
 			if err != nil {
@@ -369,17 +378,15 @@ func TestClient_SendEvent(t *testing.T) {
 	})
 	defer server.Close()
 
-	client := NewClient(httpToWs(server.URL), "token", 1*time.Second, 30*time.Second)
+	client := NewClient(httpToWs(server.URL), "my-watcher-id")
 	err := client.Connect()
 	if err != nil {
 		t.Fatalf("Connect() returned error: %v", err)
 	}
 	defer client.Close()
 
-	// Give the write loop time to start
 	time.Sleep(50 * time.Millisecond)
 
-	// Send an event
 	client.SendEvent("file.created", models.FileCreatedData{
 		Path:          "/mnt/media/movie.mkv",
 		Name:          "movie.mkv",
@@ -388,7 +395,6 @@ func TestClient_SendEvent(t *testing.T) {
 		IsDir:         false,
 	})
 
-	// Wait for the message to arrive
 	select {
 	case raw := <-messagesReceived:
 		var msg models.Message
@@ -408,14 +414,13 @@ func TestClient_SendEvent(t *testing.T) {
 
 // TestClient_IsConnected_InitiallyFalse verifies the client is not connected before Connect.
 func TestClient_IsConnected_InitiallyFalse(t *testing.T) {
-	client := NewClient("ws://localhost:9999/ws", "token", 1*time.Second, 30*time.Second)
+	client := NewClient("ws://localhost:9999/ws", "my-watcher-id")
 	if client.IsConnected() {
 		t.Error("IsConnected() = true before Connect(), want false")
 	}
 }
 
-// TestClient_DroppedMessages_TriggersResync verifies that when the message buffer
-// overflows during a disconnection, a resync scan is triggered after reconnection.
+// TestClient_DroppedMessages_TriggersResync verifies OnReconnect is called when messages were dropped.
 func TestClient_DroppedMessages_TriggersResync(t *testing.T) {
 	resyncCalled := make(chan struct{}, 1)
 
@@ -437,20 +442,19 @@ func TestClient_DroppedMessages_TriggersResync(t *testing.T) {
 		count := connectionCount
 		mu.Unlock()
 
-		// Read auth message
+		// Read hello
 		_, _, _ = conn.ReadMessage()
 
 		if count == 1 {
-			// First connection: close to trigger reconnection
-			return
+			return // close immediately
 		}
 
-		// Second connection: keep alive
 		time.Sleep(2 * time.Second)
 	}))
 	defer server.Close()
 
-	client := NewClient(httpToWs(server.URL), "token", 100*time.Millisecond, 30*time.Second)
+	client := NewClient(httpToWs(server.URL), "my-watcher-id")
+	client.SetReconnectDelay(100 * time.Millisecond)
 	client.OnReconnect = func() {
 		resyncCalled <- struct{}{}
 	}
@@ -461,26 +465,22 @@ func TestClient_DroppedMessages_TriggersResync(t *testing.T) {
 	}
 	defer client.Close()
 
-	// Simulate dropped messages by setting the flag directly
-	// (in production this happens when msgChan buffer overflows)
+	// Simulate dropped messages
 	client.droppedMessages.Store(true)
 
-	// Wait for reconnection to happen (first connection closes immediately)
 	select {
 	case <-resyncCalled:
-		// Success: OnReconnect was called because droppedMessages was true
+		// Success
 	case <-time.After(3 * time.Second):
 		t.Fatal("timeout waiting for OnReconnect callback after dropped messages")
 	}
 
-	// Verify the flag was reset
 	if client.droppedMessages.Load() {
 		t.Error("droppedMessages should be reset to false after OnReconnect")
 	}
 }
 
-// TestClient_NoResync_WhenNoDroppedMessages verifies that OnReconnect is NOT called
-// when no messages were dropped during disconnection.
+// TestClient_NoResync_WhenNoDroppedMessages verifies OnReconnect is NOT called without dropped messages.
 func TestClient_NoResync_WhenNoDroppedMessages(t *testing.T) {
 	resyncCalled := make(chan struct{}, 1)
 
@@ -502,20 +502,18 @@ func TestClient_NoResync_WhenNoDroppedMessages(t *testing.T) {
 		count := connectionCount
 		mu.Unlock()
 
-		// Read auth message
 		_, _, _ = conn.ReadMessage()
 
 		if count == 1 {
-			// First connection: close to trigger reconnection
 			return
 		}
 
-		// Second connection: keep alive
 		time.Sleep(2 * time.Second)
 	}))
 	defer server.Close()
 
-	client := NewClient(httpToWs(server.URL), "token", 100*time.Millisecond, 30*time.Second)
+	client := NewClient(httpToWs(server.URL), "my-watcher-id")
+	client.SetReconnectDelay(100 * time.Millisecond)
 	client.OnReconnect = func() {
 		resyncCalled <- struct{}{}
 	}
@@ -526,15 +524,12 @@ func TestClient_NoResync_WhenNoDroppedMessages(t *testing.T) {
 	}
 	defer client.Close()
 
-	// Do NOT set droppedMessages — buffer didn't overflow
-
-	// Wait for reconnection, then a bit more
 	time.Sleep(1 * time.Second)
 
 	select {
 	case <-resyncCalled:
 		t.Error("OnReconnect was called but no messages were dropped")
 	default:
-		// Good: OnReconnect was not called
+		// Good
 	}
 }

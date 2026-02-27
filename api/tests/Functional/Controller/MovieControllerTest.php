@@ -6,10 +6,13 @@ use App\Entity\ActivityLog;
 use App\Entity\MediaFile;
 use App\Entity\Movie;
 use App\Entity\MovieFile;
+use App\Entity\TorrentStat;
 use App\Entity\Volume;
+use App\Enum\TorrentStatus;
 use App\Enum\VolumeStatus;
 use App\Enum\VolumeType;
 use App\Tests\AbstractApiTestCase;
+use DateTimeImmutable;
 use Symfony\Component\Uid\Uuid;
 
 class MovieControllerTest extends AbstractApiTestCase
@@ -398,5 +401,201 @@ class MovieControllerTest extends AbstractApiTestCase
         $this->assertArrayHasKey('data', $response);
         $this->assertArrayHasKey('message', $response['data']);
         $this->assertStringContainsString('sync', strtolower((string)$response['data']['message']));
+    }
+
+    // -----------------------------------------------------------------------
+    // TEST-MOVIE-009 : Protection d'un film
+    // -----------------------------------------------------------------------
+
+    /**
+     * @testdox TEST-MOVIE-009 Protection d'un film - toggle
+     */
+    public function testProtectMovieEnable(): void
+    {
+        $advancedUser = $this->createAdvancedUser();
+        $this->authenticateAs($advancedUser);
+
+        $movie = $this->createMovie('Protect Me', 2020, 77001);
+        $movieId = (string)$movie->getId();
+
+        $this->apiPut("/api/v1/movies/{$movieId}/protect", [
+            'is_protected' => true,
+        ]);
+
+        $this->assertResponseStatusCode(200);
+
+        $response = $this->getResponseData();
+        $this->assertTrue($response['data']['is_protected']);
+        $this->assertEquals($movieId, $response['data']['id']);
+    }
+
+    /**
+     * @testdox TEST-MOVIE-009c Protection - désactiver
+     */
+    public function testProtectMovieDisable(): void
+    {
+        $advancedUser = $this->createAdvancedUser();
+        $this->authenticateAs($advancedUser);
+
+        $movie = $this->createMovie('Unprotect Me', 2020, 77002);
+        $movie->setIsProtected(true);
+        $this->em->flush();
+
+        $movieId = (string)$movie->getId();
+
+        $this->apiPut("/api/v1/movies/{$movieId}/protect", [
+            'is_protected' => false,
+        ]);
+
+        $this->assertResponseStatusCode(200);
+        $response = $this->getResponseData();
+        $this->assertFalse($response['data']['is_protected']);
+    }
+
+    /**
+     * @testdox TEST-MOVIE-009b Protection - film inexistant
+     */
+    public function testProtectMovieNotFound(): void
+    {
+        $advancedUser = $this->createAdvancedUser();
+        $this->authenticateAs($advancedUser);
+
+        $fakeId = Uuid::v4();
+
+        $this->apiPut("/api/v1/movies/{$fakeId}/protect", [
+            'is_protected' => true,
+        ]);
+
+        $this->assertResponseStatusCode(404);
+    }
+
+    // -----------------------------------------------------------------------
+    // TEST-MOVIE-010 : Liste enrichie avec champs V1.5
+    // -----------------------------------------------------------------------
+
+    /**
+     * @testdox TEST-MOVIE-010 Liste enrichie avec champs V1.5
+     */
+    public function testListMoviesReturnsEnrichedFields(): void
+    {
+        $user = $this->createUser();
+        $this->authenticateAs($user);
+
+        $movie = $this->createMovie('Enriched Movie', 2020, 88001);
+        $volume = $this->createVolume('Enriched Volume');
+        $mediaFile = $this->createMediaFile($volume, 'enriched.mkv', 2000000000);
+        $this->createMovieFile($movie, $mediaFile);
+
+        // Create torrent stat
+        $stat = new TorrentStat();
+        $stat->setMediaFile($mediaFile);
+        $stat->setTorrentHash('enrichhash001');
+        $stat->setTorrentName('Enriched.Movie.2020.1080p');
+        $stat->setTrackerDomain('tracker-a.com');
+        $stat->setRatio('1.5000');
+        $stat->setSeedTimeSeconds(86400);
+        $stat->setUploadedBytes(3000000000);
+        $stat->setDownloadedBytes(2000000000);
+        $stat->setSizeBytes(2000000000);
+        $stat->setStatus(TorrentStatus::SEEDING);
+        $this->em->persist($stat);
+        $this->em->flush();
+
+        $this->em->clear();
+
+        $this->apiGet('/api/v1/movies');
+        $this->assertResponseStatusCode(200);
+
+        $response = $this->getResponseData();
+        $this->assertNotEmpty($response['data']);
+
+        // Find our movie in the list
+        $found = null;
+        foreach ($response['data'] as $m) {
+            if ($m['title'] === 'Enriched Movie') {
+                $found = $m;
+                break;
+            }
+        }
+
+        $this->assertNotNull($found, 'Movie should be in the list');
+        $this->assertArrayHasKey('is_protected', $found);
+        $this->assertArrayHasKey('multi_file_badge', $found);
+        $this->assertArrayHasKey('best_ratio', $found);
+        $this->assertArrayHasKey('worst_ratio', $found);
+        $this->assertArrayHasKey('total_seed_time_max_seconds', $found);
+        $this->assertArrayHasKey('seeding_status', $found);
+        $this->assertArrayHasKey('cross_seed_count', $found);
+
+        $this->assertFalse($found['is_protected']);
+        $this->assertFalse($found['multi_file_badge']);
+        $this->assertEquals(1.5, $found['best_ratio']);
+        $this->assertEquals(1.5, $found['worst_ratio']);
+        $this->assertEquals(86400, $found['total_seed_time_max_seconds']);
+        $this->assertEquals('seeding', $found['seeding_status']);
+        $this->assertEquals(1, $found['cross_seed_count']);
+    }
+
+    // -----------------------------------------------------------------------
+    // TEST-MOVIE-011 : Détail enrichi avec torrents
+    // -----------------------------------------------------------------------
+
+    /**
+     * @testdox TEST-MOVIE-011 Détail enrichi avec torrents
+     */
+    public function testMovieDetailIncludesTorrentStats(): void
+    {
+        $user = $this->createUser();
+        $this->authenticateAs($user);
+
+        $movie = $this->createMovie('Torrent Detail', 2021, 88002);
+        $volume = $this->createVolume('Torrent Volume');
+        $mediaFile = $this->createMediaFile($volume, 'torrent_detail.mkv', 3000000000);
+        $this->createMovieFile($movie, $mediaFile);
+
+        $stat = new TorrentStat();
+        $stat->setMediaFile($mediaFile);
+        $stat->setTorrentHash('detailhash001');
+        $stat->setTorrentName('Torrent.Detail.2021');
+        $stat->setTrackerDomain('tracker-b.org');
+        $stat->setRatio('2.0000');
+        $stat->setSeedTimeSeconds(172800);
+        $stat->setUploadedBytes(6000000000);
+        $stat->setDownloadedBytes(3000000000);
+        $stat->setSizeBytes(3000000000);
+        $stat->setStatus(TorrentStatus::SEEDING);
+        $stat->setAddedAt(new DateTimeImmutable('-7 days'));
+        $stat->setLastActivityAt(new DateTimeImmutable());
+        $this->em->persist($stat);
+        $this->em->flush();
+
+        $movieId = (string)$movie->getId();
+        $this->em->clear();
+
+        $this->apiGet("/api/v1/movies/{$movieId}");
+        $this->assertResponseStatusCode(200);
+
+        $response = $this->getResponseData();
+        $movieData = $response['data'];
+
+        $this->assertArrayHasKey('is_protected', $movieData);
+        $this->assertFalse($movieData['is_protected']);
+
+        $file = $movieData['files'][0];
+        $this->assertArrayHasKey('torrents', $file);
+        $this->assertArrayHasKey('cross_seed_count', $file);
+        $this->assertArrayHasKey('is_protected', $file);
+        $this->assertCount(1, $file['torrents']);
+        $this->assertEquals(1, $file['cross_seed_count']);
+
+        $torrent = $file['torrents'][0];
+        $this->assertEquals('detailhash001', $torrent['torrent_hash']);
+        $this->assertEquals('Torrent.Detail.2021', $torrent['torrent_name']);
+        $this->assertEquals('tracker-b.org', $torrent['tracker_domain']);
+        $this->assertEquals(2.0, $torrent['ratio']);
+        $this->assertEquals(172800, $torrent['seed_time_seconds']);
+        $this->assertEquals('seeding', $torrent['status']);
+        $this->assertArrayHasKey('added_at', $torrent);
+        $this->assertArrayHasKey('last_activity_at', $torrent);
     }
 }

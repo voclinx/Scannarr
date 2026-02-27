@@ -16,6 +16,7 @@ type FileCreatedData struct {
 	SizeBytes     int64  `json:"size_bytes"`
 	HardlinkCount uint64 `json:"hardlink_count"`
 	IsDir         bool   `json:"is_dir"`
+	PartialHash   string `json:"partial_hash"`
 }
 
 // FileDeletedData represents a file.deleted event.
@@ -39,6 +40,7 @@ type FileModifiedData struct {
 	Name          string `json:"name"`
 	SizeBytes     int64  `json:"size_bytes"`
 	HardlinkCount uint64 `json:"hardlink_count"`
+	PartialHash   string `json:"partial_hash"`
 }
 
 // ScanStartedData represents a scan.started event.
@@ -63,6 +65,7 @@ type ScanFileData struct {
 	HardlinkCount uint64    `json:"hardlink_count"`
 	IsDir         bool      `json:"is_dir"`
 	ModTime       time.Time `json:"mod_time"`
+	PartialHash   string    `json:"partial_hash"`
 }
 
 // ScanCompletedData represents a scan.completed event.
@@ -78,6 +81,8 @@ type ScanCompletedData struct {
 // WatcherStatusData represents a watcher.status event.
 type WatcherStatusData struct {
 	Status        string   `json:"status"`
+	WatcherID     string   `json:"watcher_id"`
+	ConfigHash    string   `json:"config_hash"`
 	WatchedPaths  []string `json:"watched_paths"`
 	UptimeSeconds int64    `json:"uptime_seconds"`
 }
@@ -141,13 +146,91 @@ type FilesDeleteResultItem struct {
 	SizeBytes   int64  `json:"size_bytes"`
 }
 
-// AuthMessage is the initial authentication message.
+// ──────────────────────────────────────────────
+// Hardlink command and response models
+// ──────────────────────────────────────────────
+
+// CommandFilesHardlinkData — command from API to watcher to create a hardlink.
+type CommandFilesHardlinkData struct {
+	RequestID  string `json:"request_id"`
+	DeletionID string `json:"deletion_id"`
+	SourcePath string `json:"source_path"`
+	TargetPath string `json:"target_path"`
+	VolumePath string `json:"volume_path"`
+}
+
+// HardlinkResult — result of a single hardlink creation attempt.
+type HardlinkResult struct {
+	SourcePath string `json:"source_path"`
+	TargetPath string `json:"target_path"`
+	Status     string `json:"status"` // "created" or "failed"
+	Error      string `json:"error,omitempty"`
+}
+
+// FilesHardlinkCompletedData — response from watcher after hardlink creation.
+type FilesHardlinkCompletedData struct {
+	RequestID  string `json:"request_id"`
+	DeletionID string `json:"deletion_id"`
+	Status     string `json:"status"` // "created" or "failed"
+	SourcePath string `json:"source_path"`
+	TargetPath string `json:"target_path"`
+	Error      string `json:"error,omitempty"`
+}
+
+// ──────────────────────────────────────────────
+// New protocol: watcher lifecycle messages (V1.5 Phase 5)
+// ──────────────────────────────────────────────
+
+// WatcherHelloData — sent by watcher on first connection.
+type WatcherHelloData struct {
+	WatcherID string `json:"watcher_id"`
+	Hostname  string `json:"hostname"`
+	Version   string `json:"version"`
+}
+
+// WatcherAuthData — sent by watcher to authenticate with its token.
+type WatcherAuthData struct {
+	Token string `json:"token"`
+}
+
+// WatcherConfigData — sent by the API to the watcher after authentication.
+// Contains all runtime configuration fields.
+type WatcherConfigData struct {
+	WatchPaths             []string `json:"watch_paths"`
+	ScanOnStart            bool     `json:"scan_on_start"`
+	LogLevel               string   `json:"log_level"`
+	ReconnectDelay         string   `json:"reconnect_delay"`
+	PingInterval           string   `json:"ping_interval"`
+	LogRetentionDays       int      `json:"log_retention_days"`
+	DebugLogRetentionHours int      `json:"debug_log_retention_hours"`
+	ConfigHash             string   `json:"config_hash"`
+	AuthToken              string   `json:"auth_token,omitempty"` // only set on initial approval
+}
+
+// WatcherConfigHashData — sent by the API to notify the watcher of a config change.
+type WatcherConfigHashData struct {
+	ConfigHash string `json:"config_hash"`
+}
+
+// WatcherLogData — sent by the watcher to forward a log entry to the API.
+type WatcherLogData struct {
+	Level     string                 `json:"level"`
+	Message   string                 `json:"message"`
+	Context   map[string]interface{} `json:"context,omitempty"`
+	Timestamp string                 `json:"timestamp"`
+}
+
+// ──────────────────────────────────────────────
+// Legacy auth (backward compat — kept until all watchers migrate)
+// ──────────────────────────────────────────────
+
+// AuthMessage is the legacy authentication message.
 type AuthMessage struct {
 	Type string        `json:"type"`
 	Data AuthTokenData `json:"data"`
 }
 
-// AuthTokenData holds the auth token.
+// AuthTokenData holds the legacy auth token.
 type AuthTokenData struct {
 	Token string `json:"token"`
 }

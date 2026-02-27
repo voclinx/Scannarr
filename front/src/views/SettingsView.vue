@@ -5,11 +5,14 @@ import TabList from 'primevue/tablist'
 import Tab from 'primevue/tab'
 import TabPanels from 'primevue/tabpanels'
 import TabPanel from 'primevue/tabpanel'
+import WatcherSettings from '@/components/settings/WatcherSettings.vue'
 import RadarrSettings from '@/components/settings/RadarrSettings.vue'
 import MediaPlayerSettings from '@/components/settings/MediaPlayerSettings.vue'
 import VolumeSettings from '@/components/settings/VolumeSettings.vue'
 import TorrentSettings from '@/components/settings/TorrentSettings.vue'
 import DiscordSettings from '@/components/settings/DiscordSettings.vue'
+import PresetsSettings from '@/components/settings/PresetsSettings.vue'
+import TrackerRulesSettings from '@/components/settings/TrackerRulesSettings.vue'
 import GeneralSettings from '@/components/settings/GeneralSettings.vue'
 
 const activeTab = ref('0')
@@ -24,35 +27,53 @@ const activeTab = ref('0')
         <TabList>
           <Tab value="0">
             <div class="flex items-center gap-2">
+              <i class="pi pi-desktop"></i>
+              <span>Watchers</span>
+            </div>
+          </Tab>
+          <Tab value="1">
+            <div class="flex items-center gap-2">
               <i class="pi pi-video"></i>
               <span>Radarr</span>
             </div>
           </Tab>
-          <Tab value="1">
+          <Tab value="2">
             <div class="flex items-center gap-2">
               <i class="pi pi-play"></i>
               <span>Lecteurs</span>
             </div>
           </Tab>
-          <Tab value="2">
+          <Tab value="3">
             <div class="flex items-center gap-2">
               <i class="pi pi-database"></i>
               <span>Volumes</span>
             </div>
           </Tab>
-          <Tab value="3">
+          <Tab value="4">
             <div class="flex items-center gap-2">
               <i class="pi pi-download"></i>
               <span>Torrent</span>
             </div>
           </Tab>
-          <Tab value="4">
+          <Tab value="5">
             <div class="flex items-center gap-2">
               <i class="pi pi-discord"></i>
               <span>Discord</span>
             </div>
           </Tab>
-          <Tab value="5">
+          <Tab value="6">
+            <div class="flex items-center gap-2">
+              <i class="pi pi-sliders-h"></i>
+              <span>Presets</span>
+            </div>
+          </Tab>
+          <Tab value="7">
+            <div class="flex items-center gap-2">
+              <i class="pi pi-shield"></i>
+              <span>Trackers</span>
+            </div>
+          </Tab>
+          <Tab value="8">
             <div class="flex items-center gap-2">
               <i class="pi pi-globe"></i>
               <span>TMDB</span>
@@ -63,30 +84,45 @@ const activeTab = ref('0')
         <TabPanels>
           <TabPanel value="0">
             <div class="p-4">
-              <RadarrSettings />
+              <WatcherSettings />
             </div>
           </TabPanel>
           <TabPanel value="1">
             <div class="p-4">
-              <MediaPlayerSettings />
+              <RadarrSettings />
             </div>
           </TabPanel>
           <TabPanel value="2">
             <div class="p-4">
-              <VolumeSettings />
+              <MediaPlayerSettings />
             </div>
           </TabPanel>
           <TabPanel value="3">
             <div class="p-4">
-              <TorrentSettings />
+              <VolumeSettings />
             </div>
           </TabPanel>
           <TabPanel value="4">
             <div class="p-4">
-              <DiscordSettings />
+              <TorrentSettings />
             </div>
           </TabPanel>
           <TabPanel value="5">
+            <div class="p-4">
+              <DiscordSettings />
+            </div>
+          </TabPanel>
+          <TabPanel value="6">
+            <div class="p-4">
+              <PresetsSettings />
+            </div>
+          </TabPanel>
+          <TabPanel value="7">
+            <div class="p-4">
+              <TrackerRulesSettings />
+            </div>
+          </TabPanel>
+          <TabPanel value="8">
             <div class="p-4">
               <GeneralSettings />
             </div>

@@ -129,6 +129,34 @@ class RadarrService
     }
 
     /**
+     * Trigger a RescanMovie command in Radarr.
+     * Radarr detects the new file in its root folder and updates metadata.
+     */
+    public function rescanMovie(RadarrInstance $instance, int $radarrMovieId): void
+    {
+        $this->request($instance, 'POST', '/api/v3/command', [
+            'json' => [
+                'name' => 'RescanMovie',
+                'movieId' => $radarrMovieId,
+            ],
+        ]);
+    }
+
+    /**
+     * Get grab history from Radarr (downloaded torrents).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getHistory(RadarrInstance $instance, int $pageSize = 1000): array
+    {
+        $result = $this->request($instance, 'GET', '/api/v3/history', [
+            'query' => ['eventType' => 'grabbed', 'pageSize' => $pageSize, 'page' => 1],
+        ]);
+
+        return $result['records'] ?? [];
+    }
+
+    /**
      * Make an API request to a Radarr instance.
      *
      * @param array<string, mixed> $options Additional request options

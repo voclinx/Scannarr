@@ -3,52 +3,53 @@ package config
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 )
 
-// Config holds all watcher configuration.
-type Config struct {
-	WsURL            string
-	WsReconnectDelay time.Duration
-	WsPingInterval   time.Duration
-	WatchPaths       []string
-	ScanOnStart      bool
-	LogLevel         string
-	AuthToken        string
+// EnvConfig holds the minimal static configuration loaded from environment variables.
+// Only 2 variables are required; everything else comes from the API via watcher.config.
+type EnvConfig struct {
+	WsURL     string
+	WatcherID string
 }
 
-// Load reads configuration from environment variables.
-func Load() (*Config, error) {
+// RuntimeConfig holds the dynamic configuration received from the API.
+type RuntimeConfig struct {
+	WatchPaths             []string
+	ScanOnStart            bool
+	LogLevel               string
+	ReconnectDelay         time.Duration
+	PingInterval           time.Duration
+	LogRetentionDays       int
+	DebugLogRetentionHours int
+}
+
+// DefaultRuntimeConfig returns sensible defaults used before config is received from the API.
+func DefaultRuntimeConfig() *RuntimeConfig {
+	return &RuntimeConfig{
+		WatchPaths:             []string{},
+		ScanOnStart:            false, // Don't scan until we get config from API
+		LogLevel:               "info",
+		ReconnectDelay:         5 * time.Second,
+		PingInterval:           30 * time.Second,
+		LogRetentionDays:       30,
+		DebugLogRetentionHours: 24,
+	}
+}
+
+// LoadEnv reads the two required environment variables.
+// Returns an error if SCANARR_WS_URL or SCANARR_WATCHER_ID is missing.
+func LoadEnv() (*EnvConfig, error) {
 	wsURL := getEnv("SCANARR_WS_URL", "ws://localhost:8081/ws/watcher")
-	reconnectDelay := parseDuration("SCANARR_WS_RECONNECT_DELAY", "5s")
-	pingInterval := parseDuration("SCANARR_WS_PING_INTERVAL", "30s")
+	watcherID := getEnv("SCANARR_WATCHER_ID", "")
 
-	watchPathsStr := getEnv("SCANARR_WATCH_PATHS", "")
-	if watchPathsStr == "" {
-		return nil, fmt.Errorf("SCANARR_WATCH_PATHS is required")
-	}
-	watchPaths := strings.Split(watchPathsStr, ",")
-	for i, p := range watchPaths {
-		watchPaths[i] = strings.TrimSpace(p)
+	if watcherID == "" {
+		return nil, fmt.Errorf("SCANARR_WATCHER_ID is required")
 	}
 
-	scanOnStart := getEnv("SCANARR_SCAN_ON_START", "true") == "true"
-	logLevel := getEnv("SCANARR_LOG_LEVEL", "info")
-	authToken := getEnv("SCANARR_AUTH_TOKEN", "")
-
-	if authToken == "" {
-		return nil, fmt.Errorf("SCANARR_AUTH_TOKEN is required")
-	}
-
-	return &Config{
-		WsURL:            wsURL,
-		WsReconnectDelay: reconnectDelay,
-		WsPingInterval:   pingInterval,
-		WatchPaths:       watchPaths,
-		ScanOnStart:      scanOnStart,
-		LogLevel:         logLevel,
-		AuthToken:        authToken,
+	return &EnvConfig{
+		WsURL:     wsURL,
+		WatcherID: watcherID,
 	}, nil
 }
 
@@ -59,9 +60,8 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func parseDuration(key, fallback string) time.Duration {
-	val := getEnv(key, fallback)
-	d, err := time.ParseDuration(val)
+func parseDuration(s, fallback string) time.Duration {
+	d, err := time.ParseDuration(s)
 	if err != nil {
 		d, _ = time.ParseDuration(fallback)
 	}

@@ -23,6 +23,7 @@ const emit = defineEmits<{
       delete_radarr_reference: boolean
       delete_media_player_reference: boolean
       disable_radarr_auto_search: boolean
+      replacement_map?: Record<string, string>
     },
   ): void
 }>()

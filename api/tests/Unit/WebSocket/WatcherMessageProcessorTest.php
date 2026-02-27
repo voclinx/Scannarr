@@ -6,8 +6,12 @@ use App\Entity\MediaFile;
 use App\Entity\Volume;
 use App\Repository\MediaFileRepository;
 use App\Repository\VolumeRepository;
+use App\Repository\WatcherLogRepository;
+use App\Repository\WatcherRepository;
+use App\Service\DeletionService;
 use App\Service\DiscordNotificationService;
 use App\Service\MediaPlayerRefreshService;
+use App\Service\RadarrService;
 use App\WebSocket\WatcherMessageProcessor;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
@@ -26,6 +30,10 @@ class WatcherMessageProcessorTest extends TestCase
     private MediaFileRepository $mediaFileRepository;
     private MediaPlayerRefreshService $mediaPlayerRefreshService;
     private DiscordNotificationService $discordNotificationService;
+    private DeletionService $deletionService;
+    private RadarrService $radarrService;
+    private WatcherRepository $watcherRepository;
+    private WatcherLogRepository $watcherLogRepository;
     private LoggerInterface $logger;
     private WatcherMessageProcessor $processor;
 
@@ -37,6 +45,10 @@ class WatcherMessageProcessorTest extends TestCase
         $this->mediaFileRepository = $this->createStub(MediaFileRepository::class);
         $this->mediaPlayerRefreshService = $this->createStub(MediaPlayerRefreshService::class);
         $this->discordNotificationService = $this->createStub(DiscordNotificationService::class);
+        $this->deletionService = $this->createStub(DeletionService::class);
+        $this->radarrService = $this->createStub(RadarrService::class);
+        $this->watcherRepository = $this->createStub(WatcherRepository::class);
+        $this->watcherLogRepository = $this->createStub(WatcherLogRepository::class);
         $this->logger = $this->createStub(LoggerInterface::class);
 
         // EntityManager is always open
@@ -49,6 +61,10 @@ class WatcherMessageProcessorTest extends TestCase
             $this->mediaFileRepository,
             $this->mediaPlayerRefreshService,
             $this->discordNotificationService,
+            $this->deletionService,
+            $this->radarrService,
+            $this->watcherRepository,
+            $this->watcherLogRepository,
             $this->logger,
         );
     }
@@ -106,7 +122,7 @@ class WatcherMessageProcessorTest extends TestCase
         // Expect persist with a new MediaFile entity
         $this->em->expects($this->atLeastOnce())
             ->method('persist')
-            ->with($this->callback(fn ($entity) => $entity instanceof MediaFile
+            ->with($this->callback(fn ($entity): bool => $entity instanceof MediaFile
                 && $entity->getFileName() === 'Inception.2010.mkv'
                 && $entity->getFileSizeBytes() === 5368709120
                 && $entity->getHardlinkCount() === 2));

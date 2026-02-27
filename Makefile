@@ -140,6 +140,10 @@ process-deletions: ## Exécuter les suppressions planifiées
 send-reminders: ## Envoyer les rappels Discord
 	$(API) php bin/console scanarr:send-reminders
 
+.PHONY: create-admin
+create-admin: ## Créer un utilisateur admin (usage: make create-admin USER=admin EMAIL=admin@scanarr.local PASS=secret)
+	$(API) php bin/console scanarr:create-admin $(USER) $(EMAIL) $(PASS)
+
 .PHONY: websocket
 websocket: ## Démarrer le serveur WebSocket manuellement
 	$(API) php bin/console app:websocket:run

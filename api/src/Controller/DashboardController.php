@@ -107,7 +107,7 @@ class DashboardController extends AbstractController
             20,
         );
 
-        $recentActivity = array_map(fn (ActivityLog $log) => [
+        $recentActivity = array_map(fn (ActivityLog $log): array => [
             'action' => $log->getAction(),
             'entity_type' => $log->getEntityType(),
             'details' => $log->getDetails() ?? [],

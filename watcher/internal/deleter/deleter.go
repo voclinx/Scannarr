@@ -1,6 +1,7 @@
 package deleter
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -118,6 +119,74 @@ func (d *Deleter) deleteFile(file models.FileDeleteRequest) models.FilesDeleteRe
 	result.DirsRemoved = d.cleanupEmptyDirs(absolutePath, volumeRoot)
 
 	return result
+}
+
+// CreateHardlink creates a hardlink from source to target.
+// Both source and target must resolve to paths under volumeRoot (anti path traversal).
+func (d *Deleter) CreateHardlink(source, target, volumeRoot string) models.HardlinkResult {
+	result := models.HardlinkResult{
+		SourcePath: source,
+		TargetPath: target,
+		Status:     "created",
+	}
+
+	cleanSource := filepath.Clean(source)
+	cleanTarget := filepath.Clean(target)
+	cleanRoot := filepath.Clean(volumeRoot)
+	sep := string(filepath.Separator)
+
+	// Security: both paths must be strictly under volumeRoot
+	if !strings.HasPrefix(cleanSource, cleanRoot+sep) {
+		result.Status = "failed"
+		result.Error = "path traversal detected: source path is outside volume root"
+		return result
+	}
+	if !strings.HasPrefix(cleanTarget, cleanRoot+sep) {
+		result.Status = "failed"
+		result.Error = "path traversal detected: target path is outside volume root"
+		return result
+	}
+
+	// Verify source exists
+	if _, err := os.Stat(cleanSource); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("source file not found: %s", err)
+		return result
+	}
+
+	// Create parent directories of target
+	if err := os.MkdirAll(filepath.Dir(cleanTarget), 0o755); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("failed to create target directory: %s", err)
+		return result
+	}
+
+	// Remove target if it already exists (replace)
+	_ = os.Remove(cleanTarget) // ignore error — file may not exist
+
+	// Create hardlink
+	if err := os.Link(cleanSource, cleanTarget); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("hardlink creation failed: %s", err)
+		slog.Error("Hardlink creation failed", "source", cleanSource, "target", cleanTarget, "error", err)
+		return result
+	}
+
+	slog.Info("Hardlink created", "source", cleanSource, "target", cleanTarget)
+	return result
+}
+
+// ProcessHardlinkCommand handles a command.files.hardlink from the API.
+func (d *Deleter) ProcessHardlinkCommand(cmd models.CommandFilesHardlinkData) {
+	result := d.CreateHardlink(cmd.SourcePath, cmd.TargetPath, cmd.VolumePath)
+	d.wsClient.SendEvent("files.hardlink.completed", models.FilesHardlinkCompletedData{
+		RequestID:  cmd.RequestID,
+		DeletionID: cmd.DeletionID,
+		Status:     result.Status,
+		SourcePath: result.SourcePath,
+		TargetPath: result.TargetPath,
+		Error:      result.Error,
+	})
 }
 
 // cleanupEmptyDirs walks up from the parent of filePath to volumeRoot,

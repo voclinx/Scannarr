@@ -67,6 +67,9 @@ class Movie
     private ?bool $radarrHasFile = false;
 
     #[ORM\Column]
+    private bool $isProtected = false;
+
+    #[ORM\Column]
     private DateTimeImmutable $createdAt;
 
     #[ORM\Column]
@@ -252,6 +255,18 @@ class Movie
     public function setRadarrHasFile(?bool $radarrHasFile): static
     {
         $this->radarrHasFile = $radarrHasFile;
+
+        return $this;
+    }
+
+    public function isProtected(): bool
+    {
+        return $this->isProtected;
+    }
+
+    public function setIsProtected(bool $isProtected): static
+    {
+        $this->isProtected = $isProtected;
 
         return $this;
     }

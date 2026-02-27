@@ -8,6 +8,7 @@ import (
 
 	"github.com/voclinx/scanarr-watcher/internal/filter"
 	"github.com/voclinx/scanarr-watcher/internal/hardlink"
+	"github.com/voclinx/scanarr-watcher/internal/hash"
 	"github.com/voclinx/scanarr-watcher/internal/models"
 	"github.com/voclinx/scanarr-watcher/internal/websocket"
 )
@@ -59,6 +60,13 @@ func (s *Scanner) Scan(path string, scanID string) error {
 			hlCount = 1
 		}
 
+		// Calculate partial hash (graceful failure)
+		partialHash, hashErr := hash.Calculate(filePath)
+		if hashErr != nil {
+			slog.Warn("Failed to calculate partial hash", "path", filePath, "error", hashErr)
+			partialHash = ""
+		}
+
 		totalFiles++
 		totalSize += info.Size()
 
@@ -70,6 +78,7 @@ func (s *Scanner) Scan(path string, scanID string) error {
 			HardlinkCount: hlCount,
 			IsDir:         false,
 			ModTime:       info.ModTime().UTC(),
+			PartialHash:   partialHash,
 		})
 
 		// Send progress every 100 files

@@ -7,6 +7,7 @@ import Tag from 'primevue/tag'
 import Button from 'primevue/button'
 import type { Movie, PaginationMeta } from '@/types'
 import type { DataTablePageEvent, DataTableSortEvent } from 'primevue/datatable'
+import { useFormatters } from '@/composables/useFormatters'
 
 const props = defineProps<{
   movies: Movie[]
@@ -23,16 +24,9 @@ const emit = defineEmits<{
 }>()
 
 const router = useRouter()
+const { formatSize, formatSeedTime, formatRatio, ratioSeverity, seedingStatusLabel, seedingStatusSeverity } = useFormatters()
 
 const primeSort = computed(() => (props.sortOrder === 'ASC' ? 1 : -1))
-
-function formatSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const k = 1024
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return (bytes / Math.pow(k, i)).toFixed(i > 1 ? 1 : 0) + ' ' + units[i]
-}
 
 function onPage(event: DataTablePageEvent): void {
   emit('page', (event.page ?? 0) + 1)
@@ -154,6 +148,37 @@ function truncate(text: string, maxLength: number): string {
           {{ formatSize(data.max_file_size_bytes) }}
         </span>
         <span v-else class="text-gray-400">—</span>
+      </template>
+    </Column>
+
+    <!-- Ratio -->
+    <Column field="best_ratio" header="Ratio" :sortable="true" style="width: 90px">
+      <template #body="{ data }: { data: Movie }">
+        <Tag v-if="data.best_ratio != null" :value="formatRatio(data.best_ratio)" :severity="ratioSeverity(data.best_ratio)" />
+        <span v-else class="text-gray-400">—</span>
+      </template>
+    </Column>
+
+    <!-- Seed time -->
+    <Column field="total_seed_time_max_seconds" header="Seed" :sortable="true" style="width: 80px">
+      <template #body="{ data }: { data: Movie }">
+        <span v-if="data.total_seed_time_max_seconds != null">{{ formatSeedTime(data.total_seed_time_max_seconds) }}</span>
+        <span v-else class="text-gray-400">—</span>
+      </template>
+    </Column>
+
+    <!-- Seeding status -->
+    <Column field="seeding_status" header="Statut" style="width: 100px">
+      <template #body="{ data }: { data: Movie }">
+        <Tag v-if="data.seeding_status" :value="seedingStatusLabel(data.seeding_status)" :severity="seedingStatusSeverity(data.seeding_status)" />
+        <span v-else class="text-gray-400">—</span>
+      </template>
+    </Column>
+
+    <!-- Protection -->
+    <Column header="" style="width: 2rem">
+      <template #body="{ data }: { data: Movie }">
+        <i v-if="data.is_protected" class="pi pi-shield text-blue-500" title="Film protégé" />
       </template>
     </Column>
 

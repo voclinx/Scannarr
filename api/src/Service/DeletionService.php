@@ -13,6 +13,7 @@ use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Exception;
 use Psr\Log\LoggerInterface;
+use Throwable;
 
 /**
  * DeletionService — orchestrates deletion chain.
@@ -86,7 +87,7 @@ class DeletionService
                         $absoluteHostPath = rtrim($hostPath, '/') . '/' . $mediaFile->getFilePath();
                         try {
                             $this->qBittorrentService->findAndDeleteTorrent($absoluteHostPath);
-                        } catch (\Throwable $e) {
+                        } catch (Throwable $e) {
                             $this->logger->warning('qBittorrent cleanup failed (best-effort)', [
                                 'file' => $absoluteHostPath,
                                 'error' => $e->getMessage(),
@@ -110,7 +111,7 @@ class DeletionService
         }
 
         // If no physical files to delete, complete immediately
-        if (empty($allFilesToDelete)) {
+        if ($allFilesToDelete === []) {
             $deletion->setStatus(DeletionStatus::COMPLETED);
             $deletion->setExecutedAt(new DateTimeImmutable());
             $deletion->setExecutionReport([

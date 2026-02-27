@@ -12,6 +12,7 @@ const MovieDetailView = () => import('@/views/MovieDetailView.vue')
 const ScheduledDeletionsView = () => import('@/views/ScheduledDeletionsView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 const UsersManagementView = () => import('@/views/UsersManagementView.vue')
+const SuggestionsView = () => import('@/views/SuggestionsView.vue')
 const NotFoundView = () => import('@/views/NotFoundView.vue')
 
 declare module 'vue-router' {
@@ -34,6 +35,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'files', name: 'files', component: FileExplorerView, meta: { minRole: 'ROLE_GUEST' } },
       { path: 'movies', name: 'movies', component: MoviesListView, meta: { minRole: 'ROLE_GUEST' } },
       { path: 'movies/:id', name: 'movie-detail', component: MovieDetailView, meta: { minRole: 'ROLE_GUEST' } },
+      { path: 'suggestions', name: 'suggestions', component: SuggestionsView, meta: { minRole: 'ROLE_USER' } },
       { path: 'deletions', name: 'deletions', component: ScheduledDeletionsView, meta: { minRole: 'ROLE_USER' } },
       { path: 'settings', name: 'settings', component: SettingsView, meta: { minRole: 'ROLE_ADMIN' } },
       { path: 'users', name: 'users', component: UsersManagementView, meta: { minRole: 'ROLE_ADMIN' } },

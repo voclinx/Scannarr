@@ -3,6 +3,7 @@ package deleter
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/voclinx/scanarr-watcher/internal/models"
@@ -134,6 +135,97 @@ func TestDeleteFileSizeCaptured(t *testing.T) {
 	}
 	if result.SizeBytes != 4096 {
 		t.Errorf("expected SizeBytes=4096, got %d", result.SizeBytes)
+	}
+}
+
+// TestCreateHardlinkSuccess verifies that a hardlink is created and shares the same inode.
+func TestCreateHardlinkSuccess(t *testing.T) {
+	d := &Deleter{wsClient: nil}
+	volumeRoot := t.TempDir()
+
+	srcFile := filepath.Join(volumeRoot, "src", "source.mkv")
+	if err := os.MkdirAll(filepath.Dir(srcFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(srcFile, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	targetFile := filepath.Join(volumeRoot, "media", "target.mkv")
+	result := d.CreateHardlink(srcFile, targetFile, volumeRoot)
+
+	if result.Status != "created" {
+		t.Fatalf("expected created, got %s: %s", result.Status, result.Error)
+	}
+	if _, err := os.Stat(targetFile); err != nil {
+		t.Error("target file not found")
+	}
+
+	// Verify same inode
+	srcInfo, _ := os.Stat(srcFile)
+	tgtInfo, _ := os.Stat(targetFile)
+	srcStat := srcInfo.Sys().(*syscall.Stat_t)
+	tgtStat := tgtInfo.Sys().(*syscall.Stat_t)
+	if srcStat.Ino != tgtStat.Ino {
+		t.Error("source and target do not share same inode")
+	}
+}
+
+// TestCreateHardlinkSourceNotFound verifies that a missing source file returns "failed".
+func TestCreateHardlinkSourceNotFound(t *testing.T) {
+	d := &Deleter{wsClient: nil}
+	volumeRoot := t.TempDir()
+
+	result := d.CreateHardlink(
+		filepath.Join(volumeRoot, "nonexistent.mkv"),
+		filepath.Join(volumeRoot, "target.mkv"),
+		volumeRoot,
+	)
+
+	if result.Status != "failed" {
+		t.Errorf("expected failed, got %s", result.Status)
+	}
+}
+
+// TestCreateHardlinkPathTraversalSource verifies that a source outside the volume root is rejected.
+func TestCreateHardlinkPathTraversalSource(t *testing.T) {
+	d := &Deleter{wsClient: nil}
+	volumeRoot := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.mkv")
+	if err := os.WriteFile(outsideFile, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := d.CreateHardlink(outsideFile, filepath.Join(volumeRoot, "target.mkv"), volumeRoot)
+
+	if result.Status != "failed" {
+		t.Errorf("expected failed (path traversal), got %s", result.Status)
+	}
+}
+
+// TestCreateHardlinkTargetAlreadyExists verifies that an existing target is replaced by the hardlink.
+func TestCreateHardlinkTargetAlreadyExists(t *testing.T) {
+	d := &Deleter{wsClient: nil}
+	volumeRoot := t.TempDir()
+	srcFile := filepath.Join(volumeRoot, "source.mkv")
+	tgtFile := filepath.Join(volumeRoot, "target.mkv")
+
+	if err := os.WriteFile(srcFile, []byte("new content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tgtFile, []byte("old content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := d.CreateHardlink(srcFile, tgtFile, volumeRoot)
+
+	if result.Status != "created" {
+		t.Fatalf("expected created, got %s: %s", result.Status, result.Error)
+	}
+	data, _ := os.ReadFile(tgtFile)
+	if string(data) != "new content" {
+		t.Error("target was not replaced")
 	}
 }
 
