@@ -1,8 +1,10 @@
 package logger
 
 import (
+	"context"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"time"
 )
 
@@ -14,11 +16,57 @@ type LogForwarder interface {
 // levelVar is the dynamic log level variable used globally.
 var levelVar = new(slog.LevelVar)
 
+// activeForwarder holds the current log forwarder (set after WS connection).
+var activeForwarder atomic.Pointer[LogForwarder]
+
+// forwardingHandler wraps a base Handler and also forwards entries to the API.
+type forwardingHandler struct {
+	slog.Handler
+}
+
+func (h *forwardingHandler) Handle(ctx context.Context, r slog.Record) error {
+	// Emit to underlying handler (stdout JSON)
+	if err := h.Handler.Handle(ctx, r); err != nil {
+		return err
+	}
+	// Forward to API if a forwarder is registered
+	if p := activeForwarder.Load(); p != nil {
+		ctxMap := map[string]interface{}{
+			"timestamp": r.Time.UTC().Format(time.RFC3339),
+		}
+		r.Attrs(func(a slog.Attr) bool {
+			ctxMap[a.Key] = a.Value.Any()
+			return true
+		})
+		(*p).ForwardLog(r.Level.String(), r.Message, ctxMap)
+	}
+	return nil
+}
+
+func (h *forwardingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &forwardingHandler{Handler: h.Handler.WithAttrs(attrs)}
+}
+
+func (h *forwardingHandler) WithGroup(name string) slog.Handler {
+	return &forwardingHandler{Handler: h.Handler.WithGroup(name)}
+}
+
 // Setup initializes the global logger with the given log level.
 func Setup(level string) {
 	levelVar.Set(parseLevel(level))
-	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: levelVar})
-	slog.SetDefault(slog.New(handler))
+	base := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: levelVar})
+	slog.SetDefault(slog.New(&forwardingHandler{Handler: base}))
+}
+
+// SetForwarder registers the WebSocket client as the log forwarder.
+// Call this once the WebSocket connection is established.
+// Pass nil to disable forwarding.
+func SetForwarder(f LogForwarder) {
+	if f == nil {
+		activeForwarder.Store(nil)
+	} else {
+		activeForwarder.Store(&f)
+	}
 }
 
 // SetLevel dynamically changes the log level without recreating the logger.

@@ -33,7 +33,7 @@ const levelOptions = [
 ]
 
 function levelClass(level: string): string {
-  switch (level) {
+  switch (level.toLowerCase()) {
     case 'error':
       return 'text-red-400'
     case 'warn':
@@ -70,6 +70,10 @@ async function fetchLogs() {
     const result = await store.fetchLogs(props.watcherId, params)
     logs.value = result.logs
     total.value = result.total
+  } catch (e) {
+    console.error('Failed to fetch watcher logs:', e)
+    logs.value = []
+    total.value = 0
   } finally {
     loading.value = false
   }

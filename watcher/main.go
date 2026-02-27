@@ -101,6 +101,9 @@ func main() {
 		// Apply new log level dynamically
 		logger.SetLevel(rtCfg.LogLevel)
 
+		// Enable log forwarding to the API once authenticated (first config received)
+		logger.SetForwarder(wsClient)
+
 		readyMu.Lock()
 		isFirst := !watcherReady
 		if isFirst {

@@ -854,7 +854,7 @@ class WatcherMessageProcessor
 
         $log = new WatcherLog();
         $log->setWatcher($watcher);
-        $log->setLevel($data['level'] ?? 'info');
+        $log->setLevel(strtolower($data['level'] ?? 'info'));
         $log->setMessage($data['message'] ?? '');
         $log->setContext($data['context'] ?? []);
 
