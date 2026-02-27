@@ -353,11 +353,7 @@ func (c *Client) handleConfigMessage(rawMsg []byte) {
 		c.configHash.Store(&cfg.ConfigHash)
 	}
 
-	slog.Info("Received config from API",
-		"config_hash", cfg.ConfigHash,
-		"watch_paths", cfg.WatchPaths,
-		"log_level", cfg.LogLevel,
-	)
+	slog.Info("Received config from API", "config_hash", cfg.ConfigHash)
 
 	if c.OnConfig != nil {
 		c.OnConfig(cfg)
