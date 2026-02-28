@@ -4,58 +4,198 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
 
-    <description>PHPMD rules for Scanarr API</description>
+    <description>
+        Scanarr PHPMD rules — basé sur CODING_STANDARDS.md V2.0.
+        Enforce: SOLID, architecture en couches, nommage §6, clean code §9.
+    </description>
 
-    <!-- Clean Code -->
+    <!-- ================================================================
+         CLEAN CODE — §1 SOLID
+         ================================================================ -->
     <rule ref="rulesets/cleancode.xml">
+        <!--
+            StaticAccess exclu : autorisé pour les factory methods (Uuid::fromString(),
+            MatchResult::notFound()), les Enums (DeletionStatus::WaitingWatcher)
+            et les constructeurs nommés de DTO (DeleteMovieRequest::fromRequest()).
+            Voir §9.6 (Enums) et §2.4 (DTO).
+        -->
         <exclude name="StaticAccess" />
+
+        <!--
+            BooleanArgumentFlag exclu : autorisé dans les contrats d'interface
+            où la sémantique booléenne est explicite et documentée.
+            Ex: TorrentClientInterface::deleteTorrents(array $hashes, bool $deleteFiles).
+            Voir §3.2.
+        -->
         <exclude name="BooleanArgumentFlag" />
+
+        <!--
+            MissingImport exclu : Rector gère l'import automatique des namespaces
+            via withImportNames(removeUnusedImports: true).
+        -->
         <exclude name="MissingImport" />
     </rule>
 
-    <!-- Code Size -->
+    <!-- ================================================================
+         CODE SIZE — §2.3 Controller max ~15 lignes, §1.1 SRP
+         ================================================================ -->
     <rule ref="rulesets/codesize.xml">
+        <!-- On surcharge chaque règle individuellement ci-dessous -->
+        <exclude name="CyclomaticComplexity" />
+        <exclude name="NPathComplexity" />
+        <exclude name="ExcessiveMethodLength" />
+        <exclude name="ExcessiveClassLength" />
         <exclude name="TooManyPublicMethods" />
+        <exclude name="TooManyMethods" />
+        <exclude name="ExcessiveParameterList" />
     </rule>
+
+    <!--
+        Complexité cyclomatique : max 10.
+        §1.1 SRP : une méthode avec haute complexité a trop de responsabilités.
+        Les controllers doivent tendre vers ≤ 5 (1 appel service = peu de branches).
+        Les services peuvent aller jusqu'à 10.
+    -->
     <rule ref="rulesets/codesize.xml/CyclomaticComplexity">
         <properties>
-            <property name="reportLevel" value="15" />
-        </properties>
-    </rule>
-    <rule ref="rulesets/codesize.xml/NPathComplexity">
-        <properties>
-            <property name="minimum" value="300" />
-        </properties>
-    </rule>
-    <rule ref="rulesets/codesize.xml/ExcessiveMethodLength">
-        <properties>
-            <property name="minimum" value="80" />
-        </properties>
-    </rule>
-    <rule ref="rulesets/codesize.xml/ExcessiveClassLength">
-        <properties>
-            <property name="minimum" value="500" />
+            <property name="reportLevel" value="10" />
+            <property name="showClassesComplexity" value="true" />
+            <property name="showMethodsComplexity" value="true" />
         </properties>
     </rule>
 
-    <!-- Design -->
+    <!--
+        Complexité NPath : max 200.
+        Signal d'arbre de décision trop complexe — découper en méthodes.
+        §1.1 SRP.
+    -->
+    <rule ref="rulesets/codesize.xml/NPathComplexity">
+        <properties>
+            <property name="minimum" value="200" />
+        </properties>
+    </rule>
+
+    <!--
+        Longueur de méthode : max 25 lignes (espaces ignorés).
+        §2.3 : "maximum ~15 lignes par méthode" dans les controllers.
+        25 lignes (blanches exclues) ≈ 15 lignes de code réel.
+        Une méthode qui dépasse ce seuil doit être découpée.
+    -->
+    <rule ref="rulesets/codesize.xml/ExcessiveMethodLength">
+        <properties>
+            <property name="minimum" value="25" />
+            <property name="ignore-whitespace" value="true" />
+        </properties>
+    </rule>
+
+    <!--
+        Longueur de classe : max 400 lignes.
+        §1.1 SRP : une classe volumineuse a trop de responsabilités.
+        §5 : la structure des dossiers impose des classes à responsabilité unique.
+    -->
+    <rule ref="rulesets/codesize.xml/ExcessiveClassLength">
+        <properties>
+            <property name="minimum" value="400" />
+        </properties>
+    </rule>
+
+    <!--
+        Trop de méthodes publiques : max 12.
+        §1.1 SRP : une classe avec trop d'API publique viole le principe de responsabilité unique.
+        Les controllers doivent rester autour de 5-8 routes.
+        Les Repositories peuvent avoir plus de findBy* — seuil à 12 pour tolérer cela.
+    -->
+    <rule ref="rulesets/codesize.xml/TooManyPublicMethods">
+        <properties>
+            <property name="maxmethods" value="12" />
+            <!-- Exclure les méthodes de test (setUp, tearDown, test*) -->
+            <property name="ignorepattern" value="(^(test|setUp|tearDown|provide))" />
+        </properties>
+    </rule>
+
+    <!--
+        Trop de méthodes (publiques + protégées + privées) : max 20.
+        Inclut les helpers privés. Au-delà, la classe doit être découpée.
+        §1.1 SRP.
+    -->
+    <rule ref="rulesets/codesize.xml/TooManyMethods">
+        <properties>
+            <property name="maxmethods" value="20" />
+            <property name="ignorepattern" value="(^(test|setUp|tearDown|provide))" />
+        </properties>
+    </rule>
+
+    <!--
+        Liste de paramètres excessive : max 6 paramètres par méthode.
+        Note : les constructeurs Symfony avec DI peuvent avoir plus de dépendances
+        — c'est une limite sur les méthodes métier, pas sur __construct.
+        §1.5 DIP : beaucoup de dépendances dans __construct est normal avec l'injection.
+    -->
+    <rule ref="rulesets/codesize.xml/ExcessiveParameterList">
+        <properties>
+            <property name="minimum" value="6" />
+        </properties>
+    </rule>
+
+    <!-- ================================================================
+         DESIGN — §1.2 OCP, §1.5 DIP, §3 Interfaces
+         ================================================================ -->
     <rule ref="rulesets/design.xml">
+        <!--
+            CouplingBetweenObjects exclu : le conteneur Symfony crée naturellement
+            un couplage élevé au niveau du container. Le pattern correct est
+            l'injection par interface (§1.5 DIP), pas la réduction artificielle
+            du nombre de dépendances.
+        -->
         <exclude name="CouplingBetweenObjects" />
     </rule>
 
-    <!-- Naming -->
+    <!-- ================================================================
+         NAMING — §6 Conventions de nommage
+         ================================================================ -->
     <rule ref="rulesets/naming.xml">
         <exclude name="ShortVariable" />
         <exclude name="LongVariable" />
+        <exclude name="ShortMethodName" />
     </rule>
+
+    <!--
+        Variable courte : minimum 2 caractères.
+        §6.1 : camelCase. Les variables d'une seule lettre sont interdites sauf
+        exceptions explicites listées ici.
+        - id  : identifiant courant dans les boucles/repositories
+        - e   : exception dans les blocs catch (§7.3)
+        - i   : compteur de boucle
+        - em  : EntityManager (usage transitoire)
+        - fp  : FilePath (entité)
+        - io  : input/output
+        - ex  : exception alias
+    -->
     <rule ref="rulesets/naming.xml/ShortVariable">
         <properties>
             <property name="minimum" value="2" />
-            <property name="exceptions" value="id,em,e,i" />
+            <property name="exceptions" value="id,e,i,em,fp,io,ex" />
         </properties>
     </rule>
 
-    <!-- Unused Code -->
+    <!--
+        Nom de méthode court : minimum 3 caractères.
+        §6.1 : les méthodes doivent avoir des noms descriptifs en camelCase.
+        Exceptions implicites : PHP les autorise (get, set) mais le standard
+        recommande des noms explicites.
+    -->
+    <rule ref="rulesets/naming.xml/ShortMethodName">
+        <properties>
+            <property name="minimum" value="3" />
+            <property name="exceptions" value="get,set,run,map" />
+        </properties>
+    </rule>
+
+    <!-- ================================================================
+         UNUSED CODE — §9 Pas de code mort
+         Rector's deadCode set gère la suppression automatique.
+         PHPMD détecte les usages à runtime (paramètres, variables locales).
+         ================================================================ -->
     <rule ref="rulesets/unusedcode.xml" />
 
 </ruleset>

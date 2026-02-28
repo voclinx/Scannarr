@@ -12,6 +12,23 @@ services:
             - '../src/DependencyInjection/'
             - '../src/Entity/'
             - '../src/Kernel.php'
+            - '../src/Contract/'
+            - '../src/Dto/'
+            - '../src/Enum/'
+
+    _instanceof:
+        App\Contract\MediaPlayer\MediaPlayerInterface:
+            tags: ['scanarr.media_player']
+        App\Contract\MediaManager\MediaManagerInterface:
+            tags: ['scanarr.media_manager']
+        App\Contract\TorrentClient\TorrentClientInterface:
+            tags: ['scanarr.torrent_client']
+        App\Contract\Notification\NotificationChannelInterface:
+            tags: ['scanarr.notification_channel']
+        App\Contract\WebSocket\WatcherMessageHandlerInterface:
+            tags: ['scanarr.watcher_message_handler']
+        App\Contract\Matching\FileMatchingStrategyInterface:
+            tags: ['scanarr.matching_strategy']
 
     App\WebSocket\WatcherWebSocketServer:
         arguments:
@@ -20,3 +37,7 @@ services:
     App\Service\WatcherCommandService:
         arguments:
             $watcherAuthToken: '%watcher_auth_token%'
+
+    App\EventListener\ApiExceptionListener:
+        tags:
+            - { name: kernel.event_listener, event: kernel.exception, method: onKernelException, priority: -10 }

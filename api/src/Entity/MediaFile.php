@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Entity;
 
 use App\Repository\MediaFileRepository;
@@ -17,6 +19,7 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'idx_media_files_radarr', columns: ['is_linked_radarr'])]
 #[ORM\Index(name: 'idx_media_files_name', columns: ['file_name'])]
 #[ORM\Index(name: 'idx_media_files_partial_hash', columns: ['partial_hash'])]
+#[ORM\Index(name: 'idx_media_files_inode', columns: ['device_id', 'inode'])]
 #[ORM\HasLifecycleCallbacks]
 class MediaFile
 {
@@ -66,6 +69,12 @@ class MediaFile
 
     #[ORM\Column(length: 128, nullable: true)]
     private ?string $partialHash = null;
+
+    #[ORM\Column(type: 'bigint', nullable: true)]
+    private ?string $inode = null;
+
+    #[ORM\Column(type: 'bigint', nullable: true)]
+    private ?string $deviceId = null;
 
     #[ORM\Column]
     private bool $isProtected = false;
@@ -244,6 +253,30 @@ class MediaFile
     public function setPartialHash(?string $partialHash): static
     {
         $this->partialHash = $partialHash;
+
+        return $this;
+    }
+
+    public function getInode(): ?string
+    {
+        return $this->inode;
+    }
+
+    public function setInode(?string $inode): static
+    {
+        $this->inode = $inode;
+
+        return $this;
+    }
+
+    public function getDeviceId(): ?string
+    {
+        return $this->deviceId;
+    }
+
+    public function setDeviceId(?string $deviceId): static
+    {
+        $this->deviceId = $deviceId;
 
         return $this;
     }

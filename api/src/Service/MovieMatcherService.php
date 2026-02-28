@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
 use App\Entity\MediaFile;
@@ -8,6 +10,8 @@ use App\Entity\MovieFile;
 use App\Entity\RadarrInstance;
 use App\Entity\Volume;
 use App\Enum\VolumeStatus;
+use App\ExternalService\MediaManager\RadarrService;
+use App\ExternalService\Metadata\TmdbService;
 use App\Repository\MediaFileRepository;
 use App\Repository\MovieFileRepository;
 use App\Repository\MovieRepository;
@@ -17,7 +21,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Exception;
 use Psr\Log\LoggerInterface;
 
-class MovieMatcherService
+final class MovieMatcherService
 {
     public function __construct(
         private readonly RadarrInstanceRepository $radarrInstanceRepository,

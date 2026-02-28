@@ -1,12 +1,16 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
+use App\ExternalService\MediaPlayer\JellyfinService;
+use App\ExternalService\MediaPlayer\PlexService;
 use App\Repository\MediaPlayerInstanceRepository;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
-class MediaPlayerRefreshService
+final class MediaPlayerRefreshService
 {
     public function __construct(
         private readonly PlexService $plexService,

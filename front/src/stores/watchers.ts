@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useApi } from '@/composables/useApi'
-import type { Watcher, WatcherConfig, WatcherLog } from '@/types'
+import type { Watcher, WatcherConfig, WatcherLog, WatcherStatus } from '@/types'
 
 export const useWatchersStore = defineStore('watchers', () => {
   const api = useApi()
@@ -74,6 +74,21 @@ export const useWatchersStore = defineStore('watchers', () => {
     return { logs: data.data, total: data.meta?.total ?? 0 }
   }
 
+  /**
+   * Update a single watcher's status reactively from a WebSocket push event.
+   * Called by useWatcherSocket when a watcher.status_changed event arrives.
+   */
+  function updateWatcherStatus(watcherDbId: string, status: WatcherStatus, lastSeenAt?: string): void {
+    const idx = watchers.value.findIndex((w) => w.id === watcherDbId)
+    if (idx !== -1) {
+      watchers.value[idx] = {
+        ...watchers.value[idx],
+        status,
+        ...(lastSeenAt ? { last_seen_at: lastSeenAt } : {}),
+      }
+    }
+  }
+
   return {
     watchers,
     loading,
@@ -86,5 +101,6 @@ export const useWatchersStore = defineStore('watchers', () => {
     deleteWatcher,
     toggleDebug,
     fetchLogs,
+    updateWatcherStatus,
   }
 })

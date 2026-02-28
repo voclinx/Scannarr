@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
 use App\Entity\ActivityLog;
@@ -8,6 +10,8 @@ use App\Entity\RadarrInstance;
 use App\Entity\ScheduledDeletion;
 use App\Entity\User;
 use App\Enum\DeletionStatus;
+use App\ExternalService\MediaManager\RadarrService;
+use App\ExternalService\TorrentClient\QBittorrentService;
 use App\Repository\MediaFileRepository;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
@@ -26,7 +30,7 @@ use Throwable;
  * Phase 2 (asynchronous, runs in watcher):
  *   - Physical file deletion + empty dir cleanup
  *
- * Phase 3 (async, WatcherMessageProcessor):
+ * Phase 3 (async, via WebSocket handlers):
  *   - DB cleanup, Plex/Jellyfin refresh, Discord notification
  *
  * The API NEVER does unlink(), rmdir(), or file_exists().
@@ -57,6 +61,7 @@ class DeletionService
         $this->em->flush();
 
         $allFilesToDelete = [];
+        $seenFileIds = [];
 
         foreach ($deletion->getItems() as $item) {
             $movie = $item->getMovie();
@@ -76,36 +81,56 @@ class DeletionService
                         continue;
                     }
 
-                    $volume = $mediaFile->getVolume();
-                    if ($volume === null) {
-                        continue;
-                    }
+                    // Collect explicit file + inode siblings (hardlinks on other volumes)
+                    $filesToCollect = [$mediaFile];
 
-                    // qBittorrent uses host paths
-                    $hostPath = $volume->getHostPath();
-                    if ($hostPath !== null && $hostPath !== '' && $this->qBittorrentService->isConfigured()) {
-                        $absoluteHostPath = rtrim($hostPath, '/') . '/' . $mediaFile->getFilePath();
-                        try {
-                            $this->qBittorrentService->findAndDeleteTorrent($absoluteHostPath);
-                        } catch (Throwable $e) {
-                            $this->logger->warning('qBittorrent cleanup failed (best-effort)', [
-                                'file' => $absoluteHostPath,
-                                'error' => $e->getMessage(),
-                            ]);
+                    $deviceId = $mediaFile->getDeviceId();
+                    $inode = $mediaFile->getInode();
+                    if ($deviceId !== null && $inode !== null) {
+                        $siblings = $this->mediaFileRepository->findAllByInode($deviceId, $inode);
+                        foreach ($siblings as $sibling) {
+                            $filesToCollect[] = $sibling;
                         }
                     }
 
-                    // Collect file for watcher deletion — use hostPath for the watcher
-                    $volumeHostPath = $volume->getHostPath();
-                    if ($volumeHostPath === null || $volumeHostPath === '') {
-                        $volumeHostPath = $volume->getPath(); // fallback
-                    }
+                    foreach ($filesToCollect as $fileToDelete) {
+                        $fid = (string) $fileToDelete->getId();
+                        if (isset($seenFileIds[$fid])) {
+                            continue;
+                        }
+                        $seenFileIds[$fid] = true;
 
-                    $allFilesToDelete[] = [
-                        'media_file_id' => (string)$mediaFile->getId(),
-                        'volume_path' => rtrim($volumeHostPath ?? '', '/'),
-                        'file_path' => $mediaFile->getFilePath(),
-                    ];
+                        $volume = $fileToDelete->getVolume();
+                        if ($volume === null) {
+                            continue;
+                        }
+
+                        // qBittorrent uses host paths
+                        $hostPath = $volume->getHostPath();
+                        if ($hostPath !== null && $hostPath !== '' && $this->qBittorrentService->isConfigured()) {
+                            $absoluteHostPath = rtrim($hostPath, '/') . '/' . $fileToDelete->getFilePath();
+                            try {
+                                $this->qBittorrentService->findAndDeleteTorrent($absoluteHostPath);
+                            } catch (Throwable $e) {
+                                $this->logger->warning('qBittorrent cleanup failed (best-effort)', [
+                                    'file' => $absoluteHostPath,
+                                    'error' => $e->getMessage(),
+                                ]);
+                            }
+                        }
+
+                        // Collect file for watcher deletion — use hostPath for the watcher
+                        $volumeHostPath = $volume->getHostPath();
+                        if ($volumeHostPath === null || $volumeHostPath === '') {
+                            $volumeHostPath = $volume->getPath(); // fallback
+                        }
+
+                        $allFilesToDelete[] = [
+                            'media_file_id' => $fid,
+                            'volume_path' => rtrim($volumeHostPath ?? '', '/'),
+                            'file_path' => $fileToDelete->getFilePath(),
+                        ];
+                    }
                 }
             }
         }

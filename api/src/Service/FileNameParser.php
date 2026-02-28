@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
 /**
@@ -15,7 +17,7 @@ namespace App\Service;
  *   "The.Matrix.1999.1080p.WEB-DL.x264-SCENE.mkv"
  *   "Avatar (2009) 720p BDRip x264.mkv"
  */
-class FileNameParser
+final class FileNameParser
 {
     /** @var string[] */
     private const array RESOLUTIONS = ['2160p', '1080p', '720p', '480p', '4K', 'UHD'];

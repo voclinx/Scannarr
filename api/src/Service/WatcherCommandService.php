@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
 use App\Entity\Watcher;
@@ -121,8 +123,8 @@ class WatcherCommandService
 
         // The Go watcher expects watch_paths as a flat list of strings, not [{path, name}] objects
         $config['watch_paths'] = array_values(array_filter(array_map(
-            static fn($wp) => is_array($wp) ? ($wp['path'] ?? '') : (string)$wp,
-            $config['watch_paths'] ?? []
+            static fn ($wp) => is_array($wp) ? ($wp['path'] ?? '') : (string)$wp,
+            $config['watch_paths'] ?? [],
         )));
 
         $this->sendCommand([

@@ -1,10 +1,12 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Command;
 
 use App\Enum\DeletionStatus;
+use App\ExternalService\Notification\DiscordNotificationService;
 use App\Repository\ScheduledDeletionRepository;
-use App\Service\DiscordNotificationService;
 use DateTime;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;

@@ -1,7 +1,10 @@
 <?php
 
-namespace App\Service;
+declare(strict_types=1);
 
+namespace App\ExternalService\MediaManager;
+
+use App\Contract\MediaManager\MediaManagerInterface;
 use App\Entity\RadarrInstance;
 use Exception;
 use Psr\Log\LoggerInterface;
@@ -9,7 +12,7 @@ use RuntimeException;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
-class RadarrService
+class RadarrService implements MediaManagerInterface
 {
     public function __construct(
         private readonly HttpClientInterface $httpClient,

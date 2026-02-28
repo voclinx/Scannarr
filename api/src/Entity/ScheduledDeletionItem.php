@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Entity;
 
 use App\Repository\ScheduledDeletionItemRepository;
@@ -23,7 +25,7 @@ class ScheduledDeletionItem
     private ?ScheduledDeletion $scheduledDeletion = null;
 
     #[ORM\ManyToOne(targetEntity: Movie::class)]
-    #[ORM\JoinColumn(nullable: false)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
     private ?Movie $movie = null;
 
     #[ORM\Column(type: 'json')]

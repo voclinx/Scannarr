@@ -1,7 +1,10 @@
 <?php
 
-namespace App\Service;
+declare(strict_types=1);
 
+namespace App\ExternalService\MediaPlayer;
+
+use App\Contract\MediaPlayer\MediaPlayerInterface;
 use App\Entity\MediaPlayerInstance;
 use Exception;
 use Psr\Log\LoggerInterface;
@@ -10,7 +13,7 @@ use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Throwable;
 
-class PlexService
+class PlexService implements MediaPlayerInterface
 {
     public function __construct(
         private readonly HttpClientInterface $httpClient,
@@ -41,6 +44,20 @@ class PlexService
                 'error' => $e->getMessage(),
             ];
         }
+    }
+
+    public function supports(MediaPlayerInstance $instance): bool
+    {
+        return $instance->getType() === 'plex';
+    }
+
+    /**
+     * Refresh all movie library sections on this Plex instance.
+     * Implements MediaPlayerInterface::refreshLibrary().
+     */
+    public function refreshLibrary(MediaPlayerInstance $instance): bool
+    {
+        return $this->refreshAllMovieSections($instance) > 0;
     }
 
     /**
@@ -75,7 +92,7 @@ class PlexService
     /**
      * Refresh a specific Plex library section.
      */
-    public function refreshLibrary(MediaPlayerInstance $instance, string $sectionKey): bool
+    public function refreshSection(MediaPlayerInstance $instance, string $sectionKey): bool
     {
         $url = rtrim($instance->getUrl() ?? '', '/') . "/library/sections/{$sectionKey}/refresh";
 
@@ -123,7 +140,7 @@ class PlexService
                 continue;
             }
 
-            if ($this->refreshLibrary($instance, $section['key'])) {
+            if ($this->refreshSection($instance, $section['key'])) {
                 ++$refreshed;
             }
         }

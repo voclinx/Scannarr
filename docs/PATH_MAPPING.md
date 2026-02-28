@@ -1,7 +1,7 @@
 # Scanarr — Correspondance des Chemins (Path Mapping)
 
 > **Prérequis** : [ARCHITECTURE.md](ARCHITECTURE.md)
-> **Version** : V1.5
+> **Version** : V1.5.1 (collecte inode + enrichissement automatique des hardlinks)
 
 ---
 
@@ -112,6 +112,8 @@ seed_time: 48h               → tmdbId: 550         ──────► movie
 
 **Fallback** (fichiers non passés par Radarr) : matching par `content_path` de qBit + path mapping → chemin host → comparaison avec `media_file.file_path`.
 
+**Matching par inode (V1.5.1)** : Un `FileMatchingService` orchestre des stratégies de matching par priorité. `InodeMatchingStrategy` (priorité 100, confidence 1.0) permet un matching garanti lorsque le couple `(device_id, inode)` est connu en BDD — aucune ambiguïté possible car l'inode identifie physiquement le fichier. Ce matching repose sur les données déjà indexées en BDD (remontées par le watcher au scan), il ne nécessite pas d'appel au watcher.
+
 ---
 
 ## 3. Suppression complète des hardlinks
@@ -121,10 +123,13 @@ Quand l'utilisateur demande la suppression d'un fichier, l'API doit collecter **
 1. **Chemin media/** : connu via `media_file.file_path` + `volume.host_path`
 2. **Chemin torrents/** : connu via le matching qBit (torrent `content_path` + path mapping)
 3. **Chemins cross-seed** : connus via le groupement cross-seed (voir [CROSS_SEED.md](CROSS_SEED.md))
+4. **Siblings inode (V1.5.1)** : connus via `findAllByInode(device_id, inode)` — tous les `media_files` partageant le même inode
 
 L'API envoie tous ces chemins dans la commande `command.files.delete`. Le watcher supprime chacun d'eux. Quand tous les hardlinks sont supprimés → espace libéré.
 
-> **Note V1.5** : Le watcher ne fait PAS de `find` par inode. Il supprime uniquement les chemins qu'on lui fournit. Les hardlinks "inconnus" de Scanarr ne seront pas supprimés. Cette limitation sera levée dans une version future du watcher.
+> **Note V1.5.1** : Le watcher remonte désormais `inode` et `device_id` pour chaque événement fichier (`scan.file`, `file.created`, `file.modified`, `file.renamed`). L'API regroupe automatiquement les hardlinks via le couple `(device_id, inode)` en BDD. `DeletionService::executeDeletion()` collecte automatiquement les siblings inode pour chaque fichier sélectionné avant envoi au watcher, éliminant les doublons via un set `seenFileIds`.
+>
+> Le watcher ne fait **pas** de discovery inode (il ne scanne pas le filesystem pour trouver des chemins inconnus). Il supprime uniquement les chemins que l'API lui fournit. Les hardlinks dans des répertoires non surveillés par un volume Scanarr ne seront pas découverts ni supprimés.
 
 ---
 
@@ -140,3 +145,5 @@ Si nlink > chemins connus : espace libéré = 0 (des liens inconnus existent)
 ```
 
 L'UI affiche toujours **l'espace réellement libéré**, pas la taille brute du fichier. Un tooltip explique la différence si applicable : "Ce fichier a X hardlinks, seuls Y sont connus de Scanarr".
+
+> **Implémentation V1.5.1** : `SuggestionService::calculateRealFreedBytes()` utilise `findAllByInode(device_id, inode)` pour compter les chemins connus (`knownSiblings`). Si `knownSiblings >= nlink`, l'espace sera libéré ; sinon, l'espace affiché est 0 (des liens inconnus existent quelque part). Cela remplace la logique naïve V1.5 (`hardlink_count > 1 ? 0 : file_size`) qui retournait toujours 0 pour tout fichier avec hardlinks, même quand Scanarr connaissait tous les chemins.

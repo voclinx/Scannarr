@@ -1,7 +1,10 @@
 <?php
 
-namespace App\Service;
+declare(strict_types=1);
 
+namespace App\ExternalService\Metadata;
+
+use App\Contract\Metadata\MetadataProviderInterface;
 use App\Repository\SettingRepository;
 use Exception;
 use Psr\Log\LoggerInterface;
@@ -9,7 +12,7 @@ use RuntimeException;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
-class TmdbService
+class TmdbService implements MetadataProviderInterface
 {
     private const string BASE_URL = 'https://api.themoviedb.org/3';
     private const string IMAGE_BASE_URL = 'https://image.tmdb.org/t/p';

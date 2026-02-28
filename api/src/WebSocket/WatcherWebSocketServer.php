@@ -1,11 +1,16 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\WebSocket;
 
 use App\Entity\Watcher;
+use DateTimeImmutable;
 use Exception;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Message;
+use Lexik\Bundle\JWTAuthenticationBundle\Encoder\JWTEncoderInterface;
+use Lexik\Bundle\JWTAuthenticationBundle\Exception\JWTDecodeFailureException;
 use Psr\Http\Message\RequestInterface;
 use Psr\Log\LoggerInterface;
 use Ratchet\RFC6455\Handshake\RequestVerifier;
@@ -20,12 +25,12 @@ use React\Socket\ConnectionInterface;
 use React\Socket\SocketServer;
 use Throwable;
 
-class WatcherWebSocketServer
+final class WatcherWebSocketServer
 {
     /**
-     * connId → {conn, buffer, authenticated, watcherId}
+     * connId → {conn, buffer, authenticated, watcherId, watcherDbId}
      *
-     * @var array<int, array{conn: ConnectionInterface, buffer: MessageBuffer, authenticated: bool, watcherId: string|null}>
+     * @var array<int, array{conn: ConnectionInterface, buffer: MessageBuffer, authenticated: bool, watcherId: string|null, watcherDbId: string|null}>
      */
     private array $connections = [];
 
@@ -36,10 +41,19 @@ class WatcherWebSocketServer
      */
     private array $watcherConnections = [];
 
+    /**
+     * Browser client connections: connId → {conn, buffer, authenticated}
+     *
+     * @var array<int, array{conn: ConnectionInterface, buffer: MessageBuffer, authenticated: bool}>
+     */
+    private array $browserConnections = [];
+
     public function __construct(
         private readonly string $internalToken,
         private readonly LoggerInterface $logger,
-        private readonly WatcherMessageProcessor $messageProcessor,
+        private readonly WatcherMessageDispatcher $messageDispatcher,
+        private readonly WatcherLifecycleService $lifecycleService,
+        private readonly JWTEncoderInterface $jwtEncoder,
     ) {
     }
 
@@ -72,8 +86,7 @@ class WatcherWebSocketServer
                     $request = Message::parseRequest($httpBuffer);
                 } catch (Throwable $e) {
                     $this->logger->warning('Invalid HTTP request', ['id' => $connId, 'error' => $e->getMessage()]);
-                    $conn->write("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
-                    $conn->close();
+                    $conn->end("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
 
                     return;
                 }
@@ -95,10 +108,9 @@ class WatcherWebSocketServer
                     return;
                 }
 
-                // WebSocket upgrade path
-                if ($path !== '/ws/watcher') {
-                    $conn->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
-                    $conn->close();
+                // WebSocket upgrade paths
+                if ($path !== '/ws/watcher' && $path !== '/ws/events') {
+                    $conn->end("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
 
                     return;
                 }
@@ -108,8 +120,7 @@ class WatcherWebSocketServer
 
                 if ($response->getStatusCode() !== 101) {
                     $statusCode = $response->getStatusCode();
-                    $conn->write("HTTP/1.1 {$statusCode} Error\r\nContent-Length: 0\r\n\r\n");
-                    $conn->close();
+                    $conn->end("HTTP/1.1 {$statusCode} Error\r\nContent-Length: 0\r\n\r\n");
 
                     return;
                 }
@@ -118,10 +129,14 @@ class WatcherWebSocketServer
                 $responseStr = Message::toString($response);
                 $conn->write($responseStr);
 
-                $this->logger->info('WebSocket handshake complete', ['id' => $connId]);
+                $this->logger->info('WebSocket handshake complete', ['id' => $connId, 'path' => $path]);
 
-                // Phase 2: WebSocket message handling
-                $this->setupWebSocketConnection($connId, $conn);
+                // Phase 2: WebSocket message handling — dispatch by path
+                if ($path === '/ws/events') {
+                    $this->setupBrowserConnection($connId, $conn);
+                } else {
+                    $this->setupWebSocketConnection($connId, $conn);
+                }
             });
 
             // Auth timeout: 30s for connections that have NOT sent a watcher.hello
@@ -134,11 +149,20 @@ class WatcherWebSocketServer
                     $this->logger->warning('Connection auth timeout (no hello received)', ['id' => $connId]);
                     $this->closeConnection($connId);
                 }
+
+                // Also timeout unauthenticated browser connections
+                if (isset($this->browserConnections[$connId])
+                    && !$this->browserConnections[$connId]['authenticated']
+                ) {
+                    $this->logger->warning('Browser connection auth timeout', ['id' => $connId]);
+                    $this->closeBrowserConnection($connId);
+                }
             });
         });
 
         $this->logger->info("WebSocket server started on {$host}:{$port}");
         echo "WebSocket server listening on ws://{$host}:{$port}/ws/watcher\n";
+        echo "Browser events available at ws://{$host}:{$port}/ws/events\n";
         echo "Internal API available at http://{$host}:{$port}/internal/send-to-watcher\n";
     }
 
@@ -152,8 +176,7 @@ class WatcherWebSocketServer
 
         if ($body === '' || $body === '0') {
             $response = '{"error":"Empty body"}';
-            $conn->write("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
-            $conn->close();
+            $conn->end("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
 
             return;
         }
@@ -161,8 +184,7 @@ class WatcherWebSocketServer
         $data = json_decode($body, true);
         if (!$data) {
             $response = '{"error":"Invalid JSON"}';
-            $conn->write("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
-            $conn->close();
+            $conn->end("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
 
             return;
         }
@@ -171,8 +193,7 @@ class WatcherWebSocketServer
         $token = $request->getHeaderLine('X-Internal-Token');
         if ($token !== $this->internalToken) {
             $response = '{"error":"Unauthorized"}';
-            $conn->write("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
-            $conn->close();
+            $conn->end("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
 
             return;
         }
@@ -184,8 +205,7 @@ class WatcherWebSocketServer
 
         if ($connectedCount === 0 && $targetWatcherId === null) {
             $response = '{"error":"No watcher connected"}';
-            $conn->write("HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
-            $conn->close();
+            $conn->end("HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
 
             return;
         }
@@ -194,8 +214,7 @@ class WatcherWebSocketServer
         $this->sendToWatcher($body, $targetWatcherId);
 
         $response = json_encode(['ok' => true, 'watchers' => $connectedCount]);
-        $conn->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
-        $conn->close();
+        $conn->end("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
 
         $this->logger->info('Internal command sent to watcher', [
             'type' => $data['type'] ?? 'unknown',
@@ -220,11 +239,156 @@ class WatcherWebSocketServer
         $response = json_encode([
             'connected_watchers' => count($this->watcherConnections),
             'total_connections' => count($this->connections),
+            'browser_clients' => count($this->browserConnections),
             'watchers' => $watchers,
         ]);
-        $conn->write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
-        $conn->close();
+        $conn->end("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " . strlen($response) . "\r\n\r\n" . $response);
     }
+
+    // ── Browser WebSocket (frontend /ws/events) ─────────────────────────
+
+    /**
+     * Set up a browser WebSocket connection (subscribes to real-time events).
+     */
+    private function setupBrowserConnection(int $connId, ConnectionInterface $conn): void
+    {
+        $closeFrameChecker = new CloseFrameChecker();
+        $messageBuffer = new MessageBuffer(
+            $closeFrameChecker,
+            function (MessageInterface $message) use ($connId): void {
+                $this->handleBrowserMessage($connId, (string)$message);
+            },
+            function (FrameInterface $frame) use ($connId, $conn): void {
+                if ($frame->getOpcode() === Frame::OP_PING) {
+                    $pong = new Frame($frame->getPayload(), true, Frame::OP_PONG);
+                    $conn->write($pong->getContents());
+                } elseif ($frame->getOpcode() === Frame::OP_CLOSE) {
+                    $this->closeBrowserConnection($connId);
+                    $conn->close();
+                }
+            },
+            true,
+        );
+
+        $this->browserConnections[$connId] = [
+            'conn' => $conn,
+            'buffer' => $messageBuffer,
+            'authenticated' => false,
+        ];
+
+        $conn->on('data', function (string $data) use ($messageBuffer): void {
+            $messageBuffer->onData($data);
+        });
+
+        $conn->on('close', function () use ($connId): void {
+            $this->closeBrowserConnection($connId);
+        });
+
+        $conn->on('error', function (Exception $e) use ($connId): void {
+            $this->logger->error('Browser connection error', ['id' => $connId, 'error' => $e->getMessage()]);
+            $this->closeBrowserConnection($connId);
+        });
+    }
+
+    private function handleBrowserMessage(int $connId, string $payload): void
+    {
+        $data = json_decode($payload, true);
+        if (!$data || !isset($data['type'])) {
+            return;
+        }
+
+        if ($data['type'] === 'browser.auth') {
+            $this->handleBrowserAuth($connId, $data['data'] ?? []);
+
+            return;
+        }
+
+        // Ignore all other messages from unauthenticated browsers
+        if (!($this->browserConnections[$connId]['authenticated'] ?? false)) {
+            return;
+        }
+
+        // Authenticated browsers can send ping-like messages — just ignore them
+    }
+
+    private function handleBrowserAuth(int $connId, array $data): void
+    {
+        $token = $data['token'] ?? '';
+
+        if ($token === '') {
+            $this->closeBrowserConnection($connId);
+
+            return;
+        }
+
+        try {
+            $payload = $this->jwtEncoder->decode($token);
+        } catch (JWTDecodeFailureException $e) {
+            $this->logger->warning('Browser auth failed — invalid JWT', ['id' => $connId]);
+            $this->sendToBrowser($connId, ['type' => 'browser.rejected', 'data' => ['reason' => 'invalid_token']]);
+            $this->closeBrowserConnection($connId);
+
+            return;
+        }
+
+        if (!is_array($payload)) {
+            $this->closeBrowserConnection($connId);
+
+            return;
+        }
+
+        $this->browserConnections[$connId]['authenticated'] = true;
+        $this->logger->info('Browser client authenticated', ['id' => $connId, 'user' => $payload['username'] ?? $payload['email'] ?? 'unknown']);
+
+        // Build current watcher status list
+        $connectedWatcherIds = array_keys($this->watcherConnections);
+        $this->sendToBrowser($connId, [
+            'type' => 'browser.ready',
+            'data' => ['connected_watcher_ids' => $connectedWatcherIds],
+        ]);
+    }
+
+    /**
+     * Send a JSON payload to a specific browser connection via WebSocket frame.
+     */
+    private function sendToBrowser(int $connId, array $data): void
+    {
+        if (!isset($this->browserConnections[$connId])) {
+            return;
+        }
+
+        $json = json_encode($data);
+        $frame = new Frame($json, true, Frame::OP_TEXT);
+        $this->browserConnections[$connId]['conn']->write($frame->getContents());
+    }
+
+    /**
+     * Broadcast a message to all authenticated browser connections.
+     */
+    public function broadcastToAllBrowsers(string $type, array $data): void
+    {
+        if (empty($this->browserConnections)) {
+            return;
+        }
+
+        $payload = ['type' => $type, 'data' => $data];
+
+        foreach ($this->browserConnections as $connId => $browserConn) {
+            if ($browserConn['authenticated']) {
+                $this->sendToBrowser($connId, $payload);
+            }
+        }
+    }
+
+    private function closeBrowserConnection(int $connId): void
+    {
+        if (isset($this->browserConnections[$connId])) {
+            $this->logger->debug('Browser connection closed', ['id' => $connId]);
+            unset($this->browserConnections[$connId]);
+        }
+    }
+
+    // ── Watcher WebSocket (Go binary /ws/watcher) ───────────────────────
 
     private function setupWebSocketConnection(int $connId, ConnectionInterface $conn): void
     {
@@ -251,6 +415,7 @@ class WatcherWebSocketServer
             'buffer' => $messageBuffer,
             'authenticated' => false,
             'watcherId' => null,
+            'watcherDbId' => null,
         ];
 
         $conn->on('data', function (string $data) use ($messageBuffer): void {
@@ -359,7 +524,7 @@ class WatcherWebSocketServer
 
         // Delegate to message processor
         try {
-            $this->messageProcessor->process($data);
+            $this->messageDispatcher->dispatch($data);
         } catch (Throwable $e) {
             $this->logger->error('Message processing error', [
                 'type' => $data['type'],
@@ -385,7 +550,7 @@ class WatcherWebSocketServer
         }
 
         try {
-            $watcher = $this->messageProcessor->findOrCreateWatcher($watcherId, $hostname, $version);
+            $watcher = $this->lifecycleService->findOrCreateWatcher($watcherId, $hostname, $version);
         } catch (Throwable $e) {
             $this->logger->error('Failed to find/create watcher', [
                 'id' => $connId,
@@ -439,7 +604,7 @@ class WatcherWebSocketServer
         }
 
         try {
-            $watcher = $this->messageProcessor->authenticateWatcher($token);
+            $watcher = $this->lifecycleService->authenticateWatcher($token);
         } catch (Throwable $e) {
             $this->logger->error('Auth error', ['id' => $connId, 'error' => $e->getMessage()]);
             $this->closeConnection($connId);
@@ -456,8 +621,11 @@ class WatcherWebSocketServer
         }
 
         $watcherId = $watcher->getWatcherId();
+        $watcherDbId = (string)$watcher->getId();
+
         $this->connections[$connId]['authenticated'] = true;
         $this->connections[$connId]['watcherId'] = $watcherId;
+        $this->connections[$connId]['watcherDbId'] = $watcherDbId;
         $this->watcherConnections[$watcherId] = $connId;
 
         $this->logger->info('Watcher authenticated', ['watcher_id' => $watcherId, 'id' => $connId]);
@@ -465,11 +633,19 @@ class WatcherWebSocketServer
         // Send current config — transform watch_paths from [{path, name}] to flat string array for the Go watcher
         $config = $watcher->getConfig();
         $config['watch_paths'] = array_values(array_filter(array_map(
-            static fn($wp) => is_array($wp) ? ($wp['path'] ?? '') : (string)$wp,
-            $config['watch_paths'] ?? []
+            static fn ($wp) => is_array($wp) ? ($wp['path'] ?? '') : (string)$wp,
+            $config['watch_paths'] ?? [],
         )));
         $configPayload = array_merge($config, ['config_hash' => $watcher->getConfigHash()]);
         $this->sendToConnection($connId, ['type' => 'watcher.config', 'data' => $configPayload]);
+
+        // Broadcast watcher status to all browser clients
+        $this->broadcastToAllBrowsers('watcher.status_changed', [
+            'id' => $watcherDbId,
+            'watcher_id' => $watcherId,
+            'status' => 'connected',
+            'last_seen_at' => (new DateTimeImmutable())->format(DateTimeImmutable::ATOM),
+        ]);
 
         // Resend pending deletions on reconnect
         $this->processPendingDeletionsOnReconnect($connId);
@@ -482,7 +658,7 @@ class WatcherWebSocketServer
     private function processPendingDeletionsOnReconnect(int $connId): void
     {
         try {
-            $pendingCommands = $this->messageProcessor->getPendingDeletionCommands();
+            $pendingCommands = $this->lifecycleService->getPendingDeletionCommands();
             foreach ($pendingCommands as $command) {
                 $this->sendToConnection($connId, $command);
             }
@@ -501,6 +677,7 @@ class WatcherWebSocketServer
     private function handleClose(int $connId): void
     {
         $watcherId = $this->connections[$connId]['watcherId'] ?? null;
+        $watcherDbId = $this->connections[$connId]['watcherDbId'] ?? null;
 
         $this->logger->info('Connection closed', ['id' => $connId, 'watcher_id' => $watcherId]);
 
@@ -514,11 +691,21 @@ class WatcherWebSocketServer
 
             // Update watcher status in DB
             try {
-                $this->messageProcessor->handleWatcherDisconnect($watcherId);
+                $this->lifecycleService->handleWatcherDisconnect($watcherId);
             } catch (Throwable $e) {
                 $this->logger->error('Failed to update watcher status on disconnect', [
                     'watcher_id' => $watcherId,
                     'error' => $e->getMessage(),
+                ]);
+            }
+
+            // Broadcast disconnection to all browser clients
+            if ($watcherDbId !== null) {
+                $this->broadcastToAllBrowsers('watcher.status_changed', [
+                    'id' => $watcherDbId,
+                    'watcher_id' => $watcherId,
+                    'status' => 'disconnected',
+                    'last_seen_at' => (new DateTimeImmutable())->format(DateTimeImmutable::ATOM),
                 ]);
             }
         }

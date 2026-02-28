@@ -1,24 +1,35 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
 use App\Entity\MediaFile;
 use App\Entity\Movie;
+use App\Entity\ScheduledDeletion;
+use App\Entity\ScheduledDeletionItem;
 use App\Entity\TorrentStat;
 use App\Entity\TrackerRule;
+use App\Entity\User;
 use App\Enum\TorrentStatus;
+use App\Repository\MediaFileRepository;
 use App\Repository\MovieRepository;
 use App\Repository\TorrentStatRepository;
 use App\Repository\TrackerRuleRepository;
 use App\Repository\VolumeRepository;
+use DateTime;
+use Doctrine\ORM\EntityManagerInterface;
 
-class SuggestionService
+final class SuggestionService
 {
     public function __construct(
         private readonly MovieRepository $movieRepository,
         private readonly TorrentStatRepository $torrentStatRepository,
         private readonly TrackerRuleRepository $trackerRuleRepository,
         private readonly VolumeRepository $volumeRepository,
+        private readonly EntityManagerInterface $em,
+        private readonly DeletionService $deletionService,
+        private readonly MediaFileRepository $mediaFileRepository,
     ) {
     }
 
@@ -37,13 +48,11 @@ class SuggestionService
         $page = max(1, (int)($filters['page'] ?? 1));
         $perPage = min(100, max(1, (int)($filters['per_page'] ?? 50)));
 
-        // Load all tracker rules indexed by domain for fast lookup
         $trackerRules = [];
         foreach ($this->trackerRuleRepository->findAllOrderedByDomain() as $rule) {
             $trackerRules[$rule->getTrackerDomain()] = $rule;
         }
 
-        // Load all movies with their files
         $allMovies = $this->movieRepository->findAll();
 
         $suggestions = [];
@@ -58,7 +67,6 @@ class SuggestionService
 
             $totalSelectableSize += $item['total_file_size_bytes'];
 
-            // Collect tracker domains
             foreach ($item['files'] as $file) {
                 foreach ($file['torrents'] as $torrent) {
                     if ($torrent['tracker_domain'] !== null) {
@@ -70,7 +78,6 @@ class SuggestionService
             $suggestions[] = $item;
         }
 
-        // Paginate
         $total = count($suggestions);
         $totalPages = max(1, (int)ceil($total / $perPage));
         $offset = ($page - 1) * $perPage;
@@ -87,7 +94,6 @@ class SuggestionService
             ],
         ];
 
-        // Add volume space info if volume_id filter is used
         if ($volumeId !== null) {
             $volume = $this->volumeRepository->find($volumeId);
             if ($volume !== null) {
@@ -100,10 +106,119 @@ class SuggestionService
             }
         }
 
+        return ['data' => $paginatedData, 'meta' => $meta];
+    }
+
+    /**
+     * Batch delete movies immediately.
+     *
+     * @param array<int, array<string, mixed>> $items
+     * @param array<string, mixed> $options
+     *
+     * @return array{result: string, deletion_id?: string, status?: string, items_count?: int, message?: string}
+     */
+    public function batchDelete(array $items, array $options, User $user): array
+    {
+        if ($items === []) {
+            return ['result' => 'empty_items'];
+        }
+
+        $deletion = new ScheduledDeletion();
+        $deletion->setCreatedBy($user);
+        $deletion->setScheduledDate(new DateTime('today'));
+        $deletion->setDeletePhysicalFiles(true);
+        $deletion->setDeleteRadarrReference((bool)($options['delete_radarr_reference'] ?? false));
+        $deletion->setDisableRadarrAutoSearch((bool)($options['disable_radarr_auto_search'] ?? true));
+
+        $itemsCount = $this->addItemsToDeletion($deletion, $items);
+        if ($itemsCount === 0) {
+            return ['result' => 'no_valid_items'];
+        }
+
+        $this->em->persist($deletion);
+        $this->em->flush();
+
+        $this->deletionService->executeDeletion($deletion);
+
         return [
-            'data' => $paginatedData,
-            'meta' => $meta,
+            'result' => 'ok',
+            'deletion_id' => (string)$deletion->getId(),
+            'status' => $deletion->getStatus()->value,
+            'items_count' => $itemsCount,
         ];
+    }
+
+    /**
+     * Batch schedule movies for future deletion.
+     *
+     * @param array<int, array<string, mixed>> $items
+     * @param array<string, mixed> $options
+     *
+     * @return array{result: string, deletion_id?: string, scheduled_date?: string, status?: string, items_count?: int}
+     */
+    public function batchSchedule(string $scheduledDate, array $items, array $options, User $user): array
+    {
+        if ($items === []) {
+            return ['result' => 'empty_items'];
+        }
+
+        $date = new DateTime($scheduledDate);
+        $today = new DateTime('today');
+        if ($date < $today) {
+            return ['result' => 'past_date'];
+        }
+
+        $deletion = new ScheduledDeletion();
+        $deletion->setCreatedBy($user);
+        $deletion->setScheduledDate($date);
+        $deletion->setDeletePhysicalFiles(true);
+        $deletion->setDeleteRadarrReference((bool)($options['delete_radarr_reference'] ?? false));
+        $deletion->setDisableRadarrAutoSearch((bool)($options['disable_radarr_auto_search'] ?? true));
+
+        $itemsCount = $this->addItemsToDeletion($deletion, $items);
+        if ($itemsCount === 0) {
+            return ['result' => 'no_valid_items'];
+        }
+
+        $this->em->persist($deletion);
+        $this->em->flush();
+
+        return [
+            'result' => 'ok',
+            'deletion_id' => (string)$deletion->getId(),
+            'scheduled_date' => $deletion->getScheduledDate()->format('Y-m-d'),
+            'status' => $deletion->getStatus()->value,
+            'items_count' => $itemsCount,
+        ];
+    }
+
+    /**
+     * Add items to a ScheduledDeletion. Returns count of valid items added.
+     *
+     * @param array<int, array<string, mixed>> $items
+     */
+    private function addItemsToDeletion(ScheduledDeletion $deletion, array $items): int
+    {
+        $count = 0;
+        foreach ($items as $itemData) {
+            $movieId = $itemData['movie_id'] ?? null;
+            if (!$movieId) {
+                continue;
+            }
+
+            $movie = $this->movieRepository->find($movieId);
+            if (!$movie instanceof Movie) {
+                continue;
+            }
+
+            $item = new ScheduledDeletionItem();
+            $item->setMovie($movie);
+            $item->setMediaFileIds($itemData['file_ids'] ?? []);
+            $deletion->addItem($item);
+            ++$count;
+        }
+
+        return $count;
     }
 
     /**
@@ -131,7 +246,6 @@ class SuggestionService
 
         $filesData = [];
         $totalFileSize = 0;
-        $allTorrentStats = [];
 
         foreach ($movieFiles as $mf) {
             $mediaFile = $mf->getMediaFile();
@@ -148,8 +262,6 @@ class SuggestionService
             }
 
             $torrents = $this->getFileTorrents($mediaFile);
-            $allTorrentStats = array_merge($allTorrentStats, $torrents);
-
             $fileSeedingStatus = $this->calculateSeedingStatus($torrents);
             $trackerCheck = $this->isBlockedByTrackerRules($torrents, $trackerRules);
             $realFreedBytes = $this->calculateRealFreedBytes($mediaFile);
@@ -160,6 +272,8 @@ class SuggestionService
                 'file_path' => $mediaFile->getFilePath(),
                 'file_size_bytes' => $mediaFile->getFileSizeBytes(),
                 'hardlink_count' => $mediaFile->getHardlinkCount(),
+                'inode' => $mediaFile->getInode(),
+                'device_id' => $mediaFile->getDeviceId(),
                 'real_freed_bytes' => $realFreedBytes,
                 'volume_id' => (string)$mediaFile->getVolume()?->getId(),
                 'volume_name' => $mediaFile->getVolume()?->getName(),
@@ -181,10 +295,8 @@ class SuggestionService
             return null;
         }
 
-        // Calculate movie-level seeding status
         $movieSeedingStatus = $this->calculateMovieSeedingStatus($filesData);
 
-        // Filter by seeding_status
         if ($seedingStatus === 'orphans_only' && $movieSeedingStatus !== 'orphan') {
             return null;
         }
@@ -192,7 +304,6 @@ class SuggestionService
             return null;
         }
 
-        // Calculate aggregate stats
         $bestRatio = null;
         $worstRatio = null;
         $maxSeedTime = 0;
@@ -240,28 +351,13 @@ class SuggestionService
         ];
     }
 
-    /**
-     * Get serialized torrent stats for a media file.
-     *
-     * @return array<int, array<string, mixed>>
-     */
+    /** @return array<int, array<string, mixed>> */
     private function getFileTorrents(MediaFile $file): array
     {
-        $stats = $this->torrentStatRepository->findByMediaFile($file);
-        $torrents = [];
-
-        foreach ($stats as $stat) {
-            $torrents[] = $this->serializeTorrentStat($stat);
-        }
-
-        return $torrents;
+        return array_map($this->serializeTorrentStat(...), $this->torrentStatRepository->findByMediaFile($file));
     }
 
-    /**
-     * Serialize a single TorrentStat.
-     *
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     private function serializeTorrentStat(TorrentStat $stat): array
     {
         return [
@@ -279,9 +375,6 @@ class SuggestionService
         ];
     }
 
-    /**
-     * Calculate seeding status from a file's torrents.
-     */
     private function calculateSeedingStatus(array $torrents): string
     {
         if ($torrents === []) {
@@ -311,23 +404,14 @@ class SuggestionService
         return 'completed';
     }
 
-    /**
-     * Calculate movie-level seeding status from all files.
-     */
     private function calculateMovieSeedingStatus(array $filesData): string
     {
         $statuses = array_unique(array_column($filesData, 'seeding_status'));
 
-        if (count($statuses) === 1) {
-            return $statuses[0];
-        }
-
-        return 'mixed';
+        return count($statuses) === 1 ? $statuses[0] : 'mixed';
     }
 
     /**
-     * Check if any torrent is blocked by tracker rules.
-     *
      * @param array<int, array<string, mixed>> $torrents
      * @param array<string, TrackerRule> $trackerRules
      *
@@ -344,37 +428,39 @@ class SuggestionService
             $rule = $trackerRules[$domain];
             $ratio = $torrent['ratio'];
             $seedTimeHours = $torrent['seed_time_seconds'] / 3600;
-
             $minRatio = (float)$rule->getMinRatio();
             $minSeedTimeHours = $rule->getMinSeedTimeHours();
 
             if ($minRatio > 0 && $ratio < $minRatio) {
-                return [
-                    'blocked' => true,
-                    'reason' => sprintf('Ratio %.4f < minimum %.4f for %s', $ratio, $minRatio, $domain),
-                ];
+                return ['blocked' => true, 'reason' => sprintf('Ratio %.4f < minimum %.4f for %s', $ratio, $minRatio, $domain)];
             }
-
             if ($minSeedTimeHours > 0 && $seedTimeHours < $minSeedTimeHours) {
-                return [
-                    'blocked' => true,
-                    'reason' => sprintf('Seed time %.1fh < minimum %dh for %s', $seedTimeHours, $minSeedTimeHours, $domain),
-                ];
+                return ['blocked' => true, 'reason' => sprintf('Seed time %.1fh < minimum %dh for %s', $seedTimeHours, $minSeedTimeHours, $domain)];
             }
         }
 
         return ['blocked' => false, 'reason' => null];
     }
 
-    /**
-     * Calculate real freed bytes considering hardlinks.
-     */
     private function calculateRealFreedBytes(MediaFile $file): int
     {
-        if ($file->getHardlinkCount() > 1) {
+        $nlink = $file->getHardlinkCount();
+
+        if ($nlink <= 1) {
+            return $file->getFileSizeBytes();
+        }
+
+        $deviceId = $file->getDeviceId();
+        $inode = $file->getInode();
+
+        if ($deviceId === null || $inode === null) {
+            // No inode info → pessimistic: assume space is not freed
             return 0;
         }
 
-        return $file->getFileSizeBytes();
+        $knownSiblings = count($this->mediaFileRepository->findAllByInode($deviceId, $inode));
+
+        // If Scanarr knows at least as many paths as nlink, deleting all of them frees the space.
+        return $knownSiblings >= $nlink ? $file->getFileSizeBytes() : 0;
     }
 }

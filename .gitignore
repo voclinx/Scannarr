@@ -26,6 +26,9 @@ Thumbs.db
 *:Zone.Identifier
 *Zone.Identifier
 
+# Chemins Windows accidentels
+api/C:/
+
 # Docker
 db_data/
 

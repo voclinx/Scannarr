@@ -1,7 +1,7 @@
 # Scanarr — Base de données PostgreSQL
 
 > **Prérequis** : Aucun
-> **Version** : V1.2.1 (tables V1.5 dans QBIT_STATS_AND_SCORING.md et CROSS_SEED.md)
+> **Version** : V1.5.1 (ajout inode/device_id — tables V1.5 dans QBIT_STATS_AND_SCORING.md et CROSS_SEED.md)
 
 ---
 
@@ -78,6 +78,10 @@ CREATE TABLE media_files (
     is_linked_media_player BOOLEAN NOT NULL DEFAULT false,
     radarr_instance_id UUID REFERENCES radarr_instances(id) ON DELETE SET NULL,
     file_hash VARCHAR(64),                     -- SHA-256 optionnel pour cross-seed futur
+    partial_hash VARCHAR(128),                 -- hash partiel (premiers + derniers octets) pour matching rapide
+    inode BIGINT,                              -- numéro inode filesystem (remonté par le watcher)
+    device_id BIGINT,                          -- identifiant device filesystem / st_dev (remonté par le watcher)
+    is_protected BOOLEAN NOT NULL DEFAULT false,
     detected_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(volume_id, file_path)
@@ -86,7 +90,18 @@ CREATE TABLE media_files (
 CREATE INDEX idx_media_files_volume ON media_files(volume_id);
 CREATE INDEX idx_media_files_radarr ON media_files(is_linked_radarr);
 CREATE INDEX idx_media_files_name ON media_files(file_name);
+CREATE INDEX idx_media_files_partial_hash ON media_files(partial_hash);
+CREATE INDEX idx_media_files_inode ON media_files(device_id, inode);
 ```
+
+> **Colonnes inode (V1.5.1)** : Le couple `(device_id, inode)` identifie un fichier physique de manière unique sur un filesystem. Deux filesystems différents (ex: `/dev/sda1` et `/dev/sdb1`) peuvent avoir le même numéro d'inode — d'où la nécessité du `device_id`. Ces colonnes sont nullable car les fichiers existants avant l'ajout de cette fonctionnalité n'ont pas encore été re-scannés. Après un re-scan complet, tous les fichiers actifs ont un inode renseigné.
+>
+> **Méthodes repository** :
+> - `findByInode(deviceId, inode)` : retourne le premier `MediaFile` correspondant
+> - `findAllByInode(deviceId, inode)` : retourne **tous** les `MediaFile` partageant le même inode (= hardlinks connus)
+> - `findSiblingsByInode(file)` : comme `findAllByInode` mais exclut le fichier passé en paramètre
+>
+> **Usage clé** : `DeletionService::executeDeletion()` utilise `findAllByInode()` pour collecter automatiquement tous les hardlinks connus d'un fichier avant envoi au watcher, garantissant la libération effective de l'espace disque.
 
 #### `movies`
 
@@ -107,6 +122,7 @@ CREATE TABLE movies (
     radarr_instance_id UUID REFERENCES radarr_instances(id) ON DELETE SET NULL,
     radarr_monitored BOOLEAN DEFAULT true,
     radarr_has_file BOOLEAN DEFAULT false,
+    is_protected BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -208,6 +224,8 @@ La corrélation async avec le watcher se fait via `deletion_id` (= `ScheduledDel
 
 > **Note** : Le champ `request_id` est également envoyé au watcher pour traçabilité dans les logs, mais la corrélation BDD se fait uniquement via `deletion_id`.
 
+> **Note V1.5.1 — Collecte inode** : `DeletionService::executeDeletion()` enrichit automatiquement la liste de fichiers à supprimer avec les siblings inode. Pour chaque fichier explicitement sélectionné, l'API appelle `findAllByInode(device_id, inode)` et ajoute tous les hardlinks connus à la commande `command.files.delete`. Les doublons sont éliminés via un set de `seenFileIds`. Cela garantit que tous les hardlinks connus sont supprimés ensemble → libération effective de l'espace disque.
+
 #### `settings`
 
 ```sql
@@ -254,4 +272,3 @@ CREATE INDEX idx_activity_logs_created ON activity_logs(created_at DESC);
 ```
 
 ---
-

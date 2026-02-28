@@ -1,7 +1,10 @@
 <?php
 
-namespace App\Service;
+declare(strict_types=1);
 
+namespace App\ExternalService\TorrentClient;
+
+use App\Contract\TorrentClient\TorrentClientInterface;
 use App\Repository\SettingRepository;
 use JsonException;
 use Psr\Log\LoggerInterface;
@@ -9,7 +12,7 @@ use RuntimeException;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Throwable;
 
-class QBittorrentService
+class QBittorrentService implements TorrentClientInterface
 {
     private ?string $cachedSid = null;
     private ?float $sidExpiry = null;

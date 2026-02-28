@@ -101,16 +101,12 @@ func (d *Deleter) deleteFile(file models.FileDeleteRequest) models.FilesDeleteRe
 		result.SizeBytes = info.Size()
 	}
 
-	// Delete the file
+	// Delete the file (os.IsNotExist = file already gone = success)
 	if err := os.Remove(absolutePath); err != nil && !os.IsNotExist(err) {
 		result.Status = "failed"
 		result.Error = err.Error()
 		slog.Error("Failed to delete file", "path", absolutePath, "error", err)
 		return result
-	}
-
-	if os.IsNotExist(nil) {
-		// This won't execute, but for clarity: os.IsNotExist means file was already gone = success
 	}
 
 	slog.Info("File deleted", "path", absolutePath)

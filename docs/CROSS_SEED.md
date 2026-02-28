@@ -1,7 +1,7 @@
 # Scanarr — Gestion du Cross-Seed
 
 > **Prérequis** : [QBIT_STATS_AND_SCORING.md](QBIT_STATS_AND_SCORING.md), [PATH_MAPPING.md](PATH_MAPPING.md)
-> **Version** : V1.5
+> **Version** : V2.0
 
 ---
 
@@ -12,10 +12,12 @@ Le cross-seed permet de partager un même fichier sur plusieurs trackers. Un mê
 ### 1.1 Setup typique
 
 ```
-Fichier physique (1 seul inode) :
+Fichier physique (1 seul inode 12345) :
   /mnt/user/data/torrents/movies/Inception.2010.2160p.mkv
+  /mnt/user/data/links/movies/Inception.2010.2160p.mkv     ← hardlink cross-seed
+  /mnt/user/data/media/movies/Inception/Inception.mkv       ← hardlink media
 
-3 torrents dans qBittorrent, même fichier :
+3 torrents dans qBittorrent, même fichier physique :
   hash: abc123 → tracker-a.com  (ratio: 0.8, seed 6 mois)
   hash: def456 → tracker-b.org  (ratio: 1.5, seed 3 mois)
   hash: ghi789 → tracker-c.net  (ratio: 0.3, seed 1 mois)
@@ -29,100 +31,46 @@ Fichier physique (1 seul inode) :
 
 ---
 
-## 2. Groupement des torrents cross-seed
+## 2. Détection du cross-seed (V2.0 — inode-based)
 
-### 2.1 Stratégie : matching par `content_path` qBit → media_file → partial_hash
+### 2.1 Détection implicite par inode
 
-Le matching torrent → fichier se fait dans le sync qBit (voir [QBIT_STATS_AND_SCORING.md](QBIT_STATS_AND_SCORING.md) §3.2). Une fois les torrents liés aux `media_files`, le groupement cross-seed est implicite : **tous les `torrent_stats` liés au même `media_file_id` forment un groupe cross-seed**.
+En V2.0, le cross-seed est détecté **automatiquement** sans aucun calcul supplémentaire :
 
-Mais pour les fichiers cross-seed dans un répertoire séparé (pas dans `/data/torrents/` standard), le matching par path peut échouer. C'est là que le `partial_hash` intervient.
-
-### 2.2 Partial hash
-
-**Calcul** : SHA-256 des premiers 1 MB + derniers 1 MB du fichier.
-
-```go
-// watcher/internal/scanner/scanner.go
-
-func calculatePartialHash(filePath string) (string, error) {
-    f, err := os.Open(filePath)
-    if err != nil {
-        return "", err
-    }
-    defer f.Close()
-
-    stat, err := f.Stat()
-    if err != nil {
-        return "", err
-    }
-
-    h := sha256.New()
-
-    // Premiers 1 MB
-    buf := make([]byte, 1024*1024)
-    n, err := f.Read(buf)
-    if err != nil && err != io.EOF {
-        return "", err
-    }
-    h.Write(buf[:n])
-
-    // Derniers 1 MB (si fichier > 2 MB)
-    if stat.Size() > 2*1024*1024 {
-        _, err = f.Seek(-1024*1024, io.SeekEnd)
-        if err != nil {
-            return "", err
-        }
-        n, err = f.Read(buf)
-        if err != nil && err != io.EOF {
-            return "", err
-        }
-        h.Write(buf[:n])
-    }
-
-    return hex.EncodeToString(h.Sum(nil)), nil
-}
-```
-
-**Quand** : calculé par le watcher lors de chaque scan. Envoyé dans le message `scan.file` et stocké dans `media_files.partial_hash`.
-
-**Usage** : deux `media_files` avec le même `partial_hash` + même `file_size_bytes` = même fichier physique (même inode ou copie identique).
-
-### 2.3 Groupement cross-seed via partial_hash
-
-Le sync qBit, après avoir matché un torrent à un `media_file`, vérifie s'il existe d'autres `media_files` avec le même `partial_hash`. Si oui, le torrent est aussi lié à ces fichiers (même contenu physique, potentiellement sur des chemins différents).
-
-```php
-// QBittorrentSyncService.php — après matching torrent → media_file
-
-$matchedFile = $this->findMediaFileForTorrent($torrent);
-if ($matchedFile === null) return;
-
-// Chercher les cross-seed : mêmes fichiers physiques sur d'autres chemins
-$crossSeedFiles = $this->mediaFileRepository->findBy([
-    'partial_hash' => $matchedFile->getPartialHash(),
-    'file_size_bytes' => $matchedFile->getFileSizeBytes(),
-]);
-
-// Le torrent_stats est lié au media_file principal
-// Les autres media_files (cross-seed) partagent le même partial_hash
-// → l'UI peut grouper via partial_hash
-```
-
-### 2.4 Résumé du flow
+- Le watcher scanne **tous les volumes** (media/, torrents/, links/)
+- Tous les hardlinks d'un fichier partagent le même inode
+- L'API regroupe par `(device_id, inode)` → un seul `media_file` avec N `file_paths`
+- Tous les `torrent_stats` matchés à ce `media_file` forment le groupe cross-seed
 
 ```
-Sync qBit
+media_file (inode: 12345, device_id: 2049)
+  ├── file_paths:
+  │     ├── /torrents/movies/Inception.2010.2160p.mkv
+  │     ├── /links/movies/Inception.2010.2160p.mkv
+  │     └── /media/movies/Inception/Inception.mkv
   │
-  ├── Pour chaque torrent dans qBit :
-  │   ├── Match torrent → media_file (hash Radarr ou content_path)
-  │   ├── Créer/MAJ torrent_stats (lié au media_file)
-  │   └── Auto-détecter tracker
-  │
-  └── Résultat en BDD :
-      media_file (partial_hash: "x7f...")
-        ├── torrent_stats (hash: abc123, tracker-a.com, ratio: 0.8)
-        ├── torrent_stats (hash: def456, tracker-b.org, ratio: 1.5)
-        └── torrent_stats (hash: ghi789, tracker-c.net, ratio: 0.3)
+  └── torrent_stats:
+        ├── hash: abc123 → tracker-a.com (ratio: 0.8)
+        ├── hash: def456 → tracker-b.org (ratio: 1.5)
+        └── hash: ghi789 → tracker-c.net (ratio: 0.3)
+```
+
+### 2.2 Ce qui est éliminé
+
+| V1.x | V2.0 |
+|------|------|
+| `partial_hash` (SHA-256 premiers 1MB + derniers 1MB) | Plus nécessaire — l'inode suffit |
+| Calcul I/O intensif par le watcher à chaque scan | Aucun I/O supplémentaire (inode = métadonnée stat()) |
+| Groupement explicite par `partial_hash` + `file_size_bytes` | Groupement implicite par `media_file_id` |
+
+### 2.3 Nombre de trackers
+
+Le nombre de trackers d'un fichier = nombre de `torrent_stats` liés au même `media_file_id` :
+
+```sql
+SELECT COUNT(DISTINCT tracker_domain)
+FROM torrent_stats
+WHERE media_file_id = :id AND match_status = 'matched'
 ```
 
 ---
@@ -147,15 +95,13 @@ Un fichier sur 3 trackers : `score += -15 * 2 = -30`. Ça protège fortement les
 
 ### 3.2 Agrégat cross-seed
 
-Pour l'affichage et la prise de décision, les stats agrégées d'un fichier cross-seedé sont :
-
 | Métrique | Calcul | Justification |
 |----------|--------|---------------|
 | Upload cumulé | Somme des `uploaded_bytes` de tous les torrents | Vraie contribution totale |
 | Nombre de trackers | Count des `torrent_stats` distincts | Indicateur de valeur |
 | Meilleur ratio | Max des `ratio` | Le fichier a de la valeur quelque part |
 | Pire ratio | Min des `ratio` | Pour identifier les trackers sous-performants |
-| Seed time | **Par tracker uniquement**, jamais cumulé | Non additif — 12 mois sur un tracker mort ≠ valeur |
+| Seed time | **Par tracker uniquement**, jamais cumulé | Non additif |
 
 > **Important** : Le seed time n'est JAMAIS cumulé entre trackers. C'est une donnée par tracker, utilisée individuellement pour les règles tracker et l'affichage détaillé.
 
@@ -166,7 +112,7 @@ Pour l'affichage et la prise de décision, les stats agrégées d'un fichier cro
 Quand un fichier est cross-seedé sur N trackers, les règles tracker de **chacun** des N trackers doivent être satisfaites pour permettre la suppression :
 
 ```
-Fichier: Inception.mkv
+Fichier: Inception.mkv (media_file, inode 12345)
   tracker-a.com : seed 48h requis, actuellement 72h → ✅
   tracker-b.org : seed 24h requis, actuellement 12h → ❌ BLOQUÉ
   tracker-c.net : pas de règle → ✅
@@ -174,18 +120,17 @@ Fichier: Inception.mkv
 Résultat : fichier BLOQUÉ (tracker-b.org non satisfait)
 ```
 
-La suppression d'un fichier cross-seedé impacte le seeding sur **tous** les trackers. On ne peut pas supprimer sélectivement le seeding sur un tracker — soit le fichier existe, soit il n'existe pas.
-
 ---
 
 ## 5. Impact sur la suppression
 
 Quand un fichier cross-seedé est supprimé :
 
-1. **Tous les hardlinks** du fichier sont supprimés (media/ + torrents/ + cross-seed/)
-2. **Tous les torrents** liés sont supprimés de qBit (`POST /api/v2/torrents/delete` pour chaque hash)
-3. Les `torrent_stats` correspondants sont marqués `status = 'removed'`
-4. Les `media_files` correspondants (même `partial_hash`) sont supprimés de la BDD
+1. **Tous les `file_paths`** du `media_file` sont collectés et envoyés au watcher
+2. Le watcher supprime chaque chemin physiquement
+3. **Tous les torrents** liés sont supprimés de qBit (`POST /api/v2/torrents/delete` pour chaque hash)
+4. Les `torrent_stats` correspondants sont marqués `status = 'removed'`
+5. Le `media_file` et ses `file_paths` sont supprimés de la BDD
 
 ---
 
@@ -204,7 +149,7 @@ Section dédiée par fichier :
 ```
 ┌─────────────────────────────────────────────────────┐
 │ Inception.2010.2160p.BluRay.x265.mkv                │
-│ 52 GB │ 2160p │ x265 │ 2 hardlinks │ CS: 3 trackers│
+│ 52 GB │ 2160p │ x265 │ 3 chemins │ CS: 3 trackers  │
 │─────────────────────────────────────────────────────│
 │ Tracker          │ Ratio │ Seed time │ Upload │ Status│
 │──────────────────┼───────┼───────────┼────────┼───────│
@@ -213,7 +158,12 @@ Section dédiée par fichier :
 │ tracker-c.net    │  0.31 │ 1 mois    │ 16 GB  │ 🟢   │
 │──────────────────┼───────┼───────────┼────────┼───────│
 │ Cumulé           │       │           │ 136 GB │       │
-└─────────────────────────────────────────────────────┘
+│                                                       │
+│ 📂 Chemins connus (3/3 hardlinks) :                   │
+│  • /media/movies/Inception/Inception.mkv              │
+│  • /torrents/movies/Inception.2010.2160p.mkv          │
+│  • /links/movies/Inception.2010.2160p.mkv             │
+└───────────────────────────────────────────────────────┘
 ```
 
 ### 6.3 Page suggestions

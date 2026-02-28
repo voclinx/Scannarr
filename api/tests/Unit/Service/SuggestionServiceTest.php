@@ -9,13 +9,16 @@ use App\Entity\TorrentStat;
 use App\Entity\TrackerRule;
 use App\Entity\Volume;
 use App\Enum\TorrentStatus;
+use App\Repository\MediaFileRepository;
 use App\Repository\MovieRepository;
 use App\Repository\TorrentStatRepository;
 use App\Repository\TrackerRuleRepository;
 use App\Repository\VolumeRepository;
+use App\Service\DeletionService;
 use App\Service\SuggestionService;
 use DateTimeImmutable;
 use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\MockObject\Stub;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Uid\Uuid;
@@ -40,6 +43,9 @@ class SuggestionServiceTest extends TestCase
             $this->torrentStatRepository,
             $this->trackerRuleRepository,
             $this->volumeRepository,
+            $this->createStub(EntityManagerInterface::class),
+            $this->createStub(DeletionService::class),
+            $this->createStub(MediaFileRepository::class),
         );
     }
 

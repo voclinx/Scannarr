@@ -55,9 +55,9 @@ func (s *Scanner) Scan(path string, scanID string) error {
 			return nil
 		}
 
-		hlCount, hlErr := hardlink.Count(filePath)
+		fileInfo, hlErr := hardlink.Info(filePath)
 		if hlErr != nil {
-			hlCount = 1
+			fileInfo = hardlink.FileInfo{Nlink: 1}
 		}
 
 		// Calculate partial hash (graceful failure)
@@ -75,7 +75,9 @@ func (s *Scanner) Scan(path string, scanID string) error {
 			Path:          filePath,
 			Name:          info.Name(),
 			SizeBytes:     info.Size(),
-			HardlinkCount: hlCount,
+			HardlinkCount: fileInfo.Nlink,
+			Inode:         fileInfo.Inode,
+			DeviceID:      fileInfo.DeviceID,
 			IsDir:         false,
 			ModTime:       info.ModTime().UTC(),
 			PartialHash:   partialHash,

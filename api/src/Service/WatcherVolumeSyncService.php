@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
 use App\Entity\Volume;
@@ -15,7 +17,7 @@ use Psr\Log\LoggerInterface;
  * match the watcher's watch_paths: creating new ones, renaming changed ones,
  * and deactivating orphaned ones.
  */
-class WatcherVolumeSyncService
+final class WatcherVolumeSyncService
 {
     public function __construct(
         private readonly EntityManagerInterface $em,

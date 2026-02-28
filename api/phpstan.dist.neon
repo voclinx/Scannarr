@@ -1,8 +1,69 @@
+##
+## Scanarr PHPStan configuration — basé sur CODING_STANDARDS.md V2.0
+## Compatible PHPStan 2.x
+##
+## §9.2 Typage : pas de `mixed`, return types obligatoires, tout est typé.
+## §9.1 PHP strict : declare(strict_types=1) partout.
+##
+## Extensions installées (composer require-dev) :
+##   phpstan/phpstan-symfony  → analyse le container Symfony, services tagués
+##   phpstan/phpstan-doctrine → analyse les entités, repositories, DQL
+##
+
+includes:
+    ## Extensions Symfony et Doctrine.
+    ## phpstan-symfony analyse le container DI, services tagués, routes.
+    ## phpstan-doctrine analyse les entités, repositories, DQL, associations.
+    - vendor/phpstan/phpstan-symfony/extension.neon
+    - vendor/phpstan/phpstan-doctrine/extension.neon
+
 parameters:
-    level: 6
+
+    ##
+    ## Niveau 8 — §9.2 Typage strict.
+    ##
+    ## Niveau 6 : return statements manquants, PHPDocs non résolvables
+    ## Niveau 7 : conditions toujours vraies/fausses
+    ## Niveau 8 : méthodes qui lancent toujours une exception, implicit mixed interdit
+    ## Niveau 9 : strictest (activer progressivement)
+    ##
+    level: 8
+
     paths:
         - bin/
         - config/
         - public/
         - src/
         - tests/
+
+    ## Alerte si un `ignoreErrors` ne correspond à aucune erreur réelle.
+    ## Garde les suppressions propres et évite le silencing aveugle.
+    reportUnmatchedIgnoredErrors: true
+
+    ## §9.2 — Propriétés d'objet non initialisées dans le constructeur.
+    ## Impose que toutes les propriétés soient assignées dans __construct
+    ## ou déclarées nullable/avec valeur par défaut.
+    checkUninitializedProperties: true
+
+    ## §9.3 — Vérifie que les propriétés readonly ne sont pas réassignées.
+    ## Applicable aux DTOs `final readonly` et aux services `final`.
+    checkDynamicProperties: true
+
+    excludePaths:
+        ## Migrations : code auto-généré par Doctrine, ne pas analyser.
+        - migrations/
+
+        ## Cache Symfony : code généré à runtime, ne pas analyser.
+        - var/
+
+    ## Container XML compilé — requis par phpstan-symfony pour résoudre
+    ## les services, tags, aliases du container Symfony.
+    ## Générer avec : docker exec scanarr-api php bin/console cache:warmup --env=dev
+    symfony:
+        containerXmlPath: var/cache/dev/App_KernelDevDebugContainer.xml
+
+    ## Résolution des métadonnées ORM (entités, custom generators, associations).
+    ## Requis par phpstan-doctrine pour résoudre doctrine.uuid_generator
+    ## et autres service IDs Symfony utilisés comme générateurs d'ID.
+    doctrine:
+        objectManagerLoader: tests/phpstan-doctrine-object-manager.php

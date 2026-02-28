@@ -15,6 +15,8 @@ type FileCreatedData struct {
 	Name          string `json:"name"`
 	SizeBytes     int64  `json:"size_bytes"`
 	HardlinkCount uint64 `json:"hardlink_count"`
+	Inode         uint64 `json:"inode"`
+	DeviceID      uint64 `json:"device_id"`
 	IsDir         bool   `json:"is_dir"`
 	PartialHash   string `json:"partial_hash"`
 }
@@ -32,6 +34,8 @@ type FileRenamedData struct {
 	Name          string `json:"name"`
 	SizeBytes     int64  `json:"size_bytes"`
 	HardlinkCount uint64 `json:"hardlink_count"`
+	Inode         uint64 `json:"inode"`
+	DeviceID      uint64 `json:"device_id"`
 }
 
 // FileModifiedData represents a file.modified event.
@@ -40,6 +44,8 @@ type FileModifiedData struct {
 	Name          string `json:"name"`
 	SizeBytes     int64  `json:"size_bytes"`
 	HardlinkCount uint64 `json:"hardlink_count"`
+	Inode         uint64 `json:"inode"`
+	DeviceID      uint64 `json:"device_id"`
 	PartialHash   string `json:"partial_hash"`
 }
 
@@ -63,6 +69,8 @@ type ScanFileData struct {
 	Name          string    `json:"name"`
 	SizeBytes     int64     `json:"size_bytes"`
 	HardlinkCount uint64    `json:"hardlink_count"`
+	Inode         uint64    `json:"inode"`
+	DeviceID      uint64    `json:"device_id"`
 	IsDir         bool      `json:"is_dir"`
 	ModTime       time.Time `json:"mod_time"`
 	PartialHash   string    `json:"partial_hash"`

@@ -64,14 +64,15 @@ const tabsStubs = {
     template: '<div data-testid="tab-panel" :data-value="value"><slot /></div>',
     props: ['value'],
   },
+  // Settings section components (8 total)
+  WatcherSettings: {
+    template: '<div data-testid="watcher-settings">Watcher Settings Component</div>',
+  },
   RadarrSettings: {
     template: '<div data-testid="radarr-settings">Radarr Settings Component</div>',
   },
   MediaPlayerSettings: {
     template: '<div data-testid="media-player-settings">Media Player Settings</div>',
-  },
-  VolumeSettings: {
-    template: '<div data-testid="volume-settings">Volume Settings</div>',
   },
   TorrentSettings: {
     template: '<div data-testid="torrent-settings">Torrent Settings</div>',
@@ -79,8 +80,14 @@ const tabsStubs = {
   DiscordSettings: {
     template: '<div data-testid="discord-settings">Discord Settings</div>',
   },
+  PresetsSettings: {
+    template: '<div data-testid="presets-settings">Presets Settings</div>',
+  },
+  TrackerRulesSettings: {
+    template: '<div data-testid="tracker-rules-settings">Tracker Rules Settings</div>',
+  },
   GeneralSettings: {
-    template: '<div data-testid="general-settings">General Settings</div>',
+    template: '<div data-testid="general-settings">General Settings (TMDB)</div>',
   },
 }
 
@@ -101,29 +108,34 @@ describe('SettingsView', () => {
     // Verify heading
     expect(wrapper.text()).toContain('Paramètres')
 
-    // Verify all 6 tabs are rendered (Radarr, Lecteurs, Volumes, Torrent, Discord, TMDB)
+    // Verify all 8 tabs are rendered
+    // (Watchers, Radarr, Lecteurs, Torrent, Discord, Presets, Trackers, TMDB)
     const tabs = wrapper.findAll('[role="tab"]')
-    expect(tabs.length).toBe(6)
+    expect(tabs.length).toBe(8)
 
     // Verify tab labels
     const tabLabels = tabs.map((tab) => tab.text().trim())
+    expect(tabLabels).toContain('Watchers')
     expect(tabLabels).toContain('Radarr')
     expect(tabLabels).toContain('Lecteurs')
-    expect(tabLabels).toContain('Volumes')
     expect(tabLabels).toContain('Torrent')
     expect(tabLabels).toContain('Discord')
+    expect(tabLabels).toContain('Presets')
+    expect(tabLabels).toContain('Trackers')
     expect(tabLabels).toContain('TMDB')
 
     // Verify all tab panels exist
     const panels = wrapper.findAll('[data-testid="tab-panel"]')
-    expect(panels.length).toBe(6)
+    expect(panels.length).toBe(8)
 
     // Verify each settings component is rendered
+    expect(wrapper.find('[data-testid="watcher-settings"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="radarr-settings"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="media-player-settings"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="volume-settings"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="torrent-settings"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="discord-settings"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="presets-settings"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="tracker-rules-settings"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="general-settings"]').exists()).toBe(true)
   })
 })

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
 use App\Entity\MediaFile;
@@ -10,6 +12,8 @@ use App\Entity\TorrentStatHistory;
 use App\Entity\TrackerRule;
 use App\Entity\Volume;
 use App\Enum\TorrentStatus;
+use App\ExternalService\MediaManager\RadarrService;
+use App\ExternalService\TorrentClient\QBittorrentService;
 use App\Repository\MediaFileRepository;
 use App\Repository\MovieRepository;
 use App\Repository\RadarrInstanceRepository;
@@ -24,7 +28,7 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\Uid\Uuid;
 use Throwable;
 
-class QBittorrentSyncService
+final class QBittorrentSyncService
 {
     private const array MEDIA_EXTENSIONS = ['mkv', 'mp4', 'avi', 'm4v', 'ts', 'wmv'];
 
@@ -247,6 +251,8 @@ class QBittorrentSyncService
         }
 
         // Priority 3: Cross-seed fallback (file size matching)
+        // TODO(RAF_INODES #7): add inode-based matching via FileMatchingService once that
+        // service exists (requires stat() on host paths — not feasible from inside Docker).
         return $this->matchByFileSize($torrent);
     }
 

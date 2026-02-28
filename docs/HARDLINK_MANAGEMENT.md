@@ -1,59 +1,61 @@
 # Scanarr — Gestion des Hardlinks et Remplacement de Fichier Lecteur
 
 > **Prérequis** : [DELETION.md](DELETION.md), [PATH_MAPPING.md](PATH_MAPPING.md)
-> **Version** : V1.5
+> **Version** : V2.0
 
 ---
 
 ## 1. Contexte
 
-Un film peut avoir plusieurs fichiers de qualité différente :
+Un film peut avoir plusieurs fichiers de qualité différente. Chaque fichier est un `media_file` distinct (inode différent) avec ses propres `file_paths` :
 
 ```
 Film: Inception (2010)
-├── torrents/movies/Inception.2010.720p.BluRay.x264.mkv      (8 GB, ratio 0.1)
-├── torrents/movies/Inception.2010.1080p.BluRay.x264.mkv     (15 GB, ratio 0.2)
-├── torrents/movies/Inception.2010.2160p.BluRay.x265.mkv     (50 GB, ratio 1.8)
-│
-└── media/movies/Inception/Inception.mkv  ← hardlink du 1080p (Plex lit celui-ci)
+
+media_file A (inode 11111, 8 GB, ratio 0.1)
+  └── file_paths: /torrents/movies/Inception.2010.720p.BluRay.x264.mkv
+
+media_file B (inode 22222, 15 GB, ratio 0.2) ← fichier lecteur (Plex)
+  ├── file_paths: /torrents/movies/Inception.2010.1080p.BluRay.x264.mkv
+  └── file_paths: /media/movies/Inception/Inception.mkv
+
+media_file C (inode 33333, 50 GB, ratio 1.8)
+  ├── file_paths: /torrents/movies/Inception.2010.2160p.BluRay.x265.mkv
+  └── file_paths: /links/movies/Inception.2010.2160p.BluRay.x265.mkv
 ```
 
-L'utilisateur veut supprimer le 720p et le 1080p (mauvais ratios), mais garder le 4K. Problème : le 1080p est celui utilisé par Plex. Il faut **remplacer** le hardlink dans `media/` par un hardlink du 4K avant de supprimer le 1080p.
+L'utilisateur veut supprimer le 720p et le 1080p. Problème : le 1080p est celui utilisé par Plex. Il faut **remplacer** le hardlink dans `media/` par un hardlink du 4K avant de supprimer le 1080p.
 
 ---
 
 ## 2. Flow de remplacement
 
 ```
-1. Utilisateur demande suppression du 1080p (actuellement lié à Plex)
-2. Scanarr détecte que ce fichier est le fichier lecteur
-3. Proposition : remplacer par le 4K (suggestion auto = meilleure qualité restante)
-   → L'utilisateur peut choisir un autre fichier manuellement
-4. Watcher crée un hardlink du 4K dans media/ (nouveau chemin)
+1. Utilisateur demande suppression du media_file B (1080p, fichier lecteur)
+2. Scanarr détecte que ce media_file a un file_path dans un volume "media"
+3. Proposition : remplacer par le media_file C (4K, suggestion auto = meilleure qualité restante)
+4. Watcher crée un hardlink du 4K dans media/ (nouveau file_path)
 5. Watcher supprime l'ancien hardlink du 1080p dans media/
-6. API met à jour Radarr pour pointer sur le nouveau fichier
+6. API met à jour Radarr (RescanMovie)
 7. API refresh Plex/Jellyfin
-8. Watcher supprime le 1080p dans torrents/ (+ tous ses hardlinks)
-9. qBit : supprimer le torrent du 1080p
+8. Watcher supprime TOUS les file_paths du media_file B
+9. qBit : supprimer les torrents liés au media_file B
 ```
 
 ---
 
-## 3. Détection du fichier lecteur
+## 3. Détection du fichier lecteur (V2.0)
 
 Un fichier est considéré comme "fichier lecteur" si :
-- `media_file.is_linked_media_player = true` (existant V1)
-- OU s'il existe dans un chemin `media/` (détecté via le volume mapping)
+- `media_file.is_linked_media_player = true`
+- OU s'il possède un `file_path` dans un volume dont le nom/chemin contient "media" (heuristique)
+- OU via Radarr : `GET /api/v3/movie/{id}` → `movieFile` identifie le fichier dans le root folder
 
-### 3.1 Identification via Radarr
-
-Radarr sait quel fichier est associé au film (`GET /api/v3/movie/{id}` → `movieFile`). Ce fichier est celui dans le root folder Radarr (= `media/`). C'est le fichier lecteur.
+**V2.0** : La détection est facilitée par les `file_paths` qui montrent explicitement dans quels volumes le fichier est présent. Un fichier présent dans un volume "media" et un volume "torrents" est clairement identifiable.
 
 ---
 
 ## 4. Suggestion automatique de remplacement
-
-Quand l'utilisateur sélectionne un fichier lecteur pour suppression, Scanarr propose automatiquement un remplacement :
 
 ### 4.1 Algorithme de sélection
 
@@ -64,22 +66,22 @@ Fichiers restants du même film (non sélectionnés pour suppression)
      2. À résolution égale : plus haute qualité (Remux > BluRay > WEB-DL)
      3. À qualité égale : plus petite taille
   → Proposer le premier comme remplacement par défaut
-  → L'utilisateur peut sélectionner un autre
 ```
 
 ### 4.2 UI
-
-Quand un fichier lecteur est sélectionné pour suppression :
 
 ```
 ┌────────────────────────────────────────────────────────────┐
 │ ⚠️ Ce fichier est utilisé par votre lecteur (Plex)        │
 │                                                            │
+│ Chemins actuels :                                          │
+│  • /media/movies/Inception/Inception.mkv                   │
+│  • /torrents/movies/Inception.2010.1080p.mkv               │
+│                                                            │
 │ Fichier de remplacement :                                  │
 │ ● Inception.2010.2160p.BluRay.x265.mkv (50 GB) [Suggéré] │
 │ ○ Inception.2010.720p.BluRay.x264.mkv (8 GB)              │
 │                                                            │
-│ ☑ Désactiver auto-search Radarr                            │
 │ ☑ Mettre à jour Radarr avec le nouveau fichier             │
 │ ☑ Rafraîchir Plex après remplacement                       │
 └────────────────────────────────────────────────────────────┘
@@ -89,8 +91,6 @@ Quand un fichier lecteur est sélectionné pour suppression :
 
 ## 5. Commande WebSocket : `command.files.hardlink`
 
-Nouvelle commande pour la création de hardlinks par le watcher.
-
 ### 5.1 API → Watcher
 
 ```json
@@ -99,16 +99,15 @@ Nouvelle commande pour la création de hardlinks par le watcher.
   "data": {
     "request_id": "uuid-request",
     "deletion_id": "uuid-scheduled-deletion",
-    "source_path": "/mnt/user/data/torrents/movies/Inception.2010.2160p.BluRay.x265.mkv",
-    "target_path": "/mnt/user/data/media/movies/Inception/Inception (2010) [2160p].mkv",
-    "volume_path": "/mnt/user/data"
+    "source_volume_path": "/volume1/filmarr/torrents/movies",
+    "source_relative_path": "Inception.2010.2160p.BluRay.x265.mkv",
+    "target_volume_path": "/volume1/filmarr/media/movies",
+    "target_relative_path": "Inception/Inception (2010) [2160p].mkv"
   }
 }
 ```
 
-- `source_path` : fichier existant (le 4K dans torrents/)
-- `target_path` : chemin du nouveau hardlink à créer (dans media/)
-- `volume_path` : pour la validation de sécurité (les deux chemins doivent être sous ce root)
+Le watcher reconstruit les chemins absolus et crée le hardlink.
 
 ### 5.2 Watcher → API
 
@@ -119,91 +118,33 @@ Nouvelle commande pour la création de hardlinks par le watcher.
     "request_id": "uuid-request",
     "deletion_id": "uuid-scheduled-deletion",
     "status": "created",
-    "source_path": "/mnt/user/data/torrents/movies/Inception.2010.2160p.BluRay.x265.mkv",
-    "target_path": "/mnt/user/data/media/movies/Inception/Inception (2010) [2160p].mkv",
+    "source_inode": 33333,
+    "target_inode": 33333,
     "error": null
   }
 }
 ```
 
+**V2.0** : La réponse inclut les inodes pour que l'API puisse mettre à jour les `file_paths` et `media_files` correctement. Le source et target doivent avoir le même inode (hardlink).
+
 ### 5.3 Implémentation watcher
 
-```go
-func (d *Deleter) CreateHardlink(source, target, volumeRoot string) HardlinkResult {
-    result := HardlinkResult{
-        SourcePath: source,
-        TargetPath: target,
-        Status:     "created",
-    }
-
-    // Validation sécurité : les deux chemins doivent être sous volumeRoot
-    cleanSource := filepath.Clean(source)
-    cleanTarget := filepath.Clean(target)
-    cleanRoot := filepath.Clean(volumeRoot)
-
-    if !strings.HasPrefix(cleanSource, cleanRoot+"/") || !strings.HasPrefix(cleanTarget, cleanRoot+"/") {
-        result.Status = "failed"
-        result.Error = "path traversal: paths must be under volume root"
-        return result
-    }
-
-    // Vérifier que la source existe
-    if _, err := os.Stat(cleanSource); os.IsNotExist(err) {
-        result.Status = "failed"
-        result.Error = "source file does not exist"
-        return result
-    }
-
-    // Créer les répertoires parents de la cible si nécessaire
-    targetDir := filepath.Dir(cleanTarget)
-    if err := os.MkdirAll(targetDir, 0755); err != nil {
-        result.Status = "failed"
-        result.Error = fmt.Sprintf("failed to create target directory: %s", err)
-        return result
-    }
-
-    // Supprimer la cible si elle existe déjà (remplacement)
-    os.Remove(cleanTarget) // ignore error if not exists
-
-    // Créer le hardlink
-    if err := os.Link(cleanSource, cleanTarget); err != nil {
-        result.Status = "failed"
-        result.Error = fmt.Sprintf("failed to create hardlink: %s", err)
-        return result
-    }
-
-    slog.Info("Hardlink created", "source", cleanSource, "target", cleanTarget)
-    return result
-}
-```
+(Inchangée, voir V1.5 — validation sécurité paths + `os.Link()`)
 
 ---
 
-## 6. Mise à jour Radarr après remplacement
+## 6. Mise à jour BDD après remplacement (V2.0)
 
-Après création du hardlink, l'API doit mettre à jour Radarr pour qu'il reconnaisse le nouveau fichier :
+Après réception de `files.hardlink.completed` :
 
-```php
-// RadarrService.php
+1. **Créer un nouveau `file_path`** pour le media_file C (4K) dans le volume media :
+   - `media_file_id` = media_file C
+   - `volume_id` = volume "media"
+   - `relative_path` = "Inception/Inception (2010) [2160p].mkv"
 
-// Option 1 : Rescan du film dans Radarr
-// POST /api/v3/command
-// { "name": "RescanMovie", "movieId": 42 }
-// Radarr détecte automatiquement le nouveau fichier dans son root folder
+2. **Mettre à jour `media_file.hardlink_count`** de C (maintenant nlink + 1)
 
-public function rescanMovie(RadarrInstance $instance, int $radarrMovieId): void
-{
-    $this->httpClient->request('POST', $instance->getUrl() . '/api/v3/command', [
-        'headers' => ['X-Api-Key' => $instance->getApiKey()],
-        'json' => [
-            'name' => 'RescanMovie',
-            'movieId' => $radarrMovieId,
-        ],
-    ]);
-}
-```
-
-Le rescan Radarr est la méthode la plus fiable : Radarr détecte le nouveau fichier, met à jour ses métadonnées (résolution, codec, qualité), et pointe dessus automatiquement.
+3. **Puis** procéder à la suppression standard du media_file B (tous ses file_paths)
 
 ---
 
@@ -212,37 +153,35 @@ Le rescan Radarr est la méthode la plus fiable : Radarr détecte le nouveau fic
 ```
 Phase 1 — Préparation (API, synchrone) :
   1. Valider la demande de remplacement
-  2. Construire le target_path pour le hardlink (basé sur le naming Radarr ou le chemin existant)
+  2. Identifier source (file_path du 4K dans torrents/) et target (chemin dans media/)
 
 Phase 2 — Création hardlink (Watcher, via WebSocket) :
-  3. Envoyer command.files.hardlink au watcher
-  4. Watcher crée le hardlink : source (4K dans torrents/) → target (media/)
+  3. Envoyer command.files.hardlink
+  4. Watcher crée le hardlink
   5. Watcher répond files.hardlink.completed
 
-Phase 3 — Mise à jour services (API, synchrone) :
-  6. Radarr : RescanMovie pour détecter le nouveau fichier
-  7. Créer/mettre à jour le media_file en BDD pour le nouveau hardlink
+Phase 3 — Mise à jour (API) :
+  6. Créer le file_path pour le nouveau hardlink
+  7. Radarr : RescanMovie
 
 Phase 4 — Suppression de l'ancien fichier (chaîne standard) :
-  8. Supprimer l'ancien fichier lecteur (media/ + torrents/ + tous hardlinks)
-  9. Nettoyer qBit (supprimer le torrent de l'ancien fichier)
+  8. Supprimer tous les file_paths du media_file B
+  9. Nettoyer qBit
   10. Refresh Plex/Jellyfin
   11. Discord notification
 
-Si Phase 2 échoue → annuler toute l'opération. Ne pas supprimer l'ancien fichier.
+Si Phase 2 échoue → annuler. Ne pas supprimer l'ancien fichier.
 ```
 
 ---
 
 ## 8. Naming du fichier de remplacement
 
-Le `target_path` (nouveau hardlink dans media/) suit le naming scheme de Radarr si disponible :
+Le chemin dans media/ suit le naming scheme Radarr si disponible :
 
 ```
 Radarr naming scheme : {Movie Title} ({Release Year}) [{Quality Full}]
 Exemple : Inception (2010) [Bluray-2160p x265].mkv
 ```
 
-Si le naming scheme Radarr n'est pas disponible, utiliser le nom du fichier source tel quel.
-
-Le chemin du répertoire dans media/ reste le même que l'ancien fichier (même dossier film).
+Si non disponible, utiliser le nom du fichier source. Le dossier dans media/ reste le même.

@@ -152,19 +152,25 @@ func (w *FileWatcher) handleEvent(event fsnotify.Event, lastRenamePath *string) 
 
 	switch {
 	case event.Has(fsnotify.Create):
-		if *lastRenamePath != "" {
+		w.mu.Lock()
+		rename := *lastRenamePath
+		if rename != "" {
 			// This is the second part of a rename (old Rename + new Create)
-			w.handleRename(*lastRenamePath, path)
 			*lastRenamePath = ""
+			w.mu.Unlock()
+			w.handleRename(rename, path)
 			return
 		}
+		w.mu.Unlock()
 		w.handleCreate(path)
 
 	case event.Has(fsnotify.Remove):
 		w.handleDelete(path)
 
 	case event.Has(fsnotify.Rename):
+		w.mu.Lock()
 		*lastRenamePath = path
+		w.mu.Unlock()
 		// Wait briefly for the Create event that follows a rename
 		go func(oldPath string) {
 			time.Sleep(100 * time.Millisecond)
@@ -190,9 +196,9 @@ func (w *FileWatcher) handleCreate(path string) {
 		return
 	}
 
-	hlCount, _ := hardlink.Count(path)
-	if hlCount == 0 {
-		hlCount = 1
+	fileInfo, _ := hardlink.Info(path)
+	if fileInfo.Nlink == 0 {
+		fileInfo.Nlink = 1
 	}
 
 	slog.Info("File created", "path", path)
@@ -200,7 +206,9 @@ func (w *FileWatcher) handleCreate(path string) {
 		Path:          path,
 		Name:          filepath.Base(path),
 		SizeBytes:     info.Size(),
-		HardlinkCount: hlCount,
+		HardlinkCount: fileInfo.Nlink,
+		Inode:         fileInfo.Inode,
+		DeviceID:      fileInfo.DeviceID,
 		IsDir:         false,
 	})
 }
@@ -221,9 +229,9 @@ func (w *FileWatcher) handleRename(oldPath, newPath string) {
 		return
 	}
 
-	hlCount, _ := hardlink.Count(newPath)
-	if hlCount == 0 {
-		hlCount = 1
+	fileInfo, _ := hardlink.Info(newPath)
+	if fileInfo.Nlink == 0 {
+		fileInfo.Nlink = 1
 	}
 
 	slog.Info("File renamed", "old_path", oldPath, "new_path", newPath)
@@ -232,7 +240,9 @@ func (w *FileWatcher) handleRename(oldPath, newPath string) {
 		NewPath:       newPath,
 		Name:          filepath.Base(newPath),
 		SizeBytes:     info.Size(),
-		HardlinkCount: hlCount,
+		HardlinkCount: fileInfo.Nlink,
+		Inode:         fileInfo.Inode,
+		DeviceID:      fileInfo.DeviceID,
 	})
 }
 
@@ -242,9 +252,9 @@ func (w *FileWatcher) handleModified(path string) {
 		return
 	}
 
-	hlCount, _ := hardlink.Count(path)
-	if hlCount == 0 {
-		hlCount = 1
+	fileInfo, _ := hardlink.Info(path)
+	if fileInfo.Nlink == 0 {
+		fileInfo.Nlink = 1
 	}
 
 	slog.Info("File modified", "path", path)
@@ -252,7 +262,9 @@ func (w *FileWatcher) handleModified(path string) {
 		Path:          path,
 		Name:          filepath.Base(path),
 		SizeBytes:     info.Size(),
-		HardlinkCount: hlCount,
+		HardlinkCount: fileInfo.Nlink,
+		Inode:         fileInfo.Inode,
+		DeviceID:      fileInfo.DeviceID,
 	})
 }
 

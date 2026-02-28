@@ -38,6 +38,8 @@ export interface MediaFile {
   detected_at: string;
   partial_hash?: string;
   is_protected: boolean;
+  inode?: string;
+  device_id?: string;
 }
 
 export interface Movie {

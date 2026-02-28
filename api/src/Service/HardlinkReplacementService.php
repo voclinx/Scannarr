@@ -1,12 +1,14 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Service;
 
 use App\Entity\MediaFile;
 use App\Entity\Movie;
 use Psr\Log\LoggerInterface;
 
-class HardlinkReplacementService
+final class HardlinkReplacementService
 {
     public function __construct(
         private readonly WatcherCommandService $watcherCommandService,

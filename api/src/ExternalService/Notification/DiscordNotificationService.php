@@ -1,7 +1,10 @@
 <?php
 
-namespace App\Service;
+declare(strict_types=1);
 
+namespace App\ExternalService\Notification;
+
+use App\Contract\Notification\NotificationChannelInterface;
 use App\Entity\ScheduledDeletion;
 use App\Repository\MediaFileRepository;
 use App\Repository\SettingRepository;
@@ -11,7 +14,7 @@ use Psr\Log\LoggerInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Throwable;
 
-class DiscordNotificationService
+class DiscordNotificationService implements NotificationChannelInterface
 {
     private const int COLOR_WARNING = 16744448;  // Orange
     private const int COLOR_SUCCESS = 3066993;   // Green

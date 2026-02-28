@@ -1,7 +1,7 @@
 # Scanarr — Front-end Vue.js
 
 > **Prérequis** : [API.md](API.md)
-> **Version** : V1.2.1 (composants V1.5 dans QBIT_STATS_AND_SCORING.md)
+> **Version** : V2.0
 
 ---
 
@@ -26,7 +26,10 @@ const routes = [
       { path: 'movies', name: 'movies', component: MoviesListView, meta: { minRole: 'ROLE_GUEST' } },
       { path: 'movies/:id', name: 'movie-detail', component: MovieDetailView, meta: { minRole: 'ROLE_GUEST' } },
       { path: 'deletions', name: 'deletions', component: ScheduledDeletionsView, meta: { minRole: 'ROLE_USER' } },
+      { path: 'suggestions', name: 'suggestions', component: SuggestionsView, meta: { minRole: 'ROLE_ADVANCED_USER' } },
       { path: 'settings', name: 'settings', component: SettingsView, meta: { minRole: 'ROLE_ADMIN' } },
+      { path: 'settings/presets', name: 'presets', component: PresetsSettingsView, meta: { minRole: 'ROLE_ADVANCED_USER' } },
+      { path: 'settings/trackers', name: 'trackers', component: TrackerRulesSettingsView, meta: { minRole: 'ROLE_ADMIN' } },
       { path: 'users', name: 'users', component: UsersManagementView, meta: { minRole: 'ROLE_ADMIN' } },
     ]
   }
@@ -50,33 +53,59 @@ export interface User {
   last_login_at?: string;
 }
 
-export interface Volume {
+// === Watchers & Volumes (V2.0) ===
+
+export interface Watcher {
   id: string;
   name: string;
+  hostname?: string;
+  status: 'connected' | 'disconnected' | 'error';
+  scan_extensions: string[];
+  disable_deletion: boolean;
+  volumes: WatcherVolume[];
+  last_seen_at?: string;
+}
+
+export interface WatcherVolume {
+  id: string;
+  watcher_id: string;
+  name: string;
   path: string;
-  host_path: string;
-  type: 'local' | 'network';
   status: 'active' | 'inactive' | 'error';
   total_space_bytes?: number;
   used_space_bytes?: number;
   last_scan_at?: string;
 }
 
+// === Media Files (V2.0 — inode-based) ===
+
 export interface MediaFile {
   id: string;
-  volume_id: string;
-  volume_name: string;
-  file_path: string;
-  file_name: string;
+  inode: number;
+  device_id: number;
+  movie_id?: string;
   file_size_bytes: number;
   hardlink_count: number;
   resolution?: string;
   codec?: string;
   quality?: string;
+  is_protected: boolean;
   is_linked_radarr: boolean;
   is_linked_media_player: boolean;
-  detected_at: string;
+  file_paths: FilePath[];
+  created_at: string;
 }
+
+export interface FilePath {
+  id: string;
+  volume_id: string;
+  volume_name: string;
+  relative_path: string;
+  filename: string;
+  discovered_at: string;
+}
+
+// === Movies ===
 
 export interface Movie {
   id: string;
@@ -90,18 +119,26 @@ export interface Movie {
   genres?: string;
   rating?: number;
   runtime_minutes?: number;
+  is_protected: boolean;
   file_count: number;
-  max_file_size_bytes: number;
+  paths_count: number;
+  total_size_bytes: number;
   files_summary: MovieFileSummary[];
   is_monitored_radarr: boolean;
+  // qBit stats (enrichis)
+  best_ratio?: number;
+  worst_ratio?: number;
+  seeding_status?: 'seeding' | 'orphan' | 'mixed';
+  cross_seed_count?: number;
+  ratio_trend?: 'rising' | 'stable' | 'falling';
 }
 
 export interface MovieFileSummary {
-  id: string;
-  file_name: string;
+  media_file_id: string;
+  filename: string;
   file_size_bytes: number;
   resolution: string;
-  volume_name: string;
+  paths_count: number;
 }
 
 export interface MovieDetail extends Movie {
@@ -111,9 +148,11 @@ export interface MovieDetail extends Movie {
 }
 
 export interface MovieFileDetail extends MediaFile {
-  matched_by: 'radarr_api' | 'filename_parse' | 'manual';
+  matched_by: 'radarr_api' | 'filename_parse' | 'manual' | 'suffix_match';
   confidence: number;
 }
+
+// === Scheduled Deletions ===
 
 export interface ScheduledDeletion {
   id: string;
@@ -131,6 +170,8 @@ export interface ScheduledDeletion {
   created_at: string;
 }
 
+// === External Services ===
+
 export interface RadarrInstance {
   id: string;
   name: string;
@@ -144,7 +185,7 @@ export interface RadarrInstance {
 export interface RadarrRootFolder {
   id: number;
   path: string;
-  mapped_path?: string;
+  // Note V2.0 : plus de mapped_path
 }
 
 export interface MediaPlayerInstance {
@@ -156,19 +197,24 @@ export interface MediaPlayerInstance {
   is_active: boolean;
 }
 
+// === Dashboard ===
+
 export interface DashboardStats {
   total_movies: number;
   total_files: number;
+  total_paths: number;
   total_size_bytes: number;
-  volumes: VolumeStats[];
+  watchers: WatcherStatus[];
   orphan_files_count: number;
   upcoming_deletions_count: number;
   recent_activity: ActivityLog[];
 }
 
-export interface VolumeStats {
+export interface WatcherStatus {
   id: string;
   name: string;
+  status: 'connected' | 'disconnected' | 'error';
+  volumes_count: number;
   total_space_bytes: number;
   used_space_bytes: number;
   file_count: number;
@@ -188,7 +234,6 @@ export interface ActivityLog {
 #### Auth Store (`stores/auth.ts`)
 
 ```typescript
-// Structure du store
 interface AuthState {
   user: User | null;
   accessToken: string | null;
@@ -197,13 +242,12 @@ interface AuthState {
 }
 
 // Actions
-// login(email, password) → appel POST /auth/login, stocke tokens en localStorage
-// logout() → supprime tokens, redirige vers /login
-// refreshAccessToken() → appel POST /auth/refresh
-// fetchMe() → appel GET /auth/me
-// hasMinRole(role: UserRole) → boolean — vérifie la hiérarchie des rôles
+// login(email, password) → POST /auth/login
+// logout() → supprime tokens
+// refreshAccessToken() → POST /auth/refresh
+// fetchMe() → GET /auth/me
+// hasMinRole(role: UserRole) → boolean
 
-// Hiérarchie des rôles (index = niveau de permission)
 const ROLE_HIERARCHY = ['ROLE_GUEST', 'ROLE_USER', 'ROLE_ADVANCED_USER', 'ROLE_ADMIN'];
 ```
 
@@ -211,40 +255,81 @@ const ROLE_HIERARCHY = ['ROLE_GUEST', 'ROLE_USER', 'ROLE_ADVANCED_USER', 'ROLE_A
 
 #### FileExplorerView.vue
 
-- Sélecteur de volume en haut (dropdown avec les volumes actifs).
-- Tableau PrimeVue DataTable avec les colonnes : Nom, Poids, Hardlinks, Radarr (badge vert/rouge), Lecteur (badge vert/rouge), Résolution, Actions.
-- Barre de recherche en temps réel (debounce 300ms).
-- Bouton "Supprimer" sur chaque ligne → ouvre `FileDeleteModal` avec les 2 options (physique seul / physique + Radarr).
-- Bouton "Suppression globale" → ouvre modal avec avertissement recherche auto.
+- Sélecteur de watcher + volume en haut (dropdowns).
+- Tableau PrimeVue DataTable : Nom, Poids, Chemins (nombre de file_paths), Radarr (badge), Lecteur (badge), Résolution, Actions.
+- Le nombre de chemins remplace l'ancien "Hardlinks" qui était le nlink brut.
+- Bouton "Supprimer" → ouvre `FileDeleteModal` avec la liste de tous les chemins qui seront supprimés.
+- Bouton "Suppression globale" → supprime tous les file_paths du media_file.
 
 #### MoviesListView.vue
 
-- Tableau PrimeVue DataTable avec les colonnes : Titre (+ année), Synopsis (tronqué), Nb fichiers, Poids max (avec tooltip), Actions (Voir / Supprimer).
-- Barre de recherche + filtres (résolution, nombre de fichiers, monitored).
-- Tri sur colonnes (titre, année, poids, nb fichiers).
-- Clic sur une ligne → navigation vers MovieDetailView.
+- Tableau enrichi avec colonnes qBit (ratio, seed time, seeding status, cross-seed).
+- Badge 📂 pour les films multi-paths.
+- Badge 🛡 pour les films protégés.
+- Tri et filtre sur toutes les colonnes.
 
 #### MovieDetailView.vue
 
-- En-tête : affiche (poster TMDB à gauche), titre, année, genres, note, synopsis.
-- Section "Fichiers liés" : tableau avec nom, volume, hardlinks, poids, résolution, actions.
-- Bouton "Suppression globale" → ouvre `MovieGlobalDeleteModal` :
-  - Liste des fichiers avec checkboxes (cochés par défaut).
-  - Checkbox "Supprimer référence Radarr".
-  - Checkbox "Supprimer référence lecteur multimédia".
-  - Checkbox "Désactiver recherche automatique Radarr".
-  - Bouton de confirmation rouge.
+- Affichage des fichiers avec **tous les chemins connus** (file_paths) groupés par media_file.
+- Section détaillée par fichier avec les stats torrent, les trackers, et les file_paths.
 
-#### SettingsView.vue
+#### SettingsView.vue — Onglet Watchers (V2.0)
 
-- Navigation par onglets (Tabs PrimeVue) : Radarr, Lecteurs, Volumes, Torrent, Discord, TMDB.
-- Chaque onglet = composant dédié (RadarrSettings, MediaPlayerSettings, VolumeSettings, TorrentSettings, DiscordSettings, TmdbSettings).
-- RadarrSettings : liste des instances avec boutons Ajouter/Modifier/Supprimer/Tester.
-- VolumeSettings : liste des volumes avec formulaire d'ajout (nom, chemin, type), bouton Scan.
-- TorrentSettings : configuration qBittorrent (URL, username, password) avec bouton "Tester la connexion" (via `POST /api/v1/settings/test-qbittorrent`).
-- DiscordSettings : URL du webhook + rappel en jours, avec bouton "Tester" (via `POST /api/v1/settings/test-discord`).
-- TmdbSettings : clé API TMDB.
-- Bouton "Tester la connexion" pour chaque service externe avec feedback visuel (spinner → succès vert / erreur rouge). Les tests passent par l'API backend, jamais directement depuis le frontend.
+Remplace l'onglet "Volumes". Gestion centralisée des watchers et de leurs volumes.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Watchers                                            [+ Ajouter]   │
+│─────────────────────────────────────────────────────────────────────│
+│                                                                     │
+│  🟢 Watcher NAS Principal (nas-principal)            [Configurer]   │
+│     Connecté depuis 2h │ 3 volumes │ 2400 fichiers                 │
+│     ├── Films HD          /volume1/filmarr/media/movies    🟢      │
+│     ├── Torrents HD       /volume1/filmarr/torrents/movies 🟢      │
+│     └── Cross-seed        /volume1/filmarr/links           🟢      │
+│                                                                     │
+│  🔴 Watcher Backup (nas-backup)                      [Configurer]   │
+│     Déconnecté depuis 3j │ 1 volume │ 800 fichiers                 │
+│     └── Backup Films      /volume2/backup/movies           🔴      │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### WatcherConfigDialog.vue (V2.0)
+
+Dialogue de configuration d'un watcher :
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Configuration — Watcher NAS Principal                              │
+│─────────────────────────────────────────────────────────────────────│
+│                                                                     │
+│  Nom :        [Watcher NAS Principal          ]                     │
+│  Token :      [watcher-unique-token-abc123    ] [🔄 Régénérer]     │
+│                                                                     │
+│  Extensions : [mkv] [mp4] [avi] [m4v] [ts] [wmv] [+ Ajouter]      │
+│                                                                     │
+│  ☐ Désactiver la suppression (mode lecture seule)                   │
+│                                                                     │
+│  ─── Volumes surveillés ──────────────────────────── [+ Ajouter]── │
+│                                                                     │
+│  Nom              Chemin                                 Actions    │
+│  Films HD         /volume1/filmarr/media/movies         [✏️] [🗑️]  │
+│  Torrents HD      /volume1/filmarr/torrents/movies      [✏️] [🗑️]  │
+│  Cross-seed       /volume1/filmarr/links                [✏️] [🗑️]  │
+│                                                                     │
+│                               [Annuler]  [Sauvegarder]             │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### SettingsView.vue — Onglet qBittorrent (V2.0)
+
+L'onglet est simplifié : plus de section "Path Mappings" (éliminé). Il reste :
+
+- Configuration connexion (URL, username, password)
+- Bouton "Tester la connexion"
+- Intervalle de sync (minutes)
+- Bouton "Sync maintenant" avec barre de progression
+- Dernier rapport de sync (lien vers le rapport détaillé)
 
 ---
-

@@ -1,17 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Controller;
 
-use App\Entity\Movie;
-use App\Entity\ScheduledDeletion;
-use App\Entity\ScheduledDeletionItem;
 use App\Entity\User;
-use App\Enum\DeletionStatus;
-use App\Repository\MovieRepository;
-use App\Service\DeletionService;
 use App\Service\SuggestionService;
-use DateTime;
-use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -23,12 +17,8 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 #[IsGranted('ROLE_ADVANCED_USER')]
 class SuggestionController extends AbstractController
 {
-    public function __construct(
-        private readonly SuggestionService $suggestionService,
-        private readonly DeletionService $deletionService,
-        private readonly MovieRepository $movieRepository,
-        private readonly EntityManagerInterface $em,
-    ) {
+    public function __construct(private readonly SuggestionService $suggestionService)
+    {
     }
 
     #[Route('', methods: ['GET'])]
@@ -44,174 +34,64 @@ class SuggestionController extends AbstractController
 
         $result = $this->suggestionService->getSuggestions($filters);
 
-        return $this->json([
-            'data' => $result['data'],
-            'meta' => $result['meta'],
-        ]);
+        return $this->json(['data' => $result['data'], 'meta' => $result['meta']]);
     }
 
     #[Route('/batch-delete', methods: ['POST'])]
     public function batchDelete(Request $request): JsonResponse
     {
         $payload = json_decode($request->getContent(), true);
-
         if (!$payload) {
-            return $this->json(
-                ['error' => ['code' => 400, 'message' => 'Invalid JSON']],
-                Response::HTTP_BAD_REQUEST,
-            );
+            return $this->json(['error' => ['code' => 400, 'message' => 'Invalid JSON']], Response::HTTP_BAD_REQUEST);
         }
 
         $items = $payload['items'] ?? [];
-        if (empty($items)) {
-            return $this->json(
-                ['error' => ['code' => 422, 'message' => 'At least one item is required']],
-                Response::HTTP_UNPROCESSABLE_ENTITY,
-            );
+        if ($items === []) {
+            return $this->json(['error' => ['code' => 422, 'message' => 'At least one item is required']], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
-
-        $options = $payload['options'] ?? [];
 
         /** @var User $user */
         $user = $this->getUser();
+        $result = $this->suggestionService->batchDelete($items, $payload['options'] ?? [], $user);
 
-        $deletion = new ScheduledDeletion();
-        $deletion->setCreatedBy($user);
-        $deletion->setScheduledDate(new DateTime('today'));
-        $deletion->setDeletePhysicalFiles(true);
-        $deletion->setDeleteRadarrReference((bool)($options['delete_radarr_reference'] ?? false));
-        $deletion->setDisableRadarrAutoSearch((bool)($options['disable_radarr_auto_search'] ?? true));
-
-        $itemsCount = 0;
-        foreach ($items as $itemData) {
-            $movieId = $itemData['movie_id'] ?? null;
-            $fileIds = $itemData['file_ids'] ?? [];
-
-            if (!$movieId) {
-                continue;
-            }
-
-            $movie = $this->movieRepository->find($movieId);
-            if (!$movie instanceof Movie) {
-                continue;
-            }
-
-            $item = new ScheduledDeletionItem();
-            $item->setMovie($movie);
-            $item->setMediaFileIds($fileIds);
-            $deletion->addItem($item);
-            ++$itemsCount;
+        if ($result['result'] === 'no_valid_items') {
+            return $this->json(['error' => ['code' => 422, 'message' => 'No valid items found']], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        if ($itemsCount === 0) {
-            return $this->json(
-                ['error' => ['code' => 422, 'message' => 'No valid items found']],
-                Response::HTTP_UNPROCESSABLE_ENTITY,
-            );
-        }
+        $httpCode = $result['status'] === 'completed' ? Response::HTTP_OK : Response::HTTP_ACCEPTED;
 
-        $this->em->persist($deletion);
-        $this->em->flush();
-
-        $this->deletionService->executeDeletion($deletion);
-
-        return $this->json([
-            'data' => [
-                'deletion_id' => (string)$deletion->getId(),
-                'status' => $deletion->getStatus()->value,
-                'items_count' => $itemsCount,
-            ],
-        ], $deletion->getStatus() === DeletionStatus::COMPLETED ? Response::HTTP_OK : Response::HTTP_ACCEPTED);
+        return $this->json(['data' => ['deletion_id' => $result['deletion_id'], 'status' => $result['status'], 'items_count' => $result['items_count']]], $httpCode);
     }
 
     #[Route('/batch-schedule', methods: ['POST'])]
     public function batchSchedule(Request $request): JsonResponse
     {
         $payload = json_decode($request->getContent(), true);
-
         if (!$payload) {
-            return $this->json(
-                ['error' => ['code' => 400, 'message' => 'Invalid JSON']],
-                Response::HTTP_BAD_REQUEST,
-            );
+            return $this->json(['error' => ['code' => 400, 'message' => 'Invalid JSON']], Response::HTTP_BAD_REQUEST);
         }
 
         $items = $payload['items'] ?? [];
         $scheduledDate = $payload['scheduled_date'] ?? null;
 
-        if (empty($items)) {
-            return $this->json(
-                ['error' => ['code' => 422, 'message' => 'At least one item is required']],
-                Response::HTTP_UNPROCESSABLE_ENTITY,
-            );
+        if ($items === []) {
+            return $this->json(['error' => ['code' => 422, 'message' => 'At least one item is required']], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
-
         if (!$scheduledDate) {
-            return $this->json(
-                ['error' => ['code' => 422, 'message' => 'scheduled_date is required']],
-                Response::HTTP_UNPROCESSABLE_ENTITY,
-            );
+            return $this->json(['error' => ['code' => 422, 'message' => 'scheduled_date is required']], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
-
-        $date = new DateTime($scheduledDate);
-        $today = new DateTime('today');
-        if ($date < $today) {
-            return $this->json(
-                ['error' => ['code' => 422, 'message' => 'scheduled_date must be in the future']],
-                Response::HTTP_UNPROCESSABLE_ENTITY,
-            );
-        }
-
-        $options = $payload['options'] ?? [];
 
         /** @var User $user */
         $user = $this->getUser();
+        $result = $this->suggestionService->batchSchedule((string)$scheduledDate, $items, $payload['options'] ?? [], $user);
 
-        $deletion = new ScheduledDeletion();
-        $deletion->setCreatedBy($user);
-        $deletion->setScheduledDate($date);
-        $deletion->setDeletePhysicalFiles(true);
-        $deletion->setDeleteRadarrReference((bool)($options['delete_radarr_reference'] ?? false));
-        $deletion->setDisableRadarrAutoSearch((bool)($options['disable_radarr_auto_search'] ?? true));
-
-        $itemsCount = 0;
-        foreach ($items as $itemData) {
-            $movieId = $itemData['movie_id'] ?? null;
-            $fileIds = $itemData['file_ids'] ?? [];
-
-            if (!$movieId) {
-                continue;
-            }
-
-            $movie = $this->movieRepository->find($movieId);
-            if (!$movie instanceof Movie) {
-                continue;
-            }
-
-            $item = new ScheduledDeletionItem();
-            $item->setMovie($movie);
-            $item->setMediaFileIds($fileIds);
-            $deletion->addItem($item);
-            ++$itemsCount;
+        if ($result['result'] === 'past_date') {
+            return $this->json(['error' => ['code' => 422, 'message' => 'scheduled_date must be in the future']], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+        if ($result['result'] === 'no_valid_items') {
+            return $this->json(['error' => ['code' => 422, 'message' => 'No valid items found']], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        if ($itemsCount === 0) {
-            return $this->json(
-                ['error' => ['code' => 422, 'message' => 'No valid items found']],
-                Response::HTTP_UNPROCESSABLE_ENTITY,
-            );
-        }
-
-        $this->em->persist($deletion);
-        $this->em->flush();
-
-        return $this->json([
-            'data' => [
-                'deletion_id' => (string)$deletion->getId(),
-                'scheduled_date' => $deletion->getScheduledDate()->format('Y-m-d'),
-                'status' => $deletion->getStatus()->value,
-                'items_count' => $itemsCount,
-            ],
-        ], Response::HTTP_CREATED);
+        return $this->json(['data' => ['deletion_id' => $result['deletion_id'], 'scheduled_date' => $result['scheduled_date'], 'status' => $result['status'], 'items_count' => $result['items_count']]], Response::HTTP_CREATED);
     }
 }

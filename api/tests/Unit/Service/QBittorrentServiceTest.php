@@ -2,8 +2,8 @@
 
 namespace App\Tests\Unit\Service;
 
+use App\ExternalService\TorrentClient\QBittorrentService;
 use App\Repository\SettingRepository;
-use App\Service\QBittorrentService;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Repository;
 
 use App\Entity\MediaFile;
@@ -91,6 +93,63 @@ class MediaFileRepository extends ServiceEntityRepository
     public function countByVolume(Volume $volume): int
     {
         return $this->count(['volume' => $volume]);
+    }
+
+    /**
+     * Find a MediaFile by its (device_id, inode) couple.
+     * Returns null if not found or if either value is null/empty.
+     */
+    public function findByInode(string $deviceId, string $inode): ?MediaFile
+    {
+        return $this->createQueryBuilder('mf')
+            ->where('mf.deviceId = :deviceId')
+            ->andWhere('mf.inode = :inode')
+            ->setParameter('deviceId', $deviceId)
+            ->setParameter('inode', $inode)
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
+    }
+
+    /**
+     * Find ALL MediaFiles sharing the same (device_id, inode) — i.e. all hardlinks of the same physical file.
+     *
+     * @return MediaFile[]
+     */
+    public function findAllByInode(string $deviceId, string $inode): array
+    {
+        return $this->createQueryBuilder('mf')
+            ->where('mf.deviceId = :deviceId')
+            ->andWhere('mf.inode = :inode')
+            ->setParameter('deviceId', $deviceId)
+            ->setParameter('inode', $inode)
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
+     * Find all other MediaFiles sharing the same physical inode (excluding self).
+     *
+     * @return list<MediaFile>
+     */
+    public function findSiblingsByInode(MediaFile $file): array
+    {
+        $deviceId = $file->getDeviceId();
+        $inode = $file->getInode();
+
+        if ($deviceId === null || $inode === null) {
+            return [];
+        }
+
+        return $this->createQueryBuilder('mf')
+            ->where('mf.deviceId = :deviceId')
+            ->andWhere('mf.inode = :inode')
+            ->andWhere('mf.id != :selfId')
+            ->setParameter('deviceId', $deviceId)
+            ->setParameter('inode', $inode)
+            ->setParameter('selfId', $file->getId())
+            ->getQuery()
+            ->getResult();
     }
 
     /**

@@ -6,9 +6,10 @@ import InputText from 'primevue/inputtext'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
 import { useWatchersStore } from '@/stores/watchers'
+import { useWatcherSocket } from '@/composables/useWatcherSocket'
 import WatcherConfigDialog from './WatcherConfigDialog.vue'
 import WatcherLogsDialog from './WatcherLogsDialog.vue'
-import type { Watcher, WatcherConfig } from '@/types'
+import type { Watcher, WatcherConfig, WatcherStatus } from '@/types'
 
 const store = useWatchersStore()
 const toast = useToast()
@@ -22,6 +23,17 @@ const selectedWatcher = ref<Watcher | null>(null)
 // Inline rename
 const renamingId = ref<string | null>(null)
 const renameValue = ref('')
+
+// Real-time WebSocket for watcher status updates
+useWatcherSocket((event) => {
+  if (event.type === 'watcher.status_changed') {
+    store.updateWatcherStatus(
+      event.data.id,
+      event.data.status as WatcherStatus,
+      event.data.last_seen_at,
+    )
+  }
+})
 
 onMounted(() => {
   store.fetchWatchers()

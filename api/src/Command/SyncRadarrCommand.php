@@ -1,13 +1,15 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Command;
 
 use App\Entity\Movie;
 use App\Entity\RadarrInstance;
+use App\ExternalService\MediaManager\RadarrService;
+use App\ExternalService\Metadata\TmdbService;
 use App\Repository\MovieRepository;
 use App\Repository\RadarrInstanceRepository;
-use App\Service\RadarrService;
-use App\Service\TmdbService;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Exception;

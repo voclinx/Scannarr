@@ -1,7 +1,10 @@
 <?php
 
-namespace App\Service;
+declare(strict_types=1);
 
+namespace App\ExternalService\MediaPlayer;
+
+use App\Contract\MediaPlayer\MediaPlayerInterface;
 use App\Entity\MediaPlayerInstance;
 use Exception;
 use Psr\Log\LoggerInterface;
@@ -10,7 +13,7 @@ use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Throwable;
 
-class JellyfinService
+class JellyfinService implements MediaPlayerInterface
 {
     public function __construct(
         private readonly HttpClientInterface $httpClient,
@@ -39,6 +42,11 @@ class JellyfinService
                 'error' => $e->getMessage(),
             ];
         }
+    }
+
+    public function supports(MediaPlayerInstance $instance): bool
+    {
+        return $instance->getType() === 'jellyfin';
     }
 
     /**
