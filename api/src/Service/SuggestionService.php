@@ -329,6 +329,8 @@ final class SuggestionService
             }
         }
 
+        $totalFreedBytes = array_sum(array_column($filesData, 'real_freed_bytes'));
+
         return [
             'movie' => [
                 'id' => (string)$movie->getId(),
@@ -341,7 +343,8 @@ final class SuggestionService
             ],
             'files' => $filesData,
             'seeding_status' => $movieSeedingStatus,
-            'total_file_size_bytes' => $totalFileSize,
+            'total_size_bytes' => $totalFileSize,
+            'total_freed_bytes' => $totalFreedBytes,
             'best_ratio' => $bestRatio,
             'worst_ratio' => $worstRatio,
             'total_seed_time_max_seconds' => $maxSeedTime,
