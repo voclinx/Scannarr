@@ -4,6 +4,9 @@ set -e
 # Create log directory
 mkdir -p /var/log/scanarr
 
+# Ensure .env file exists (required by Symfony Dotenv::bootEnv even in APP_ENV=prod)
+[ -f /app/.env ] || touch /app/.env
+
 # Wait for database to be ready — parse DATABASE_URL to extract credentials
 # DATABASE_URL format: postgresql://user:password@host:port/dbname
 echo "Waiting for database..."

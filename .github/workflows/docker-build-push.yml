@@ -105,6 +105,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            JWT_PASSPHRASE=${{ secrets.JWT_PASSPHRASE }}
 
   ##
   ## Build and push Frontend Docker image

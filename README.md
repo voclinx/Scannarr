@@ -109,14 +109,20 @@ Services démarrés :
 
 | Service | Port | Description |
 |---------|------|-------------|
-| API REST | `8080` | Endpoints `/api/v1/*` |
-| WebSocket | `8081` | Connexion watcher |
-| Frontend | `3000` | Interface web |
-| PostgreSQL | `5432` | Base de données |
+| Frontend | `8585` | Interface web (point d'entrée unique) |
+| WebSocket watcher | `8081` | Connexion directe du watcher natif |
+| PostgreSQL | non exposé | Base de données (réseau interne Docker) |
+
+> Les endpoints `/api/*` et `/ws/*` (navigateur) sont accessibles via le frontend (nginx proxy) sur le port `8585`.
 
 ### 3. Setup initial
 
-Ouvrez `http://localhost:3000`. L'assistant de configuration vous guide pour créer le compte administrateur.
+Ouvrez `http://localhost:8585`. Créez le compte administrateur via la console :
+
+```bash
+docker exec scanarr-api php bin/console app:create-user \
+  admin admin@scanarr.local VotreMotDePasse ROLE_ADMIN
+```
 
 ### 4. Installer le watcher
 
@@ -226,82 +232,48 @@ make test-go-coverage
 
 ---
 
-## CI/CD (GitLab)
+## CI/CD (GitHub Actions)
 
-Le fichier `.gitlab-ci.yml` définit un pipeline en 4 stages :
+Le workflow `.github/workflows/docker-build-push.yml` se déclenche sur chaque push sur `master` et sur les tags `v*`.
 
 ```
-push/MR ──► quality ──► test ──────────────────► ✅
-tag v*   ──► quality ──► test ──► build ──► deploy ──► 🚀
+push master ──► build-api ──► ghcr.io/voclinx/scannarr-api:latest
+             ├► build-front ──► ghcr.io/voclinx/scannarr-front:latest
+             └► build-watcher ──► artifacts (amd64 + arm64)
+
+tag v*       ──► idem + attach binaires watcher à la GitHub Release
 ```
 
-### Stages
+### Jobs
 
-| Stage | Jobs | Déclencheur |
-|-------|------|-------------|
-| **quality** | `php-cs-fixer`, `rector`, `phpmd` | Chaque push |
-| **test** | `phpunit`, `vitest`, `go-test`, `phpstan` | Chaque push |
-| **build** | `build-api`, `build-front`, `build-watcher` | Tags `vX.Y.Z` |
-| **deploy** | `deploy-prod` (SSH + docker compose) | Tags `vX.Y.Z` |
+| Job | Déclencheur | Résultat |
+|-----|-------------|---------|
+| `build-watcher` | push master, tag `v*` | Binaires Go linux/amd64 + linux/arm64 |
+| `build-api` | push master, tag `v*` | Image `ghcr.io/…/scannarr-api` (amd64 + arm64) |
+| `build-front` | push master, tag `v*` | Image `ghcr.io/…/scannarr-front` (amd64 + arm64) |
 
 ### Configuration requise
 
-Dans **GitLab > Settings > CI/CD > Variables** :
+Dans **GitHub → Settings → Secrets and variables → Actions** :
 
-| Variable | Type | Description |
-|----------|------|-------------|
-| `SSH_PRIVATE_KEY` | File | Clé SSH pour accéder au serveur |
-| `DEPLOY_HOST` | Variable | IP ou hostname du serveur |
-| `DEPLOY_USER` | Variable | Utilisateur SSH (ex: `deploy`) |
-| `DEPLOY_PATH` | Variable | Chemin du projet (ex: `/opt/scanarr`) |
-| `JWT_PASSPHRASE` | Variable (masked) | Passphrase JWT pour le build |
+| Secret | Description |
+|--------|-------------|
+| `JWT_PASSPHRASE` | Passphrase utilisée pour générer les clés JWT dans l'image — **doit correspondre à la valeur `JWT_PASSPHRASE` configurée dans Portainer** |
 
-> `CI_REGISTRY`, `CI_REGISTRY_USER`, `CI_REGISTRY_PASSWORD` sont fournis automatiquement par GitLab.
+> `GITHUB_TOKEN` est fourni automatiquement par GitHub Actions pour pousser les images sur `ghcr.io`.
 
-### Configuration du serveur
-
-Sur le serveur de production, créez un `.env` :
-
-```bash
-# /opt/scanarr/.env
-REGISTRY_IMAGE=registry.gitlab.com/votre-user/scannarr
-TAG=latest
-DB_PASSWORD=votre_mdp_prod
-APP_SECRET=votre_secret_prod
-JWT_PASSPHRASE=votre_passphrase
-WATCHER_AUTH_TOKEN=votre_token
-MEDIA_VOLUME_1=/mnt/media/movies
-MEDIA_VOLUME_2=/mnt/media/movies4k
-```
-
-### Déployer
+### Déployer une release
 
 ```bash
 git tag v1.0.0
 git push --tags
 ```
 
-Le pipeline build les images Docker, les pousse sur le GitLab Container Registry, puis se connecte en SSH au serveur pour `docker compose pull && up`.
+Le pipeline build les images Docker (amd64 + arm64), les pousse sur `ghcr.io`, et attache les binaires watcher à la release GitHub.
 
-### Runner local
+### Déploiement Synology / Portainer
 
-Le pipeline est optimisé pour un **runner GitLab auto-hébergé** sur votre serveur. Pour l'installer :
-
-```bash
-# Installer le runner
-curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | sudo bash
-sudo apt install gitlab-runner
-
-# Enregistrer le runner (token depuis GitLab > Settings > CI/CD > Runners)
-sudo gitlab-runner register \
-  --url https://gitlab.com \
-  --token VOTRE_TOKEN \
-  --executor docker \
-  --docker-image alpine:latest \
-  --docker-privileged
-```
-
-> `--docker-privileged` est requis pour les jobs Docker-in-Docker (build des images).
+Voir **[docs/DEPLOYMENT_SYNOLOGY.md](docs/DEPLOYMENT_SYNOLOGY.md)** pour la procédure complète.
 
 ---
 

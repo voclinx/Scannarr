@@ -7,18 +7,35 @@
 ##   https://github.com/users/voclinx/packages/container/scannarr-front/settings
 ##   → "Change package visibility" → Public
 ##
-## ETAPE 2 — Dans Portainer :
-##   Stacks > Add stack > Upload (ce fichier)
-##   Descendre jusqu'à "Environment variables" et ajouter :
-##     DB_PASSWORD        Wxy2GkbzM5wkWipSWNJtv8I69X8yBAtj
-##     APP_SECRET         d9ffa95ab98749cab44a42499c29532a8588d837b7d79c7dcdbc7f799efefbaf
-##     JWT_PASSPHRASE     QzJmvdXl0rWcdChRDPsjjfCHsko
-##     WATCHER_AUTH_TOKEN ed5dfd5706f60dc60f26b8d46da005b6c96486417daef2523a5daaf812a221a3
+## ETAPE 2 — Dans Portainer, ajouter ces 4 variables d'environnement :
 ##
-## ETAPE 3 — Cliquer "Deploy the stack"
+##   Variable           Génération
+##   ──────────────────────────────────────────────────────────────────
+##   DB_PASSWORD        openssl rand -hex 32
+##   APP_SECRET         openssl rand -hex 32
+##   JWT_PASSPHRASE     (même valeur que le secret GitHub JWT_PASSPHRASE)
+##   WATCHER_AUTH_TOKEN openssl rand -hex 32
+##
+##   ⚠️  JWT_PASSPHRASE doit correspondre à la valeur utilisée lors du build
+##       de l'image (secret GitHub → Actions → JWT_PASSPHRASE).
+##       Les clés JWT sont générées au build avec cette passphrase ;
+##       la valeur runtime doit être identique.
+##
+## ETAPE 3 — Upload ce fichier dans Portainer → Stacks → Add stack → Deploy
+##
+## ETAPE 4 (une seule fois) — Créer le compte administrateur :
+##   Via Portainer (Console du container scanarr-api) ou SSH sur le NAS :
+##   docker exec scanarr-api php bin/console app:create-user \
+##     admin admin@scanarr.local VotreMotDePasse ROLE_ADMIN
 ##
 ## Watcher : binaire natif à installer séparément sur le NAS
 ##   Voir : docs/DEPLOYMENT_SYNOLOGY.md
+##
+## Ce qui est automatique au démarrage :
+##   ✅ Attente base de données (healthcheck PostgreSQL)
+##   ✅ Migrations Doctrine (doctrine:migrations:migrate)
+##   ✅ Cache Symfony (cache:clear + cache:warmup)
+##   ✅ Démarrage supervisord (nginx, php-fpm, websocket, cron)
 ##
 
 services:
@@ -46,20 +63,27 @@ services:
       - scanarr-net
 
   ##
-  ## API Symfony + WebSocket
-  ## Port 8081 exposé pour le watcher natif sur le NAS
+  ## API Symfony + WebSocket Go
+  ## Port 8081 exposé directement pour le watcher natif sur le NAS
   ##
   api:
     image: ghcr.io/voclinx/scannarr-api:latest
     container_name: scanarr-api
+    # Garantit que /app/.env existe (requis par Symfony Dotenv::bootEnv)
+    # puis délègue à l'entrypoint standard (migrations, cache, supervisord)
+    entrypoint: ["/bin/sh", "-c", "[ -f /app/.env ] || touch /app/.env && exec /entrypoint.sh supervisord -c /etc/supervisord.conf"]
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://scanarr:${DB_PASSWORD}@db:5432/scanarr?serverVersion=16&charset=utf8
+      # POSTGRES_PASSWORD transmis pour compatibilité avec les images antérieures à v1.0.1
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       APP_ENV: prod
       APP_SECRET: ${APP_SECRET}
+      JWT_SECRET_KEY: /app/config/jwt/private.pem
+      JWT_PUBLIC_KEY: /app/config/jwt/public.pem
       JWT_PASSPHRASE: ${JWT_PASSPHRASE}
       JWT_TOKEN_TTL: 3600
       WATCHER_AUTH_TOKEN: ${WATCHER_AUTH_TOKEN}
@@ -75,7 +99,10 @@ services:
   ##
   ## Frontend Vue.js (Nginx)
   ## Point d'entrée unique : http://192.168.1.91:8585
-  ## Le nginx interne proxifie /api/ → api:8080 et /ws/ → api:8081
+  ## Le nginx interne proxifie :
+  ##   /api/  → api:8080 (REST PHP-FPM)
+  ##   /ws/   → api:8081 (WebSocket navigateur)
+  ##   /      → SPA Vue.js
   ##
   front:
     image: ghcr.io/voclinx/scannarr-front:latest

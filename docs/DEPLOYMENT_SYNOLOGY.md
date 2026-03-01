@@ -4,71 +4,120 @@
 
 - Synology DS923+ sous DSM 7.x
 - **Container Manager** (Docker) installé via le Centre de Paquets DSM
-- **Portainer** déployé dans Container Manager
+- **Portainer CE** déployé dans Container Manager
 - Accès SSH activé sur le NAS
 
 ---
 
-## 1. Variables d'environnement à configurer dans Portainer
+## Ce qui est automatique
 
-Lors de l'ajout de la stack dans Portainer, renseigner ces variables :
+Au premier démarrage (et à chaque mise à jour), le container `scanarr-api` exécute automatiquement :
 
-| Variable | Description | Exemple |
-|----------|-------------|---------|
-| `DB_PASSWORD` | Mot de passe PostgreSQL | `MonMotDePasseDB!` |
-| `APP_SECRET` | Clé secrète Symfony (32+ chars aléatoires) | `openssl rand -hex 32` |
-| `JWT_PASSPHRASE` | Passphrase pour les clés JWT | `MonPassphraseJWT!` |
-| `WATCHER_AUTH_TOKEN` | Token d'auth du watcher (même valeur que dans watcher.env) | `openssl rand -hex 32` |
+| Étape | Mécanisme |
+|-------|-----------|
+| Attente de PostgreSQL | `healthcheck` + boucle `until` sur PDO |
+| Migrations Doctrine | `doctrine:migrations:migrate --no-interaction` |
+| Cache Symfony | `cache:clear` + `cache:warmup` |
+| Démarrage des services | supervisord → nginx, php-fpm, websocket Go, cron |
 
-> Générer des valeurs sécurisées via SSH :
+**La seule action manuelle** après le premier déploiement : créer le compte administrateur (étape 3).
+
+---
+
+## 1. Préparer les secrets GitHub (une seule fois)
+
+Le workflow GitHub Actions génère les clés JWT au build. La passphrase utilisée doit correspondre à la valeur runtime dans Portainer.
+
+Dans **GitHub → Settings → Secrets and variables → Actions → New repository secret** :
+
+| Secret | Valeur |
+|--------|--------|
+| `JWT_PASSPHRASE` | `openssl rand -hex 32` (valeur de votre choix, à conserver) |
+
+---
+
+## 2. Variables d'environnement Portainer
+
+Lors du déploiement de la stack, renseigner ces 4 variables :
+
+| Variable | Description | Génération |
+|----------|-------------|------------|
+| `DB_PASSWORD` | Mot de passe PostgreSQL | `openssl rand -hex 32` |
+| `APP_SECRET` | Clé secrète Symfony | `openssl rand -hex 32` |
+| `JWT_PASSPHRASE` | Passphrase JWT | **Même valeur que le secret GitHub `JWT_PASSPHRASE`** |
+| `WATCHER_AUTH_TOKEN` | Token d'auth du watcher | `openssl rand -hex 32` |
+
+> Générer les valeurs en SSH sur le NAS :
 > ```bash
-> openssl rand -hex 32
+> ssh admin@192.168.1.91
+> openssl rand -hex 32   # répéter pour chaque variable
 > ```
 
 ---
 
-## 2. Déployer la stack dans Portainer
+## 3. Déployer la stack dans Portainer
 
 1. Ouvrir Portainer → **Stacks** → **Add stack**
 2. Nommer la stack : `scanarr`
-3. Onglet **Upload** → choisir `docker-compose.portainer.yml`
+3. Onglet **Web editor** → coller le contenu de `docker-compose.portainer.yml`
+   _ou_ onglet **Upload** → choisir le fichier `docker-compose.portainer.yml`
 4. Section **Environment variables** → ajouter les 4 variables ci-dessus
 5. Cliquer **Deploy the stack**
 
-L'interface sera disponible sur : **http://192.168.1.91:8585**
+Portainer attend que le container `db` soit healthy avant de démarrer `api`. Les logs du container `scanarr-api` montrent la progression :
+
+```
+Waiting for database...
+Database is ready.
+Running migrations...
+  [OK] Already at the latest version (...)
+  [OK] Cache for the 'prod' environment was successfully cleared.
+  [OK] Cache for the 'prod' environment was successfully warmed.
+supervisord started with pid 1
+...
+success: nginx entered RUNNING state
+success: php-fpm entered RUNNING state
+success: websocket entered RUNNING state
+success: cron entered RUNNING state
+```
+
+L'interface est disponible sur : **http://192.168.1.91:8585**
 
 ---
 
-## 3. Initialiser la base de données (premier démarrage)
+## 4. Créer le compte administrateur (première fois uniquement)
 
-Après le premier démarrage des containers, exécuter les migrations Doctrine :
+Via la **Console** du container `scanarr-api` dans Portainer, ou en SSH :
 
 ```bash
-# Via SSH sur le NAS ou via Portainer (Console du container scanarr-api)
-docker exec scanarr-api php bin/console doctrine:migrations:migrate --no-interaction
-
-# Créer le compte admin initial
-docker exec scanarr-api php bin/console app:create-user admin admin@scanarr.local VotreMotDePasse ROLE_ADMIN
+docker exec scanarr-api php bin/console app:create-user \
+  admin admin@scanarr.local VotreMotDePasse ROLE_ADMIN
 ```
 
 ---
 
-## 4. Installer le Watcher sur le NAS
+## 5. Installer le Watcher sur le NAS
 
-Le watcher est un binaire Go natif qui surveille le filesystem et communique avec l'API via WebSocket. Il ne tourne **pas** dans Docker.
+Le watcher est un binaire Go natif qui surveille le filesystem et communique avec l'API via WebSocket. Il tourne **en dehors de Docker** pour un accès filesystem direct.
 
-### 4a. Copier le binaire
+### 5a. Télécharger le binaire
 
-Via SSH :
+Les binaires sont attachés aux releases GitHub :
+
+```
+https://github.com/voclinx/Scannarr/releases/latest
+→ scanarr-watcher-linux-amd64   (DS923+ = processeur AMD Ryzen)
+```
+
+Copier sur le NAS via SSH :
+
 ```bash
-# Copier le binaire sur le NAS (depuis votre machine)
-scp watcher/bin/scanarr-watcher-linux-amd64 admin@192.168.1.91:/usr/local/bin/scanarr-watcher
+# Depuis votre machine locale
+scp scanarr-watcher-linux-amd64 admin@192.168.1.91:/usr/local/bin/scanarr-watcher
 ssh admin@192.168.1.91 "chmod +x /usr/local/bin/scanarr-watcher"
 ```
 
-Ou via File Station DSM : déposer le fichier `scanarr-watcher-linux-amd64` dans `/usr/local/bin/` et le renommer en `scanarr-watcher`.
-
-### 4b. Créer le fichier de configuration
+### 5b. Créer le fichier de configuration
 
 ```bash
 ssh admin@192.168.1.91
@@ -88,7 +137,7 @@ SCANARR_STATE_PATH=/etc/scanarr/watcher-state.json
 EOF
 ```
 
-### 4c. Démarrage automatique via DSM Task Scheduler
+### 5c. Démarrage automatique via DSM Task Scheduler
 
 Dans **Panneau de configuration** → **Planificateur de tâches** :
 
@@ -97,67 +146,118 @@ Dans **Panneau de configuration** → **Planificateur de tâches** :
 3. Utilisateur : `root`
 4. Commande :
    ```bash
-   /bin/sh -c 'export $(cat /etc/scanarr/watcher.env | grep -v "^#" | xargs); /usr/local/bin/scanarr-watcher >> /var/log/scanarr-watcher.log 2>&1 &'
+   /bin/sh -c 'export $(grep -v "^#" /etc/scanarr/watcher.env | xargs); /usr/local/bin/scanarr-watcher >> /var/log/scanarr-watcher.log 2>&1 &'
    ```
-5. Cocher **Activer**
-6. Sauvegarder
+5. Cocher **Activer** → Sauvegarder
 
-Pour arrêter le watcher manuellement :
+Démarrer immédiatement sans redémarrer le NAS :
+
 ```bash
-pkill scanarr-watcher
+ssh admin@192.168.1.91
+/bin/sh -c 'export $(grep -v "^#" /etc/scanarr/watcher.env | xargs); /usr/local/bin/scanarr-watcher >> /var/log/scanarr-watcher.log 2>&1 &'
 ```
 
-Pour voir les logs :
+Logs du watcher :
+
 ```bash
 tail -f /var/log/scanarr-watcher.log
 ```
 
 ---
 
-## 5. Configurer les volumes dans l'UI Scanarr
+## 6. Configurer les volumes dans l'UI Scanarr
 
 Une fois connecté à http://192.168.1.91:8585 :
 
 1. **Paramètres** → **Watchers** → le watcher `synology-nas` doit apparaître comme connecté
-2. Configurer le volume dans les paramètres :
+2. **Paramètres** → **Volumes** → ajouter le volume :
    - Chemin Docker (API) : `/mnt/filmarr`
    - Chemin hôte réel : `/volume1/filmarr`
 
 ---
 
-## 6. Mise à jour
+## 7. Mise à jour
+
+### 7a. Mettre à jour les containers
 
 ```bash
-# Portainer : Stacks > scanarr > Pull and redeploy
-# OU via SSH :
-docker pull ghcr.io/voclinx/scannarr-api:latest
-docker pull ghcr.io/voclinx/scannarr-front:latest
-# Puis redémarrer la stack dans Portainer
+# Portainer : Stacks → scanarr → Update the stack → activer "Re-pull image and redeploy" → Update
+```
 
-# Mettre à jour le watcher :
-scp watcher/bin/scanarr-watcher-linux-amd64 admin@192.168.1.91:/usr/local/bin/scanarr-watcher
+Les migrations éventuelles s'appliquent automatiquement au redémarrage.
+
+### 7b. Mettre à jour le watcher
+
+```bash
+# Depuis votre machine locale
+scp scanarr-watcher-linux-amd64 admin@192.168.1.91:/usr/local/bin/scanarr-watcher
 ssh admin@192.168.1.91 "chmod +x /usr/local/bin/scanarr-watcher && pkill scanarr-watcher"
-# Le Task Scheduler le relancera au prochain redémarrage
+# DSM Task Scheduler le relance automatiquement au prochain démarrage
 # Pour le relancer immédiatement :
-ssh admin@192.168.1.91 "/bin/sh -c 'export \$(cat /etc/scanarr/watcher.env | grep -v \"^#\" | xargs); /usr/local/bin/scanarr-watcher >> /var/log/scanarr-watcher.log 2>&1 &'"
+ssh admin@192.168.1.91 "/bin/sh -c 'export \$(grep -v \"^#\" /etc/scanarr/watcher.env | xargs); /usr/local/bin/scanarr-watcher >> /var/log/scanarr-watcher.log 2>&1 &'"
 ```
 
 ---
 
-## 7. Architecture réseau
+## 8. Architecture réseau
 
 ```
 Synology DS923+ (192.168.1.91)
 │
 ├── :8585  → Container scanarr-front (Nginx)
-│    ├── /api/   → proxifié vers scanarr-api:8080 (interne)
-│    ├── /ws/    → proxifié vers scanarr-api:8081 (interne, browser WS)
-│    └── /       → SPA Vue.js (interface web)
+│    ├── /api/  → proxifié vers scanarr-api:8080 (REST PHP-FPM)
+│    ├── /ws/   → proxifié vers scanarr-api:8081 (WebSocket navigateur)
+│    └── /      → SPA Vue.js
 │
-├── :8081  → Container scanarr-api (WebSocket direct pour le watcher)
+├── :8081  → Container scanarr-api (WebSocket direct pour le watcher natif)
 │
 └── scanarr-watcher (binaire natif DSM)
      └── → ws://192.168.1.91:8081/ws/watcher
 ```
 
-> **PostgreSQL** (port 5432) n'est **pas** exposé à l'extérieur — accès interne uniquement.
+> **PostgreSQL** (port 5432) n'est **pas** exposé à l'extérieur — accès réseau interne Docker uniquement.
+
+---
+
+## 9. Dépannage
+
+### Container scanarr-api en boucle de redémarrage
+
+Vérifier les logs : **Portainer → Containers → scanarr-api → Logs**
+
+| Symptôme | Cause | Solution |
+|----------|-------|----------|
+| `Waiting for database...` en boucle | Mauvais mot de passe DB | Vérifier que `DB_PASSWORD` dans Portainer = `POSTGRES_PASSWORD` du service `db` |
+| `Unable to read "/app/.env"` | Fichier `.env` absent dans l'image | L'`entrypoint` override dans le YAML crée le fichier automatiquement — vérifier que la ligne `entrypoint:` est bien présente |
+| `Environment variable not found: "JWT_SECRET_KEY"` | Variables JWT manquantes | Vérifier que `JWT_SECRET_KEY`, `JWT_PUBLIC_KEY`, `JWT_PASSPHRASE` sont dans l'env du service `api` |
+| `passphrase mismatch` sur `/ws/watcher` | JWT_PASSPHRASE runtime ≠ build | S'assurer que `JWT_PASSPHRASE` dans Portainer = secret GitHub `JWT_PASSPHRASE` utilisé au build |
+
+### Vérifier que tous les processus sont lancés
+
+Dans **Portainer → Containers → scanarr-api → Logs**, en fin de démarrage :
+
+```
+success: cron entered RUNNING state
+success: nginx entered RUNNING state
+success: php-fpm entered RUNNING state
+success: websocket entered RUNNING state   ← doit être présent
+```
+
+Si `websocket` n'est pas en RUNNING : problème JWT (voir tableau ci-dessus).
+
+### Tester l'API manuellement
+
+```bash
+# Depuis le NAS ou votre réseau local
+curl -s http://192.168.1.91:8585/api/health
+# Attendu : {"status":"ok"} ou similaire
+```
+
+### Recréer la base de données (reset complet)
+
+```bash
+ssh admin@192.168.1.91
+docker exec scanarr-db psql -U scanarr -c "DROP DATABASE scanarr; CREATE DATABASE scanarr;"
+# Puis redémarrer scanarr-api pour rejouer les migrations
+docker restart scanarr-api
+```
