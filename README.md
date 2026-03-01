@@ -56,11 +56,11 @@ Scannarr/
 │   ├── internal/           # Packages internes (config, watcher, scanner, websocket, filter, hardlink)
 │   ├── install.sh          # Script d'installation systemd
 │   └── watcher.env.example
-├── docker-compose.yml      # Production
-├── docker-compose.dev.yml  # Développement (HMR, volumes montés)
-├── docker-compose.prod.yml # Déploiement via registry (GitLab CI)
-├── .gitlab-ci.yml          # Pipeline CI/CD
-├── Makefile                # Commandes de gestion
+├── docker-compose.yml              # Développement local
+├── docker-compose.dev.yml          # Dev avec HMR / volumes montés
+├── docker-compose.portainer.yml    # Déploiement Synology / Portainer
+├── .github/workflows/              # CI/CD GitHub Actions
+├── Makefile                        # Commandes de gestion
 └── .env.example
 ```
 
@@ -274,25 +274,6 @@ Le pipeline build les images Docker (amd64 + arm64), les pousse sur `ghcr.io`, e
 ### Déploiement Synology / Portainer
 
 Voir **[docs/DEPLOYMENT_SYNOLOGY.md](docs/DEPLOYMENT_SYNOLOGY.md)** pour la procédure complète.
-
----
-
-## Correspondance des chemins
-
-Le watcher envoie les **chemins hôte** (ex: `/mnt/media1/film.mkv`). L'API traduit ces chemins via la table `volumes` :
-
-| Champ | Exemple | Description |
-|-------|---------|-------------|
-| `path` | `/mnt/volume1` | Chemin vu par l'API dans Docker |
-| `host_path` | `/mnt/media/movies` | Chemin réel sur le serveur |
-
-La correspondance est définie dans `docker-compose.yml` :
-
-```yaml
-volumes:
-  - /mnt/media/movies:/mnt/volume1:rw    # MEDIA_VOLUME_1
-  - /mnt/media/movies4k:/mnt/volume2:rw  # MEDIA_VOLUME_2
-```
 
 ---
 
