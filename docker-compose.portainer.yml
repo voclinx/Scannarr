@@ -2,10 +2,20 @@
 ## Scanarr — Stack Portainer pour Synology DS923+
 ## Serveur : 192.168.1.91
 ##
-## Usage dans Portainer :
-##   1. Stacks > Add stack > Upload (ce fichier)
-##   2. Renseigner les variables d'environnement ci-dessous
-##   3. Deploy the stack
+## ETAPE 1 — Rendre les images publiques sur GitHub (une seule fois) :
+##   https://github.com/users/voclinx/packages/container/scannarr-api/settings
+##   https://github.com/users/voclinx/packages/container/scannarr-front/settings
+##   → "Change package visibility" → Public
+##
+## ETAPE 2 — Dans Portainer :
+##   Stacks > Add stack > Upload (ce fichier)
+##   Descendre jusqu'à "Environment variables" et ajouter :
+##     DB_PASSWORD        Wxy2GkbzM5wkWipSWNJtv8I69X8yBAtj
+##     APP_SECRET         d9ffa95ab98749cab44a42499c29532a8588d837b7d79c7dcdbc7f799efefbaf
+##     JWT_PASSPHRASE     QzJmvdXl0rWcdChRDPsjjfCHsko
+##     WATCHER_AUTH_TOKEN ed5dfd5706f60dc60f26b8d46da005b6c96486417daef2523a5daaf812a221a3
+##
+## ETAPE 3 — Cliquer "Deploy the stack"
 ##
 ## Watcher : binaire natif à installer séparément sur le NAS
 ##   Voir : docs/DEPLOYMENT_SYNOLOGY.md
@@ -24,7 +34,7 @@ services:
     environment:
       POSTGRES_DB: scanarr
       POSTGRES_USER: scanarr
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD est requis}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - /volume1/docker/scannar/postgres:/var/lib/postgresql/data
     healthcheck:
@@ -49,18 +59,15 @@ services:
     environment:
       DATABASE_URL: postgresql://scanarr:${DB_PASSWORD}@db:5432/scanarr?serverVersion=16&charset=utf8
       APP_ENV: prod
-      APP_SECRET: ${APP_SECRET:?APP_SECRET est requis}
-      JWT_PASSPHRASE: ${JWT_PASSPHRASE:?JWT_PASSPHRASE est requis}
-      JWT_TOKEN_TTL: ${JWT_TOKEN_TTL:-3600}
-      WATCHER_AUTH_TOKEN: ${WATCHER_AUTH_TOKEN:?WATCHER_AUTH_TOKEN est requis}
-      # CORS : autorise les requêtes depuis le front (port 8585)
+      APP_SECRET: ${APP_SECRET}
+      JWT_PASSPHRASE: ${JWT_PASSPHRASE}
+      JWT_TOKEN_TTL: 3600
+      WATCHER_AUTH_TOKEN: ${WATCHER_AUTH_TOKEN}
       CORS_ALLOW_ORIGIN: '^https?://192\.168\.1\.91(:[0-9]+)?$'
       DEFAULT_URI: http://192.168.1.91:8585
     volumes:
-      # Médias — dossier principal sur le NAS
       - /volume1/filmarr:/mnt/filmarr:ro
     ports:
-      # Port WebSocket : utilisé par le watcher natif sur le NAS
       - "8081:8081"
     networks:
       - scanarr-net
