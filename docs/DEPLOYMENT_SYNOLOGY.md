@@ -137,6 +137,9 @@ SCANARR_AUTH_TOKEN=VOTRE_WATCHER_AUTH_TOKEN_ICI
 # Chemin du fichier d'état (persistance entre redémarrages)
 SCANARR_STATE_PATH=/etc/scanarr/watcher-state.json
 EOF
+
+# Rendre le fichier lisible par l'utilisateur courant (créé par sudo = root)
+sudo chmod 644 /etc/scanarr/watcher.env
 ```
 
 ### 5c. Tester le watcher manuellement
@@ -282,9 +285,16 @@ Le binaire lit ses variables via `os.Getenv()` — il ne charge **pas** le fichi
 export $(grep -v "^#" /etc/scanarr/watcher.env | xargs) && ./scanarr-watcher-linux-amd64
 ```
 
-Vérifier que le fichier `/etc/scanarr/watcher.env` contient bien `SCANARR_WATCHER_ID` :
+Vérifier que le fichier est lisible et contient bien `SCANARR_WATCHER_ID` :
 
 ```bash
+# Vérifier les permissions (doit être -rw-r--r--)
+ls -la /etc/scanarr/watcher.env
+
+# Si "Permission denied", corriger avec :
+sudo chmod 644 /etc/scanarr/watcher.env
+
+# Vérifier le contenu
 grep SCANARR_WATCHER_ID /etc/scanarr/watcher.env
 ```
 
