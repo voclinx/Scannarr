@@ -555,7 +555,7 @@ parameters:
 		-
 			message: '#^Cannot call method equals\(\) on Symfony\\Component\\Uid\\Uuid\|null\.$#'
 			identifier: method.nonObject
-			count: 2
+			count: 1
 			path: src/Service/MovieMatcherService.php
 
 		-
@@ -1171,8 +1171,20 @@ parameters:
 			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
 
 		-
-			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$volumeRepository\. Give it default value or assign it in the constructor\.$#'
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$fileMatchingService\. Give it default value or assign it in the constructor\.$#'
 			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Property App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest\:\:\$fileMatchingService has unresolvable native type\.$#'
+			identifier: property.unresolvableNativeType
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Return type of call to method PHPUnit\\Framework\\TestCase\:\:createMock\(\) contains unresolvable type\.$#'
+			identifier: method.unresolvableReturnType
 			count: 1
 			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
 

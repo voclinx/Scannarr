@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/voclinx/scanarr-watcher/internal/filter"
 	"github.com/voclinx/scanarr-watcher/internal/models"
 	"github.com/voclinx/scanarr-watcher/internal/websocket"
 )
@@ -111,6 +112,12 @@ func (d *Deleter) deleteFile(file models.FileDeleteRequest) models.FilesDeleteRe
 
 	slog.Info("File deleted", "path", absolutePath)
 
+	// Cleanup companion files (.nfo, .jpg, .srt, etc.) if no other media files remain
+	companionsRemoved := d.cleanupCompanionFiles(absolutePath, volumeRoot)
+	if companionsRemoved > 0 {
+		slog.Info("Cleaned up companion files", "path", filepath.Dir(absolutePath), "count", companionsRemoved)
+	}
+
 	// Cleanup empty parent directories
 	result.DirsRemoved = d.cleanupEmptyDirs(absolutePath, volumeRoot)
 
@@ -183,6 +190,56 @@ func (d *Deleter) ProcessHardlinkCommand(cmd models.CommandFilesHardlinkData) {
 		TargetPath: result.TargetPath,
 		Error:      result.Error,
 	})
+}
+
+// cleanupCompanionFiles removes non-media companion files (.nfo, .jpg, .srt, etc.)
+// from the parent directory of the deleted file, but ONLY if no other media files
+// remain in that directory. This handles multi-file torrents where the main media
+// file is deleted but metadata/subtitle files linger, preventing directory cleanup.
+func (d *Deleter) cleanupCompanionFiles(deletedFilePath string, volumeRoot string) int {
+	dir := filepath.Dir(deletedFilePath)
+	if dir == volumeRoot {
+		return 0 // never clean volume root
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+
+	// Check if any media files still remain in this directory
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if filter.IsMediaFile(entry.Name()) {
+			return 0 // other media files present → don't touch companions
+		}
+	}
+
+	// No media files remain → safe to clean up all remaining files and subdirectories
+	removed := 0
+	for _, entry := range entries {
+		entryPath := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			// Recursively remove subdirectories (e.g., Subs/, Extras/)
+			if rmErr := os.RemoveAll(entryPath); rmErr == nil {
+				removed++
+				slog.Info("Removed companion directory", "path", entryPath)
+			} else {
+				slog.Warn("Failed to remove companion directory", "path", entryPath, "error", rmErr)
+			}
+		} else {
+			if rmErr := os.Remove(entryPath); rmErr == nil {
+				removed++
+				slog.Info("Removed companion file", "path", entryPath)
+			} else {
+				slog.Warn("Failed to remove companion file", "path", entryPath, "error", rmErr)
+			}
+		}
+	}
+
+	return removed
 }
 
 // cleanupEmptyDirs walks up from the parent of filePath to volumeRoot,

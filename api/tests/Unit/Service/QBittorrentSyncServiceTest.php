@@ -12,7 +12,6 @@ use App\Entity\Setting;
 use App\Entity\TorrentStat;
 use App\Entity\TorrentStatHistory;
 use App\Entity\TrackerRule;
-use App\Entity\Volume;
 use App\Enum\TorrentStatus;
 use App\ExternalService\MediaManager\RadarrService;
 use App\ExternalService\TorrentClient\QBittorrentService;
@@ -23,7 +22,7 @@ use App\Repository\SettingRepository;
 use App\Repository\TorrentStatHistoryRepository;
 use App\Repository\TorrentStatRepository;
 use App\Repository\TrackerRuleRepository;
-use App\Repository\VolumeRepository;
+use App\Service\FileMatchingService;
 use App\Service\QBittorrentSyncService;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
@@ -46,8 +45,8 @@ class QBittorrentSyncServiceTest extends TestCase
     private TorrentStatHistoryRepository&MockObject $historyRepository;
     private TrackerRuleRepository&MockObject $trackerRuleRepository;
     private SettingRepository&MockObject $settingRepository;
+    private FileMatchingService&MockObject $fileMatchingService;
     private RadarrInstanceRepository&MockObject $radarrInstanceRepository;
-    private VolumeRepository&MockObject $volumeRepository;
     private LoggerInterface&MockObject $logger;
     private QBittorrentSyncService $service;
 
@@ -56,6 +55,7 @@ class QBittorrentSyncServiceTest extends TestCase
         $this->em = $this->createMock(EntityManagerInterface::class);
         $this->qbitService = $this->createMock(QBittorrentService::class);
         $this->radarrService = $this->createMock(RadarrService::class);
+        $this->fileMatchingService = $this->createMock(FileMatchingService::class);
         $this->mediaFileRepository = $this->createMock(MediaFileRepository::class);
         $this->movieRepository = $this->createMock(MovieRepository::class);
         $this->torrentStatRepository = $this->createMock(TorrentStatRepository::class);
@@ -63,13 +63,13 @@ class QBittorrentSyncServiceTest extends TestCase
         $this->trackerRuleRepository = $this->createMock(TrackerRuleRepository::class);
         $this->settingRepository = $this->createMock(SettingRepository::class);
         $this->radarrInstanceRepository = $this->createMock(RadarrInstanceRepository::class);
-        $this->volumeRepository = $this->createMock(VolumeRepository::class);
         $this->logger = $this->createMock(LoggerInterface::class);
 
         $this->service = new QBittorrentSyncService(
             $this->em,
             $this->qbitService,
             $this->radarrService,
+            $this->fileMatchingService,
             $this->mediaFileRepository,
             $this->movieRepository,
             $this->torrentStatRepository,
@@ -77,7 +77,6 @@ class QBittorrentSyncServiceTest extends TestCase
             $this->trackerRuleRepository,
             $this->settingRepository,
             $this->radarrInstanceRepository,
-            $this->volumeRepository,
             $this->logger,
         );
     }
@@ -264,9 +263,6 @@ class QBittorrentSyncServiceTest extends TestCase
         // No snapshot today
         $this->historyRepository->method('hasSnapshotToday')->willReturn(false);
 
-        // Volumes
-        $this->volumeRepository->method('findAllActive')->willReturn([]);
-
         $this->em->expects($this->atLeastOnce())->method('persist');
         $this->em->expects($this->atLeastOnce())->method('flush');
         $this->settingRepository->method('setValue')->willReturn(new Setting());
@@ -304,23 +300,19 @@ class QBittorrentSyncServiceTest extends TestCase
         ];
 
         $this->qbitService->method('getAllTorrents')->willReturn($torrents);
-        $this->qbitService->method('mapQbitPathToHost')
-            ->willReturn('/mnt/data/movies/Movie (2024)/movie.mkv');
 
         $this->radarrInstanceRepository->method('findBy')->willReturn([]);
 
-        // Volume matching
-        $volume = new Volume();
-        $volume->setName('Movies');
-        $volume->setPath('/media/movies');
-        $volume->setHostPath('/mnt/data/movies');
-
-        $this->volumeRepository->method('findAllActive')->willReturn([$volume]);
-
+        // FileMatchingService returns a match for the content_path
         $mediaFile = new MediaFile();
-        $this->mediaFileRepository->method('findByVolumeAndFilePath')
-            ->with($volume, 'Movie (2024)/movie.mkv')
-            ->willReturn($mediaFile);
+        $matchResult = new \App\Contract\Matching\MatchResult(
+            mediaFile: $mediaFile,
+            strategy: 'path_suffix',
+            confidence: 1.0,
+        );
+        $this->fileMatchingService->method('match')
+            ->with('/downloads/movies/Movie (2024)/movie.mkv')
+            ->willReturn($matchResult);
 
         $this->torrentStatRepository->method('findByHash')->willReturn(null);
         $this->torrentStatRepository->method('findNotSeenSince')->willReturn([]);
@@ -362,13 +354,11 @@ class QBittorrentSyncServiceTest extends TestCase
         ];
 
         $this->qbitService->method('getAllTorrents')->willReturn($torrents);
-        $this->qbitService->method('mapQbitPathToHost')
-            ->willReturn('/downloads/unknown/file.txt');
         $this->qbitService->method('getTorrentFiles')
             ->willReturn([['name' => 'file.txt', 'size' => 100]]);
 
         $this->radarrInstanceRepository->method('findBy')->willReturn([]);
-        $this->volumeRepository->method('findAllActive')->willReturn([]);
+        $this->fileMatchingService->method('match')->willReturn(null);
         $this->torrentStatRepository->method('findNotSeenSince')->willReturn([]);
 
         $this->em->expects($this->atLeastOnce())->method('flush');
@@ -406,21 +396,17 @@ class QBittorrentSyncServiceTest extends TestCase
         ];
 
         $this->qbitService->method('getAllTorrents')->willReturn($torrents);
-        $this->qbitService->method('mapQbitPathToHost')
-            ->willReturn('/mnt/data/movies/snap.mkv');
 
         $this->radarrInstanceRepository->method('findBy')->willReturn([]);
 
-        $volume = new Volume();
-        $volume->setName('Movies');
-        $volume->setPath('/media/movies');
-        $volume->setHostPath('/mnt/data/movies');
-
-        $this->volumeRepository->method('findAllActive')->willReturn([$volume]);
-
+        // FileMatchingService returns a match for the content_path
         $mediaFile = new MediaFile();
-        $this->mediaFileRepository->method('findByVolumeAndFilePath')
-            ->willReturn($mediaFile);
+        $matchResult = new \App\Contract\Matching\MatchResult(
+            mediaFile: $mediaFile,
+            strategy: 'path_suffix',
+            confidence: 1.0,
+        );
+        $this->fileMatchingService->method('match')->willReturn($matchResult);
 
         $existingRule = new TrackerRule();
         $existingRule->setTrackerDomain('tracker.test.com');
@@ -457,7 +443,6 @@ class QBittorrentSyncServiceTest extends TestCase
         $this->qbitService->method('getAllTorrents')->willReturn([]);
 
         $this->radarrInstanceRepository->method('findBy')->willReturn([]);
-        $this->volumeRepository->method('findAllActive')->willReturn([]);
 
         // Stale torrent
         $staleStat = new TorrentStat();
@@ -481,7 +466,6 @@ class QBittorrentSyncServiceTest extends TestCase
         $this->qbitService->method('getAllTorrents')->willReturn([]);
 
         $this->radarrInstanceRepository->method('findBy')->willReturn([]);
-        $this->volumeRepository->method('findAllActive')->willReturn([]);
 
         // Already removed torrent
         $staleStat = new TorrentStat();
@@ -502,19 +486,14 @@ class QBittorrentSyncServiceTest extends TestCase
     // matchByContentPath — no volume match
     // -------------------------------------------------------------------
 
-    public function testMatchByContentPathNoVolumeMatch(): void
+    public function testMatchByContentPathNoMatch(): void
     {
         $method = new ReflectionMethod($this->service, 'matchByContentPath');
 
-        $this->qbitService->method('mapQbitPathToHost')
-            ->willReturn('/unrelated/path/file.mkv');
+        // FileMatchingService returns null (no match)
+        $this->fileMatchingService->method('match')->willReturn(null);
 
-        $volume = new Volume();
-        $volume->setName('Movies');
-        $volume->setPath('/media/movies');
-        $volume->setHostPath('/mnt/data/movies');
-
-        $result = $method->invoke($this->service, '/downloads/file.mkv', [$volume]);
+        $result = $method->invoke($this->service, '/downloads/file.mkv');
 
         $this->assertNull($result);
     }
@@ -523,7 +502,7 @@ class QBittorrentSyncServiceTest extends TestCase
     {
         $method = new ReflectionMethod($this->service, 'matchByContentPath');
 
-        $result = $method->invoke($this->service, '', []);
+        $result = $method->invoke($this->service, '');
 
         $this->assertNull($result);
     }

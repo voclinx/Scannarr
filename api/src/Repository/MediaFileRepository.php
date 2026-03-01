@@ -168,6 +168,24 @@ class MediaFileRepository extends ServiceEntityRepository
     }
 
     /**
+     * Find media files whose filePath is under the given directory suffix.
+     * Uses LIKE '%suffix/%' to match files inside a directory path.
+     * Used for matching qBittorrent directory content_paths to MediaFiles.
+     *
+     * @return MediaFile[]
+     */
+    public function findByFilePathUnderDirectory(string $directorySuffix): array
+    {
+        $suffix = rtrim($directorySuffix, '/');
+
+        return $this->createQueryBuilder('mf')
+            ->where('mf.filePath LIKE :pattern')
+            ->setParameter('pattern', '%' . $suffix . '/%')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * Find media files by exact file size in bytes.
      *
      * @return MediaFile[]
