@@ -1,38 +1,56 @@
-FROM php:8.3-fpm-alpine
+# syntax=docker/dockerfile:1
 
-RUN apk add --no-cache \
-    postgresql-dev \
-    icu-dev \
-    libzip-dev \
-    nginx \
-    supervisor \
-    dcron \
-    && docker-php-ext-install \
-    pdo_pgsql \
-    intl \
-    zip \
-    opcache
+# ============================================================
+# Stage 1 — Install PHP extensions (cached unless base image changes)
+# ============================================================
+FROM php:8.3-fpm-alpine AS php-base
 
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+# install-php-extensions uses pre-built binaries instead of compiling from source
+# This alone saves ~15-20 minutes vs docker-php-ext-install for intl (ICU)
+COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
+RUN install-php-extensions pdo_pgsql intl zip opcache
+
+# ============================================================
+# Stage 2 — Install Composer dependencies (cached unless composer.json/lock change)
+# ============================================================
+FROM php-base AS composer-deps
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /app
 COPY composer.json composer.lock* ./
-RUN composer install --no-dev --optimize-autoloader --no-scripts
 
+# BuildKit cache mount keeps Composer download cache between builds
+RUN --mount=type=cache,target=/root/.composer/cache \
+    composer install --no-dev --optimize-autoloader --no-scripts --no-interaction
+
+# ============================================================
+# Stage 3 — Final production image
+# ============================================================
+FROM php-base AS production
+
+RUN apk add --no-cache \
+    nginx \
+    supervisor \
+    dcron \
+    openssl
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /app
+
+# Copy vendor from composer-deps stage
+COPY --from=composer-deps /app/vendor ./vendor
+COPY --from=composer-deps /app/composer.json ./composer.json
+COPY --from=composer-deps /app/composer.lock ./composer.lock
+
+# Copy application source
 COPY . .
-RUN composer run-script post-install-cmd --no-interaction 2>/dev/null || true
 
-# Force production environment — overrides APP_ENV=dev from .env
-# Runtime env vars (Portainer/Docker Compose) can still override this
+# Run post-install scripts (cache:clear, assets:install)
 ENV APP_ENV=prod \
     APP_DEBUG=0
-
-# Generate JWT keys
-ARG JWT_PASSPHRASE=scanarr_jwt
-RUN mkdir -p config/jwt && \
-    openssl genpkey -out config/jwt/private.pem -aes256 -algorithm rsa -pkeyopt rsa_keygen_bits:4096 -pass pass:${JWT_PASSPHRASE} && \
-    openssl pkey -in config/jwt/private.pem -out config/jwt/public.pem -pubout -passin pass:${JWT_PASSPHRASE} && \
-    chmod 644 config/jwt/private.pem config/jwt/public.pem
+RUN composer run-script post-install-cmd --no-interaction 2>/dev/null || true
 
 # Nginx config
 COPY docker/nginx.conf /etc/nginx/http.d/default.conf
