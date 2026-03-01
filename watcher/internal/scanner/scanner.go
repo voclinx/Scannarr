@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/voclinx/scanarr-watcher/internal/filter"
@@ -97,12 +98,24 @@ func (s *Scanner) Scan(path string, scanID string) error {
 
 	duration := time.Since(startTime)
 
+	// Get filesystem disk space via statfs
+	var diskTotalBytes, diskFreeBytes int64
+	var fs syscall.Statfs_t
+	if statErr := syscall.Statfs(path, &fs); statErr == nil {
+		diskTotalBytes = int64(fs.Blocks) * int64(fs.Bsize)
+		diskFreeBytes = int64(fs.Bavail) * int64(fs.Bsize)
+	} else {
+		slog.Warn("Failed to get disk space", "path", path, "error", statErr)
+	}
+
 	s.wsClient.SendEvent("scan.completed", models.ScanCompletedData{
 		ScanID:         scanID,
 		Path:           path,
 		TotalFiles:     totalFiles,
 		TotalDirs:      totalDirs,
 		TotalSizeBytes: totalSize,
+		DiskTotalBytes: diskTotalBytes,
+		DiskFreeBytes:  diskFreeBytes,
 		DurationMs:     duration.Milliseconds(),
 	})
 
@@ -111,6 +124,8 @@ func (s *Scanner) Scan(path string, scanID string) error {
 		"scan_id", scanID,
 		"total_files", totalFiles,
 		"total_dirs", totalDirs,
+		"disk_total_bytes", diskTotalBytes,
+		"disk_free_bytes", diskFreeBytes,
 		"duration_ms", duration.Milliseconds(),
 	)
 

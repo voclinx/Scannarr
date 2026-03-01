@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace App\Service;
 
+use App\Contract\Matching\MatchResult;
 use App\Entity\MediaFile;
 use App\Entity\Movie;
 use App\Entity\RadarrInstance;
 use App\Entity\TorrentStat;
 use App\Entity\TorrentStatHistory;
 use App\Entity\TrackerRule;
-use App\Entity\Volume;
 use App\Enum\TorrentStatus;
 use App\ExternalService\MediaManager\RadarrService;
 use App\ExternalService\TorrentClient\QBittorrentService;
@@ -21,7 +21,6 @@ use App\Repository\SettingRepository;
 use App\Repository\TorrentStatHistoryRepository;
 use App\Repository\TorrentStatRepository;
 use App\Repository\TrackerRuleRepository;
-use App\Repository\VolumeRepository;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
@@ -45,6 +44,7 @@ final class QBittorrentSyncService
         private readonly EntityManagerInterface $em,
         private readonly QBittorrentService $qbitService,
         private readonly RadarrService $radarrService,
+        private readonly FileMatchingService $fileMatchingService,
         private readonly MediaFileRepository $mediaFileRepository,
         private readonly MovieRepository $movieRepository,
         private readonly TorrentStatRepository $torrentStatRepository,
@@ -52,7 +52,6 @@ final class QBittorrentSyncService
         private readonly TrackerRuleRepository $trackerRuleRepository,
         private readonly SettingRepository $settingRepository,
         private readonly RadarrInstanceRepository $radarrInstanceRepository,
-        private readonly VolumeRepository $volumeRepository,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -79,9 +78,8 @@ final class QBittorrentSyncService
         }
 
         $hashToMovie = $this->buildRadarrHashMap();
-        $volumes = $this->volumeRepository->findAllActive();
 
-        $this->processTorrents($torrents, $hashToMovie, $volumes, $result);
+        $this->processTorrents($torrents, $hashToMovie, $result);
 
         $result['stale_removed'] = $this->markStaleTorrents();
         $this->em->flush();
@@ -129,14 +127,13 @@ final class QBittorrentSyncService
      *
      * @param array<int, array<string, mixed>> $torrents
      * @param array<string, array{radarrId: int, instance: RadarrInstance}> $hashToMovie
-     * @param array<Volume> $volumes
      * @param array<string, int> $result
      */
-    private function processTorrents(array $torrents, array $hashToMovie, array $volumes, array &$result): void
+    private function processTorrents(array $torrents, array $hashToMovie, array &$result): void
     {
         foreach ($torrents as $torrent) {
             try {
-                $this->processSingleTorrent($torrent, $hashToMovie, $volumes, $result);
+                $this->processSingleTorrent($torrent, $hashToMovie, $result);
             } catch (Throwable $ex) {
                 ++$result['errors'];
                 $this->logger->error('Error processing torrent during sync', [
@@ -150,10 +147,9 @@ final class QBittorrentSyncService
     /**
      * @param array<string, mixed> $torrent
      * @param array<string, array{radarrId: int, instance: RadarrInstance}> $hashToMovie
-     * @param array<Volume> $volumes
      * @param array<string, int> $result
      */
-    private function processSingleTorrent(array $torrent, array $hashToMovie, array $volumes, array &$result): void
+    private function processSingleTorrent(array $torrent, array $hashToMovie, array &$result): void
     {
         $hash = strtolower($torrent['hash'] ?? '');
         if ($hash === '') {
@@ -166,7 +162,7 @@ final class QBittorrentSyncService
             ++$result['new_trackers'];
         }
 
-        $mediaFile = $this->findMediaFileForTorrent($torrent, $hashToMovie, $volumes);
+        $mediaFile = $this->findMediaFileForTorrent($torrent, $hashToMovie);
         if (!$mediaFile instanceof MediaFile) {
             ++$result['unmatched'];
             $this->logger->debug('No media file match for torrent', [
@@ -288,9 +284,8 @@ final class QBittorrentSyncService
      *
      * @param array<string, mixed> $torrent
      * @param array<string, array{radarrId: int, instance: RadarrInstance}> $hashToMovie
-     * @param array<Volume> $volumes
      */
-    private function findMediaFileForTorrent(array $torrent, array $hashToMovie, array $volumes): ?MediaFile
+    private function findMediaFileForTorrent(array $torrent, array $hashToMovie): ?MediaFile
     {
         $hash = strtolower($torrent['hash'] ?? '');
 
@@ -300,15 +295,13 @@ final class QBittorrentSyncService
             return $match;
         }
 
-        // Priority 2: Content path matching
-        $match = $this->matchByContentPath($torrent['content_path'] ?? '', $volumes);
+        // Priority 2: Content path matching (via FileMatchingService — progressive suffix)
+        $match = $this->matchByContentPath($torrent['content_path'] ?? '');
         if ($match instanceof MediaFile) {
             return $match;
         }
 
         // Priority 3: Cross-seed fallback (file size matching)
-        // TODO(RAF_INODES #7): add inode-based matching via FileMatchingService once that
-        // service exists (requires stat() on host paths — not feasible from inside Docker).
         return $this->matchByFileSize($torrent);
     }
 
@@ -341,34 +334,27 @@ final class QBittorrentSyncService
     }
 
     /**
-     * Match torrent to media file via content_path → host path → volume resolution.
-     *
-     * @param array<Volume> $volumes
+     * Match torrent to media file via content_path using FileMatchingService
+     * (progressive suffix matching — no path mapping configuration needed).
      */
-    private function matchByContentPath(string $contentPath, array $volumes): ?MediaFile
+    private function matchByContentPath(string $contentPath): ?MediaFile
     {
         if ($contentPath === '') {
             return null;
         }
 
-        $hostPath = $this->qbitService->mapQbitPathToHost($contentPath);
-
-        foreach ($volumes as $volume) {
-            $volumeHostPath = rtrim((string)$volume->getHostPath(), '/');
-
-            if (!str_starts_with($hostPath, $volumeHostPath . '/')) {
-                continue;
-            }
-
-            $relativePath = substr($hostPath, strlen($volumeHostPath) + 1);
-            $mediaFile = $this->mediaFileRepository->findByVolumeAndFilePath($volume, $relativePath);
-
-            if ($mediaFile instanceof MediaFile) {
-                return $mediaFile;
-            }
+        // Only attempt matching if the path points to a media file (has a media extension)
+        $extension = strtolower(pathinfo($contentPath, PATHINFO_EXTENSION));
+        if (!in_array($extension, self::MEDIA_EXTENSIONS, true)) {
+            return null;
         }
 
-        return null;
+        $matchResult = $this->fileMatchingService->match($contentPath);
+        if (!$matchResult instanceof MatchResult) {
+            return null;
+        }
+
+        return $matchResult->mediaFile;
     }
 
     /**

@@ -83,6 +83,8 @@ type ScanCompletedData struct {
 	TotalFiles     int    `json:"total_files"`
 	TotalDirs      int    `json:"total_dirs"`
 	TotalSizeBytes int64  `json:"total_size_bytes"`
+	DiskTotalBytes int64  `json:"disk_total_bytes"`
+	DiskFreeBytes  int64  `json:"disk_free_bytes"`
 	DurationMs     int64  `json:"duration_ms"`
 }
 
