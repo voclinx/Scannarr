@@ -4,11 +4,19 @@ set -e
 # Create log directory
 mkdir -p /var/log/scanarr
 
-# Wait for database to be ready using pg_isready-style check
+# Wait for database to be ready — parse DATABASE_URL to extract credentials
+# DATABASE_URL format: postgresql://user:password@host:port/dbname
 echo "Waiting for database..."
+_DB_URL="${DATABASE_URL:-postgresql://scanarr:scanarr_secret@db:5432/scanarr}"
+_DB_USER=$(echo "$_DB_URL" | sed 's|.*://\([^:]*\):.*|\1|')
+_DB_PASS=$(echo "$_DB_URL" | sed 's|.*://[^:]*:\([^@]*\)@.*|\1|')
+_DB_HOST=$(echo "$_DB_URL" | sed 's|.*@\([^:/]*\).*|\1|')
+_DB_PORT=$(echo "$_DB_URL" | sed 's|.*@[^:]*:\([0-9]*\)/.*|\1|')
+_DB_NAME=$(echo "$_DB_URL" | sed 's|.*/\([^?]*\).*|\1|')
+
 until php -r "
-    \$dsn = 'pgsql:host=db;port=5432;dbname=scanarr';
-    try { new PDO(\$dsn, 'scanarr', getenv('POSTGRES_PASSWORD') ?: 'scanarr_secret'); echo 'ok'; }
+    \$dsn = 'pgsql:host=${_DB_HOST};port=${_DB_PORT};dbname=${_DB_NAME}';
+    try { new PDO(\$dsn, '${_DB_USER}', '${_DB_PASS}'); echo 'ok'; }
     catch (Exception \$e) { exit(1); }
 " 2>/dev/null; do
     sleep 2

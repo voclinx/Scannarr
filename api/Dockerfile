@@ -22,6 +22,11 @@ RUN composer install --no-dev --optimize-autoloader --no-scripts
 COPY . .
 RUN composer run-script post-install-cmd --no-interaction 2>/dev/null || true
 
+# Force production environment — overrides APP_ENV=dev from .env
+# Runtime env vars (Portainer/Docker Compose) can still override this
+ENV APP_ENV=prod \
+    APP_DEBUG=0
+
 # Generate JWT keys
 ARG JWT_PASSPHRASE=scanarr_jwt
 RUN mkdir -p config/jwt && \
