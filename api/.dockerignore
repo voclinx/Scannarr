@@ -1,0 +1,30 @@
+# Dependencies (installed during build)
+vendor/
+
+# Symfony var (cache, logs)
+var/
+
+# Dev/test files
+tests/
+phpunit.xml*
+.php-cs-fixer*
+.phpstan*
+phpmd*
+rector.php
+
+# Docker build context — docker/ is NOT excluded (needed for COPY in Dockerfile)
+
+# IDE / OS
+.idea/
+.vscode/
+.git/
+.gitignore
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Documentation
+*.md
+LICENSE

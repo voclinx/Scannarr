@@ -7,6 +7,19 @@ mkdir -p /var/log/scanarr
 # Ensure .env file exists (required by Symfony Dotenv::bootEnv even in APP_ENV=prod)
 [ -f /app/.env ] || touch /app/.env
 
+# Generate JWT keys on first run (if not already present or mounted)
+if [ ! -f /app/config/jwt/private.pem ]; then
+    echo "Generating JWT keys..."
+    _JWT_PASS="${JWT_PASSPHRASE:-scanarr_jwt}"
+    mkdir -p /app/config/jwt
+    openssl genpkey -out /app/config/jwt/private.pem -aes256 -algorithm rsa \
+        -pkeyopt rsa_keygen_bits:4096 -pass "pass:${_JWT_PASS}"
+    openssl pkey -in /app/config/jwt/private.pem -out /app/config/jwt/public.pem \
+        -pubout -passin "pass:${_JWT_PASS}"
+    chmod 644 /app/config/jwt/private.pem /app/config/jwt/public.pem
+    echo "JWT keys generated."
+fi
+
 # Wait for database to be ready — parse DATABASE_URL to extract credentials
 # DATABASE_URL format: postgresql://user:password@host:port/dbname
 echo "Waiting for database..."
