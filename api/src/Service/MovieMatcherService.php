@@ -4,20 +4,17 @@ declare(strict_types=1);
 
 namespace App\Service;
 
+use App\Contract\Matching\MatchResult;
 use App\Dto\Internal\RadarrParseResult;
 use App\Entity\MediaFile;
 use App\Entity\Movie;
 use App\Entity\MovieFile;
 use App\Entity\RadarrInstance;
-use App\Entity\Volume;
-use App\Enum\VolumeStatus;
 use App\ExternalService\MediaManager\RadarrService;
 use App\ExternalService\Metadata\TmdbService;
-use App\Repository\MediaFileRepository;
 use App\Repository\MovieFileRepository;
 use App\Repository\MovieRepository;
 use App\Repository\RadarrInstanceRepository;
-use App\Repository\VolumeRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Exception;
 use Psr\Log\LoggerInterface;
@@ -36,11 +33,10 @@ final readonly class MovieMatcherService
         private RadarrInstanceRepository $radarrInstanceRepository,
         private MovieRepository $movieRepository,
         private MovieFileRepository $movieFileRepository,
-        private MediaFileRepository $mediaFileRepository,
-        private VolumeRepository $volumeRepository,
         private EntityManagerInterface $em,
         private RadarrService $radarrService,
         private TmdbService $tmdbService,
+        private FileMatchingService $fileMatchingService,
         private LoggerInterface $logger,
     ) {
     }
@@ -65,10 +61,11 @@ final readonly class MovieMatcherService
     }
 
     /**
-     * Step 1 — Match via Radarr API (priority, confidence 1.0).
+     * Step 1 — Match via Radarr API (priority).
      *
      * For each active Radarr instance, gets movies with their files.
-     * Matches Radarr files with media_files in DB via path (root folder mapping).
+     * Matches Radarr file paths with media_files in DB via FileMatchingService
+     * (progressive suffix matching).
      */
     public function matchViaRadarr(): int
     {
@@ -133,13 +130,13 @@ final readonly class MovieMatcherService
      */
     public function matchSingleFile(MediaFile $mediaFile): ?MovieFile
     {
-        // 1. Try Radarr API path match first (confidence 1.0)
+        // 1. Try Radarr API path match first
         $movieFile = $this->matchSingleFileViaRadarr($mediaFile);
         if ($movieFile instanceof MovieFile) {
             return $movieFile;
         }
 
-        // 2. Try Radarr parse + TMDB (confidence 0.7-0.9)
+        // 2. Try Radarr parse + TMDB
         $movie = $this->matchFileViaRadarrParse($mediaFile);
 
         if ($movie instanceof Movie) {
@@ -160,21 +157,11 @@ final readonly class MovieMatcherService
      */
     private function matchInstanceViaRadarr(RadarrInstance $instance): int
     {
-        $rootFolderMap = $this->buildRootFolderMap($instance);
-
-        if ($rootFolderMap === []) {
-            $this->logger->warning('No root folder mapping for instance', [
-                'instance' => $instance->getName(),
-            ]);
-
-            return 0;
-        }
-
         $movies = $this->movieRepository->findBy(['radarrInstance' => $instance]);
         $matched = 0;
 
         foreach ($movies as $movie) {
-            $matched += $this->matchMovieFilesViaRadarr($instance, $movie, $rootFolderMap);
+            $matched += $this->matchMovieFilesViaRadarr($instance, $movie);
         }
 
         $this->em->flush();
@@ -184,10 +171,9 @@ final readonly class MovieMatcherService
 
     /**
      * Match files for a single movie via Radarr API.
-     *
-     * @param array<int, array{radarr_path: string, volume: Volume, volume_subpath: string}> $rootFolderMap
+     * Uses FileMatchingService (progressive suffix matching) to resolve paths.
      */
-    private function matchMovieFilesViaRadarr(RadarrInstance $instance, Movie $movie, array $rootFolderMap): int
+    private function matchMovieFilesViaRadarr(RadarrInstance $instance, Movie $movie): int
     {
         if ($movie->getRadarrId() === null) {
             return 0;
@@ -207,7 +193,7 @@ final readonly class MovieMatcherService
 
         $matched = 0;
         foreach ($radarrFiles as $radarrFile) {
-            $matched += $this->matchSingleRadarrFile($instance, $movie, $radarrFile, $rootFolderMap);
+            $matched += $this->matchSingleRadarrFile($instance, $movie, $radarrFile);
         }
 
         return $matched;
@@ -215,19 +201,20 @@ final readonly class MovieMatcherService
 
     /**
      * @param array<string, mixed> $radarrFile
-     * @param array<int, array{radarr_path: string, volume: Volume, volume_subpath: string}> $rootFolderMap
      */
-    private function matchSingleRadarrFile(RadarrInstance $instance, Movie $movie, array $radarrFile, array $rootFolderMap): int
+    private function matchSingleRadarrFile(RadarrInstance $instance, Movie $movie, array $radarrFile): int
     {
         $radarrPath = $radarrFile['path'] ?? null;
         if ($radarrPath === null) {
             return 0;
         }
 
-        $mediaFile = $this->findMediaFileByRadarrPath($radarrPath, $rootFolderMap);
-        if (!$mediaFile instanceof MediaFile) {
+        $matchResult = $this->fileMatchingService->match($radarrPath);
+        if (!$matchResult instanceof MatchResult) {
             return 0;
         }
+
+        $mediaFile = $matchResult->mediaFile;
 
         $created = $this->createMovieFileLink($movie, $mediaFile, 'radarr_api', '1.00');
         if (!$created) {
@@ -241,21 +228,22 @@ final readonly class MovieMatcherService
     }
 
     /**
-     * Try to match a single file via Radarr API.
+     * Try to match a single media file via Radarr API.
+     * Iterates over all active instances and their movies to find a Radarr file
+     * whose path resolves (via FileMatchingService) to this media file.
      */
     private function matchSingleFileViaRadarr(MediaFile $mediaFile): ?MovieFile
     {
-        $volume = $mediaFile->getVolume();
-        if (!$volume instanceof Volume) {
-            return null;
-        }
-
         $instances = $this->radarrInstanceRepository->findBy(['isActive' => true]);
 
         foreach ($instances as $instance) {
-            $result = $this->tryMatchFileInInstance($mediaFile, $volume, $instance);
-            if ($result instanceof MovieFile) {
-                return $result;
+            $movies = $this->movieRepository->findBy(['radarrInstance' => $instance]);
+
+            foreach ($movies as $movie) {
+                $result = $this->tryMatchFileAgainstMovie($mediaFile, $movie, $instance);
+                if ($result instanceof MovieFile) {
+                    return $result;
+                }
             }
         }
 
@@ -263,53 +251,12 @@ final readonly class MovieMatcherService
     }
 
     /**
-     * Try to match a media file within a specific Radarr instance.
-     */
-    private function tryMatchFileInInstance(MediaFile $mediaFile, Volume $volume, RadarrInstance $instance): ?MovieFile
-    {
-        $rootFolderMap = $this->buildRootFolderMap($instance);
-        if ($rootFolderMap === []) {
-            return null;
-        }
-
-        if (!$this->isVolumeMappedToInstance($volume, $rootFolderMap)) {
-            return null;
-        }
-
-        $movies = $this->movieRepository->findBy(['radarrInstance' => $instance]);
-
-        foreach ($movies as $movie) {
-            $result = $this->tryMatchFileAgainstMovie($mediaFile, $movie, $instance, $rootFolderMap);
-            if ($result instanceof MovieFile) {
-                return $result;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * @param array<int, array{radarr_path: string, volume: Volume, volume_subpath: string}> $rootFolderMap
-     */
-    private function isVolumeMappedToInstance(Volume $volume, array $rootFolderMap): bool
-    {
-        foreach ($rootFolderMap as $mapping) {
-            if ($mapping['volume']->getId()->equals($volume->getId())) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param array<int, array{radarr_path: string, volume: Volume, volume_subpath: string}> $rootFolderMap
+     * Try to match a media file against a specific movie's Radarr files.
      */
     private function tryMatchFileAgainstMovie(
         MediaFile $mediaFile,
         Movie $movie,
         RadarrInstance $instance,
-        array $rootFolderMap,
     ): ?MovieFile {
         if ($movie->getRadarrId() === null) {
             return null;
@@ -321,26 +268,18 @@ final readonly class MovieMatcherService
             return null;
         }
 
-        return $this->findAndLinkMatch($mediaFile, $movie, $instance, $radarrFiles, $rootFolderMap);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $radarrFiles
-     * @param array<int, array{radarr_path: string, volume: Volume, volume_subpath: string}> $rootFolderMap
-     */
-    private function findAndLinkMatch(
-        MediaFile $mediaFile,
-        Movie $movie,
-        RadarrInstance $instance,
-        array $radarrFiles,
-        array $rootFolderMap,
-    ): ?MovieFile {
         foreach ($radarrFiles as $radarrFile) {
-            $matchedFile = $this->findMediaFileByRadarrPath($radarrFile['path'] ?? '', $rootFolderMap);
-            if (!$matchedFile instanceof MediaFile) {
+            $radarrPath = $radarrFile['path'] ?? '';
+            if ($radarrPath === '') {
                 continue;
             }
-            if (!$matchedFile->getId()->equals($mediaFile->getId())) {
+
+            $matchResult = $this->fileMatchingService->match($radarrPath);
+            if (!$matchResult instanceof MatchResult) {
+                continue;
+            }
+
+            if (!$matchResult->mediaFile->getId()->equals($mediaFile->getId())) {
                 continue;
             }
 
@@ -350,118 +289,6 @@ final readonly class MovieMatcherService
             $this->em->flush();
 
             return $this->movieFileRepository->findOneBy(['movie' => $movie, 'mediaFile' => $mediaFile]);
-        }
-
-        return null;
-    }
-
-    /**
-     * Build a mapping from Radarr root folder paths to volumes.
-     *
-     * @return array<int, array{radarr_path: string, volume: Volume, volume_subpath: string}>
-     */
-    private function buildRootFolderMap(RadarrInstance $instance): array
-    {
-        $rootFolders = $instance->getRootFolders();
-        if ($rootFolders === null || $rootFolders === []) {
-            return [];
-        }
-
-        $volumes = $this->volumeRepository->findBy(['status' => VolumeStatus::ACTIVE]);
-        $map = [];
-
-        foreach ($rootFolders as $rf) {
-            $radarrPath = rtrim($rf['path'] ?? '', '/');
-            $mappedPath = rtrim($rf['mapped_path'] ?? $rf['path'] ?? '', '/');
-
-            $mapping = $this->matchRootFolderToVolume($radarrPath, $mappedPath, $volumes);
-            if ($mapping !== null) {
-                $map[] = $mapping;
-            }
-        }
-
-        return $map;
-    }
-
-    /**
-     * Try to match a single root folder to a volume.
-     *
-     * @param Volume[] $volumes
-     *
-     * @return array{radarr_path: string, volume: Volume, volume_subpath: string}|null
-     */
-    private function matchRootFolderToVolume(string $radarrPath, string $mappedPath, array $volumes): ?array
-    {
-        foreach ($volumes as $volume) {
-            $hostPath = rtrim($volume->getHostPath() ?? '', '/');
-            $dockerPath = rtrim($volume->getPath() ?? '', '/');
-
-            $subpath = $this->extractSubpath($mappedPath, $hostPath);
-            if ($subpath === null) {
-                $subpath = $this->extractSubpath($mappedPath, $dockerPath);
-            }
-
-            if ($subpath !== null) {
-                return [
-                    'radarr_path' => $radarrPath,
-                    'volume' => $volume,
-                    'volume_subpath' => $subpath,
-                ];
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Extract subpath if mappedPath starts with basePath. Returns null if no match.
-     */
-    private function extractSubpath(string $mappedPath, string $basePath): ?string
-    {
-        if ($basePath === '') {
-            return null;
-        }
-
-        if ($mappedPath === $basePath) {
-            return '';
-        }
-
-        if (str_starts_with($mappedPath, $basePath . '/')) {
-            return substr($mappedPath, strlen($basePath) + 1);
-        }
-
-        return null;
-    }
-
-    /**
-     * Find a MediaFile by matching a Radarr file path with our volumes.
-     *
-     * @param array<int, array{radarr_path: string, volume: Volume, volume_subpath: string}> $rootFolderMap
-     */
-    private function findMediaFileByRadarrPath(string $radarrFilePath, array $rootFolderMap): ?MediaFile
-    {
-        foreach ($rootFolderMap as $mapping) {
-            $radarrRoot = $mapping['radarr_path'];
-
-            if (str_starts_with($radarrFilePath, $radarrRoot . '/')) {
-                // Extract the relative path after the Radarr root folder
-                $relativePath = substr($radarrFilePath, strlen($radarrRoot) + 1);
-
-                // Prepend volume subpath if any
-                if (!empty($mapping['volume_subpath'])) {
-                    $relativePath = $mapping['volume_subpath'] . '/' . $relativePath;
-                }
-
-                // Find in our DB
-                $mediaFile = $this->mediaFileRepository->findByVolumeAndFilePath(
-                    $mapping['volume'],
-                    $relativePath,
-                );
-
-                if ($mediaFile instanceof MediaFile) {
-                    return $mediaFile;
-                }
-            }
         }
 
         return null;

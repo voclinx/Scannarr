@@ -89,6 +89,9 @@ final readonly class ScanCompletedHandler implements WatcherMessageHandlerInterf
         if (isset($data['total_size_bytes'])) {
             $volume->setUsedSpaceBytes((int)$data['total_size_bytes']);
         }
+        if (isset($data['disk_total_bytes']) && (int)$data['disk_total_bytes'] > 0) {
+            $volume->setTotalSpaceBytes((int)$data['disk_total_bytes']);
+        }
         $this->em->flush();
     }
 

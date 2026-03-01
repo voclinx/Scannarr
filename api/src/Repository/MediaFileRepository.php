@@ -153,6 +153,21 @@ class MediaFileRepository extends ServiceEntityRepository
     }
 
     /**
+     * Find media files whose filePath ends with the given suffix.
+     * Used by PathSuffixMatchingStrategy for cross-service path matching.
+     *
+     * @return MediaFile[]
+     */
+    public function findByFilePathEndsWith(string $suffix): array
+    {
+        return $this->createQueryBuilder('mf')
+            ->where('mf.filePath LIKE :suffix')
+            ->setParameter('suffix', '%' . $suffix)
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * Find media files by exact file size in bytes.
      *
      * @return MediaFile[]
