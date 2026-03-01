@@ -138,7 +138,9 @@ SCANARR_AUTH_TOKEN=VOTRE_WATCHER_AUTH_TOKEN_ICI
 SCANARR_STATE_PATH=/etc/scanarr/watcher-state.json
 EOF
 
-# Rendre le fichier lisible par l'utilisateur courant (créé par sudo = root)
+# Rendre le dossier et le fichier lisibles par les utilisateurs non-root
+# (le dossier créé par sudo est en 700 par défaut sur DSM)
+sudo chmod 755 /etc/scanarr/
 sudo chmod 644 /etc/scanarr/watcher.env
 ```
 
@@ -288,10 +290,15 @@ export $(grep -v "^#" /etc/scanarr/watcher.env | xargs) && ./scanarr-watcher-lin
 Vérifier que le fichier est lisible et contient bien `SCANARR_WATCHER_ID` :
 
 ```bash
-# Vérifier les permissions (doit être -rw-r--r--)
+# Vérifier les permissions du dossier (doit être drwxr-xr-x)
+ls -la /etc/ | grep scanarr
+
+# Vérifier les permissions du fichier (doit être -rw-r--r--)
 ls -la /etc/scanarr/watcher.env
 
-# Si "Permission denied", corriger avec :
+# Si "Permission denied" malgré chmod 644 sur le fichier :
+# c'est le DOSSIER /etc/scanarr/ qui est en 700 (root only sur DSM)
+sudo chmod 755 /etc/scanarr/
 sudo chmod 644 /etc/scanarr/watcher.env
 
 # Vérifier le contenu
