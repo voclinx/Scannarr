@@ -334,8 +334,8 @@ final class QBittorrentSyncService
     }
 
     /**
-     * Match torrent to media file via content_path using FileMatchingService
-     * (progressive suffix matching — no path mapping configuration needed).
+     * Match torrent to media file via content_path using FileMatchingService.
+     * Handles both file paths (single-file torrents) and directory paths (multi-file torrents).
      */
     private function matchByContentPath(string $contentPath): ?MediaFile
     {
@@ -343,18 +343,105 @@ final class QBittorrentSyncService
             return null;
         }
 
-        // Only attempt matching if the path points to a media file (has a media extension)
         $extension = strtolower(pathinfo($contentPath, PATHINFO_EXTENSION));
-        if (!in_array($extension, self::MEDIA_EXTENSIONS, true)) {
+
+        // File path (has media extension) → direct suffix matching via FileMatchingService
+        if (in_array($extension, self::MEDIA_EXTENSIONS, true)) {
+            $matchResult = $this->fileMatchingService->match($contentPath);
+
+            return $matchResult instanceof MatchResult ? $matchResult->mediaFile : null;
+        }
+
+        // Directory path (no media extension) → find files under this directory
+        return $this->matchByDirectoryContentPath($contentPath);
+    }
+
+    /**
+     * Match a directory content_path to a MediaFile by finding files under
+     * progressively shorter directory suffixes. Returns the largest media file.
+     *
+     * Example: content_path "/data/torrents/movies/Movie.2024"
+     *   Tries: "data/torrents/movies/Movie.2024" → LIKE '%…/%' → 0 results
+     *          "torrents/movies/Movie.2024" → 0 results
+     *          "movies/Movie.2024" → finds files → picks largest → MATCH
+     */
+    private function matchByDirectoryContentPath(string $directoryPath): ?MediaFile
+    {
+        $path = rtrim($directoryPath, '/');
+        $segments = explode('/', ltrim($path, '/'));
+
+        if ($segments === ['']) {
             return null;
         }
 
-        $matchResult = $this->fileMatchingService->match($contentPath);
-        if (!$matchResult instanceof MatchResult) {
-            return null;
+        for ($i = 0, $max = count($segments); $i < $max; ++$i) {
+            $suffix = implode('/', array_slice($segments, $i));
+            $results = $this->mediaFileRepository->findByFilePathUnderDirectory($suffix);
+
+            if ($results === []) {
+                continue;
+            }
+
+            // Deduplicate hardlinks, then pick the largest media file
+            $unique = $this->deduplicateByInode($results);
+
+            return $this->pickLargestFile($unique);
         }
 
-        return $matchResult->mediaFile;
+        return null;
+    }
+
+    /**
+     * Deduplicate MediaFiles that are hardlinks (same device_id + inode).
+     *
+     * @param MediaFile[] $files
+     *
+     * @return MediaFile[]
+     */
+    private function deduplicateByInode(array $files): array
+    {
+        $seen = [];
+        $unique = [];
+
+        foreach ($files as $file) {
+            $deviceId = $file->getDeviceId();
+            $inode = $file->getInode();
+
+            if ($deviceId === null || $inode === null) {
+                $unique[] = $file;
+
+                continue;
+            }
+
+            $key = $deviceId . ':' . $inode;
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $unique[] = $file;
+            }
+        }
+
+        return $unique;
+    }
+
+    /**
+     * From a list of MediaFiles, return the one with the largest file size.
+     *
+     * @param MediaFile[] $files
+     */
+    private function pickLargestFile(array $files): ?MediaFile
+    {
+        $largest = null;
+        $maxSize = -1;
+
+        foreach ($files as $file) {
+            $size = $file->getFileSizeBytes();
+            if ($size > $maxSize) {
+                $maxSize = $size;
+                $largest = $file;
+            }
+        }
+
+        return $largest;
     }
 
     /**

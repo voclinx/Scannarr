@@ -19,9 +19,11 @@ use App\Repository\MediaFileRepository;
  *  2. Minimum 2 path segments (never match on basename alone).
  *  3. LIKE '%{suffix}' search (ends-with):
  *       0 results → try shorter suffix
- *       1 result  → MATCH
- *       2+ results → ambiguous, skip to next suffix
+ *       1 unique result  → MATCH
+ *       2+ unique results → ambiguous, skip to next suffix
  *  4. Binary decision, no confidence scoring (always 1.0).
+ *  5. Hardlink deduplication: results sharing the same (device_id, inode)
+ *     are treated as a single physical file (common across media/torrents/cross-seed volumes).
  */
 final readonly class PathSuffixMatchingStrategy implements FileMatchingStrategyInterface
 {
@@ -47,19 +49,57 @@ final readonly class PathSuffixMatchingStrategy implements FileMatchingStrategyI
         foreach ($suffixes as $suffix) {
             $results = $this->mediaFileRepository->findByFilePathEndsWith($suffix);
 
-            if (count($results) === 1) {
+            // Deduplicate hardlinks: same (device_id, inode) = same physical file
+            $unique = $this->deduplicateByInode($results);
+
+            if (count($unique) === 1) {
                 return new MatchResult(
-                    mediaFile: $results[0],
+                    mediaFile: $unique[0],
                     strategy: 'path_suffix',
                     confidence: 1.0,
                 );
             }
 
             // 0 results → try shorter suffix
-            // 2+ results → ambiguous, skip to next suffix
+            // 2+ unique results → truly ambiguous, skip to next suffix
         }
 
         return null;
+    }
+
+    /**
+     * Deduplicate MediaFiles that are hardlinks of the same physical file.
+     * Files sharing the same (device_id, inode) are the same physical data
+     * across different volumes (media, torrents, cross-seed).
+     *
+     * @param MediaFile[] $files
+     *
+     * @return MediaFile[]
+     */
+    private function deduplicateByInode(array $files): array
+    {
+        $seen = [];
+        $unique = [];
+
+        foreach ($files as $file) {
+            $deviceId = $file->getDeviceId();
+            $inode = $file->getInode();
+
+            // If no inode info, treat as unique (can't deduplicate)
+            if ($deviceId === null || $inode === null) {
+                $unique[] = $file;
+
+                continue;
+            }
+
+            $key = $deviceId . ':' . $inode;
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $unique[] = $file;
+            }
+        }
+
+        return $unique;
     }
 
     /**
@@ -87,7 +127,7 @@ final readonly class PathSuffixMatchingStrategy implements FileMatchingStrategyI
         // Start from index 0 (full path minus leading slash) down to (count - MIN_SEGMENTS)
         $maxStartIndex = count($segments) - self::MIN_SEGMENTS;
 
-        for ($i = 0; $i <= $maxStartIndex; $i++) {
+        for ($i = 0; $i <= $maxStartIndex; ++$i) {
             $suffixes[] = implode('/', array_slice($segments, $i));
         }
 
