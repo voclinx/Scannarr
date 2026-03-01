@@ -65,7 +65,28 @@ final class SuggestionService
                 continue;
             }
 
-            $totalSelectableSize += $item['total_file_size_bytes'];
+            $totalSelectableSize += $item['total_size_bytes'];
+
+            foreach ($item['files'] as $file) {
+                foreach ($file['torrents'] as $torrent) {
+                    if ($torrent['tracker_domain'] !== null) {
+                        $trackersDetected[$torrent['tracker_domain']] = true;
+                    }
+                }
+            }
+
+            $suggestions[] = $item;
+        }
+
+        // Include orphan files (not linked to any movie — files in qBit/Plex but unidentified)
+        $orphanFiles = $this->mediaFileRepository->findOrphansWithoutMovie($volumeId, $excludeProtected);
+        foreach ($orphanFiles as $mediaFile) {
+            $item = $this->buildOrphanSuggestionItem($mediaFile, $trackerRules, $seedingStatus);
+            if ($item === null) {
+                continue;
+            }
+
+            $totalSelectableSize += $item['total_size_bytes'];
 
             foreach ($item['files'] as $file) {
                 foreach ($file['torrents'] as $torrent) {
@@ -202,18 +223,24 @@ final class SuggestionService
         $count = 0;
         foreach ($items as $itemData) {
             $movieId = $itemData['movie_id'] ?? null;
-            if (!$movieId) {
+            $fileIds = $itemData['file_ids'] ?? [];
+
+            if ($fileIds === []) {
                 continue;
             }
 
-            $movie = $this->movieRepository->find($movieId);
-            if (!$movie instanceof Movie) {
-                continue;
+            $movie = null;
+            if ($movieId !== null) {
+                $movie = $this->movieRepository->find($movieId);
+                if (!$movie instanceof Movie) {
+                    continue;
+                }
             }
 
+            // Orphan items (movie_id = null) are allowed — ScheduledDeletionItem.movie is nullable
             $item = new ScheduledDeletionItem();
             $item->setMovie($movie);
-            $item->setMediaFileIds($itemData['file_ids'] ?? []);
+            $item->setMediaFileIds($fileIds);
             $deletion->addItem($item);
             ++$count;
         }
@@ -285,6 +312,9 @@ final class SuggestionService
                 'cross_seed_count' => count($torrents),
                 'blocked_by_tracker_rules' => $trackerCheck['blocked'],
                 'tracker_block_reason' => $trackerCheck['reason'],
+                'is_in_radarr' => $mediaFile->isLinkedRadarr(),
+                'is_in_torrent_client' => $torrents !== [],
+                'is_in_media_player' => $mediaFile->isLinkedMediaPlayer(),
                 'torrents' => $torrents,
             ];
 
@@ -309,11 +339,20 @@ final class SuggestionService
         $maxSeedTime = 0;
         $totalCrossSeedCount = 0;
         $isBlockedByAnyRule = false;
+        $hasRadarr = $movie->getRadarrId() !== null;
+        $hasTorrentClient = false;
+        $hasMediaPlayer = false;
 
         foreach ($filesData as $file) {
             $totalCrossSeedCount += $file['cross_seed_count'];
             if ($file['blocked_by_tracker_rules']) {
                 $isBlockedByAnyRule = true;
+            }
+            if ($file['is_in_torrent_client']) {
+                $hasTorrentClient = true;
+            }
+            if ($file['is_in_media_player']) {
+                $hasMediaPlayer = true;
             }
             foreach ($file['torrents'] as $torrent) {
                 $ratio = $torrent['ratio'];
@@ -351,6 +390,109 @@ final class SuggestionService
             'cross_seed_count' => $totalCrossSeedCount,
             'blocked_by_tracker_rules' => $isBlockedByAnyRule,
             'file_count' => count($filesData),
+            'is_in_radarr' => $hasRadarr,
+            'is_in_torrent_client' => $hasTorrentClient,
+            'is_in_media_player' => $hasMediaPlayer,
+        ];
+    }
+
+    /**
+     * Build a suggestion item for an orphan file (no movie link).
+     *
+     * @param array<string, TrackerRule> $trackerRules
+     *
+     * @return array<string, mixed>|null
+     */
+    private function buildOrphanSuggestionItem(
+        MediaFile $mediaFile,
+        array $trackerRules,
+        string $seedingStatus,
+    ): ?array {
+        if ($mediaFile->isProtected()) {
+            return null;
+        }
+
+        $torrents = $this->getFileTorrents($mediaFile);
+        $fileSeedingStatus = $this->calculateSeedingStatus($torrents);
+
+        if ($seedingStatus === 'orphans_only' && $fileSeedingStatus !== 'orphan') {
+            return null;
+        }
+        if ($seedingStatus === 'seeding_only' && $fileSeedingStatus !== 'seeding') {
+            return null;
+        }
+
+        $trackerCheck = $this->isBlockedByTrackerRules($torrents, $trackerRules);
+        $realFreedBytes = $this->calculateRealFreedBytes($mediaFile);
+
+        // Build a readable title from the filename
+        $baseName = pathinfo($mediaFile->getFileName(), PATHINFO_FILENAME);
+        $displayTitle = preg_replace('/\s+/', ' ', str_replace(['.', '_'], ' ', $baseName));
+
+        $bestRatio = null;
+        $worstRatio = null;
+        $maxSeedTime = 0;
+        foreach ($torrents as $torrent) {
+            $ratio = $torrent['ratio'];
+            if ($bestRatio === null || $ratio > $bestRatio) {
+                $bestRatio = $ratio;
+            }
+            if ($worstRatio === null || $ratio < $worstRatio) {
+                $worstRatio = $ratio;
+            }
+            if ($torrent['seed_time_seconds'] > $maxSeedTime) {
+                $maxSeedTime = $torrent['seed_time_seconds'];
+            }
+        }
+
+        $fileData = [
+            'id' => (string)$mediaFile->getId(),
+            'file_name' => $mediaFile->getFileName(),
+            'file_path' => $mediaFile->getFilePath(),
+            'file_size_bytes' => $mediaFile->getFileSizeBytes(),
+            'hardlink_count' => $mediaFile->getHardlinkCount(),
+            'inode' => $mediaFile->getInode(),
+            'device_id' => $mediaFile->getDeviceId(),
+            'real_freed_bytes' => $realFreedBytes,
+            'volume_id' => (string)$mediaFile->getVolume()?->getId(),
+            'volume_name' => $mediaFile->getVolume()?->getName(),
+            'resolution' => $mediaFile->getResolution(),
+            'codec' => $mediaFile->getCodec(),
+            'is_protected' => false,
+            'partial_hash' => $mediaFile->getPartialHash(),
+            'seeding_status' => $fileSeedingStatus,
+            'cross_seed_count' => count($torrents),
+            'blocked_by_tracker_rules' => $trackerCheck['blocked'],
+            'tracker_block_reason' => $trackerCheck['reason'],
+            'is_in_radarr' => $mediaFile->isLinkedRadarr(),
+            'is_in_torrent_client' => $torrents !== [],
+            'is_in_media_player' => $mediaFile->isLinkedMediaPlayer(),
+            'torrents' => $torrents,
+        ];
+
+        return [
+            'movie' => [
+                'id' => null,
+                'title' => $displayTitle,
+                'year' => null,
+                'poster_url' => null,
+                'genres' => null,
+                'rating' => null,
+                'is_protected' => false,
+            ],
+            'files' => [$fileData],
+            'seeding_status' => $fileSeedingStatus,
+            'total_size_bytes' => $mediaFile->getFileSizeBytes(),
+            'total_freed_bytes' => $realFreedBytes,
+            'best_ratio' => $bestRatio,
+            'worst_ratio' => $worstRatio,
+            'total_seed_time_max_seconds' => $maxSeedTime,
+            'cross_seed_count' => count($torrents),
+            'blocked_by_tracker_rules' => $trackerCheck['blocked'],
+            'file_count' => 1,
+            'is_in_radarr' => false,
+            'is_in_torrent_client' => $torrents !== [],
+            'is_in_media_player' => $mediaFile->isLinkedMediaPlayer(),
         ];
     }
 
