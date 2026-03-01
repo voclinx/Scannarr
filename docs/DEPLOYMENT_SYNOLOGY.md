@@ -100,6 +100,8 @@ docker exec scanarr-api php bin/console app:create-user \
 
 Le watcher est un binaire Go natif qui surveille le filesystem et communique avec l'API via WebSocket. Il tourne **en dehors de Docker** pour un accès filesystem direct.
 
+> ⚠️ **Important** : le binaire lit ses variables de configuration via `os.Getenv()`. Il **ne charge pas** le fichier `watcher.env` automatiquement — les variables doivent être **exportées dans le shell** avant de lancer le binaire.
+
 ### 5a. Télécharger le binaire
 
 Les binaires sont attachés aux releases GitHub :
@@ -109,12 +111,12 @@ https://github.com/voclinx/Scannarr/releases/latest
 → scanarr-watcher-linux-amd64   (DS923+ = processeur AMD Ryzen)
 ```
 
-Copier sur le NAS via SSH :
+Déposer le binaire sur le NAS (ici dans `/volume1/docker/scannar/`) :
 
 ```bash
 # Depuis votre machine locale
-scp scanarr-watcher-linux-amd64 admin@192.168.1.91:/usr/local/bin/scanarr-watcher
-ssh admin@192.168.1.91 "chmod +x /usr/local/bin/scanarr-watcher"
+scp scanarr-watcher-linux-amd64 admin@192.168.1.91:/volume1/docker/scannar/scanarr-watcher-linux-amd64
+ssh admin@192.168.1.91 "chmod +x /volume1/docker/scannar/scanarr-watcher-linux-amd64"
 ```
 
 ### 5b. Créer le fichier de configuration
@@ -137,7 +139,24 @@ SCANARR_STATE_PATH=/etc/scanarr/watcher-state.json
 EOF
 ```
 
-### 5c. Démarrage automatique via DSM Task Scheduler
+### 5c. Tester le watcher manuellement
+
+Avant de configurer le démarrage automatique, tester en SSH :
+
+```bash
+ssh admin@192.168.1.91
+export $(grep -v "^#" /etc/scanarr/watcher.env | xargs) && /volume1/docker/scannar/scanarr-watcher-linux-amd64
+```
+
+Le watcher doit se connecter et afficher quelque chose comme :
+```
+time=... level=INFO msg="Connecting to WebSocket" url=ws://192.168.1.91:8081/ws/watcher
+time=... level=INFO msg="Connected"
+```
+
+`Ctrl+C` pour arrêter, puis configurer le démarrage automatique.
+
+### 5d. Démarrage automatique via DSM Task Scheduler
 
 Dans **Panneau de configuration** → **Planificateur de tâches** :
 
@@ -146,7 +165,7 @@ Dans **Panneau de configuration** → **Planificateur de tâches** :
 3. Utilisateur : `root`
 4. Commande :
    ```bash
-   /bin/sh -c 'export $(grep -v "^#" /etc/scanarr/watcher.env | xargs); /usr/local/bin/scanarr-watcher >> /var/log/scanarr-watcher.log 2>&1 &'
+   /bin/sh -c 'export $(grep -v "^#" /etc/scanarr/watcher.env | xargs) && /volume1/docker/scannar/scanarr-watcher-linux-amd64 >> /var/log/scanarr-watcher.log 2>&1 &'
    ```
 5. Cocher **Activer** → Sauvegarder
 
@@ -154,7 +173,13 @@ Démarrer immédiatement sans redémarrer le NAS :
 
 ```bash
 ssh admin@192.168.1.91
-/bin/sh -c 'export $(grep -v "^#" /etc/scanarr/watcher.env | xargs); /usr/local/bin/scanarr-watcher >> /var/log/scanarr-watcher.log 2>&1 &'
+/bin/sh -c 'export $(grep -v "^#" /etc/scanarr/watcher.env | xargs) && /volume1/docker/scannar/scanarr-watcher-linux-amd64 >> /var/log/scanarr-watcher.log 2>&1 &'
+```
+
+Vérifier que le watcher tourne :
+
+```bash
+pgrep -a scanarr-watcher
 ```
 
 Logs du watcher :
@@ -190,11 +215,11 @@ Les migrations éventuelles s'appliquent automatiquement au redémarrage.
 
 ```bash
 # Depuis votre machine locale
-scp scanarr-watcher-linux-amd64 admin@192.168.1.91:/usr/local/bin/scanarr-watcher
-ssh admin@192.168.1.91 "chmod +x /usr/local/bin/scanarr-watcher && pkill scanarr-watcher"
-# DSM Task Scheduler le relance automatiquement au prochain démarrage
-# Pour le relancer immédiatement :
-ssh admin@192.168.1.91 "/bin/sh -c 'export \$(grep -v \"^#\" /etc/scanarr/watcher.env | xargs); /usr/local/bin/scanarr-watcher >> /var/log/scanarr-watcher.log 2>&1 &'"
+scp scanarr-watcher-linux-amd64 admin@192.168.1.91:/volume1/docker/scannar/scanarr-watcher-linux-amd64
+ssh admin@192.168.1.91 "chmod +x /volume1/docker/scannar/scanarr-watcher-linux-amd64 && pkill scanarr-watcher-linux-amd64"
+# DSM Task Scheduler le relance automatiquement au prochain démarrage du NAS
+# Pour le relancer immédiatement sans redémarrer :
+ssh admin@192.168.1.91 "/bin/sh -c 'export \$(grep -v \"^#\" /etc/scanarr/watcher.env | xargs) && /volume1/docker/scannar/scanarr-watcher-linux-amd64 >> /var/log/scanarr-watcher.log 2>&1 &'"
 ```
 
 ---
@@ -244,6 +269,24 @@ success: websocket entered RUNNING state   ← doit être présent
 ```
 
 Si `websocket` n'est pas en RUNNING : problème JWT (voir tableau ci-dessus).
+
+### Watcher : `SCANARR_WATCHER_ID is required`
+
+Le binaire lit ses variables via `os.Getenv()` — il ne charge **pas** le fichier `watcher.env` automatiquement. Il faut exporter les variables avant de lancer le binaire :
+
+```bash
+# ❌ Ne fonctionne pas
+./scanarr-watcher-linux-amd64
+
+# ✅ Correct
+export $(grep -v "^#" /etc/scanarr/watcher.env | xargs) && ./scanarr-watcher-linux-amd64
+```
+
+Vérifier que le fichier `/etc/scanarr/watcher.env` contient bien `SCANARR_WATCHER_ID` :
+
+```bash
+grep SCANARR_WATCHER_ID /etc/scanarr/watcher.env
+```
 
 ### Tester l'API manuellement
 
