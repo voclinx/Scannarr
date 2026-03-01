@@ -6,6 +6,7 @@ namespace App\WebSocket\Handler;
 
 use App\Contract\WebSocket\WatcherMessageHandlerInterface;
 use App\Repository\MediaFileRepository;
+use App\Service\MovieMatcherService;
 use App\WebSocket\ScanStateManager;
 use App\WebSocket\WatcherFileHelper;
 use DateTimeImmutable;
@@ -19,6 +20,7 @@ final class ScanCompletedHandler implements WatcherMessageHandlerInterface
         private readonly MediaFileRepository $mediaFileRepository,
         private readonly ScanStateManager $scanState,
         private readonly WatcherFileHelper $helper,
+        private readonly MovieMatcherService $movieMatcherService,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -90,6 +92,15 @@ final class ScanCompletedHandler implements WatcherMessageHandlerInterface
         ]);
 
         $this->scanState->endScan($scanId);
+
+        $matchResult = $this->movieMatcherService->matchAll();
+        $this->logger->info('Post-scan matching completed', [
+            'scan_id' => $scanId,
+            'radarr_matched' => $matchResult['radarr_matched'],
+            'filename_matched' => $matchResult['filename_matched'],
+            'total_links' => $matchResult['total_links'],
+        ]);
+
         $this->em->clear();
     }
 }

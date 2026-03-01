@@ -272,10 +272,7 @@ final class ScheduledDeletionService
             'items_count' => count($items),
             'total_files_count' => $totalFiles,
             'items' => $items,
-            'created_by' => [
-                'id' => (string) $deletion->getCreatedBy()?->getId(),
-                'username' => $deletion->getCreatedBy()?->getUsername(),
-            ],
+            'created_by' => $deletion->getCreatedBy()?->getUsername(),
             'created_at' => $deletion->getCreatedAt()->format('c'),
             'updated_at' => $deletion->getUpdatedAt()->format('c'),
         ];

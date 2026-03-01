@@ -10,6 +10,7 @@ use App\ExternalService\MediaManager\RadarrService;
 use App\ExternalService\Metadata\TmdbService;
 use App\Repository\MovieRepository;
 use App\Repository\RadarrInstanceRepository;
+use App\Service\MovieMatcherService;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Exception;
@@ -32,6 +33,7 @@ class SyncRadarrCommand extends Command
         private readonly EntityManagerInterface $em,
         private readonly RadarrService $radarrService,
         private readonly TmdbService $tmdbService,
+        private readonly MovieMatcherService $movieMatcherService,
         private readonly LoggerInterface $logger,
     ) {
         parent::__construct();
@@ -71,11 +73,16 @@ class SyncRadarrCommand extends Command
             }
         }
 
+        $matchResult = $this->movieMatcherService->matchAll();
+
         $io->success(sprintf(
-            'Sync complete: %d imported, %d updated, %d enriched via TMDB.',
+            'Sync complete: %d imported, %d updated, %d enriched via TMDB. Matching: %d via Radarr, %d via filename (%d total links).',
             $totalImported,
             $totalUpdated,
             $totalEnriched,
+            $matchResult['radarr_matched'],
+            $matchResult['filename_matched'],
+            $matchResult['total_links'],
         ));
 
         return Command::SUCCESS;

@@ -7,8 +7,10 @@ namespace App\WebSocket\Handler;
 use App\Contract\WebSocket\WatcherMessageHandlerInterface;
 use App\Entity\MediaFile;
 use App\Repository\MediaFileRepository;
+use App\Service\MovieMatcherService;
 use App\WebSocket\WatcherFileHelper;
 use Doctrine\ORM\EntityManagerInterface;
+use Exception;
 use Psr\Log\LoggerInterface;
 
 final class FileCreatedHandler implements WatcherMessageHandlerInterface
@@ -17,6 +19,7 @@ final class FileCreatedHandler implements WatcherMessageHandlerInterface
         private readonly EntityManagerInterface $em,
         private readonly MediaFileRepository $mediaFileRepository,
         private readonly WatcherFileHelper $helper,
+        private readonly MovieMatcherService $movieMatcherService,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -78,5 +81,22 @@ final class FileCreatedHandler implements WatcherMessageHandlerInterface
             'volume' => $volume->getName(),
             'size' => $data['size_bytes'] ?? 0,
         ]);
+
+        try {
+            $movieFile = $this->movieMatcherService->matchSingleFile($mediaFile);
+            if ($movieFile !== null) {
+                $this->logger->info('File matched to movie', [
+                    'path' => $relativePath,
+                    'movie' => $movieFile->getMovie()->getTitle(),
+                ]);
+            } else {
+                $this->logger->debug('No movie match found for file', ['path' => $relativePath]);
+            }
+        } catch (Exception $e) {
+            $this->logger->warning('Movie matching failed for file', [
+                'path' => $relativePath,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }
