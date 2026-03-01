@@ -1,0 +1,86 @@
+##
+## Scanarr — Stack Portainer pour Synology DS923+
+## Serveur : 192.168.1.91
+##
+## Usage dans Portainer :
+##   1. Stacks > Add stack > Upload (ce fichier)
+##   2. Renseigner les variables d'environnement ci-dessous
+##   3. Deploy the stack
+##
+## Watcher : binaire natif à installer séparément sur le NAS
+##   Voir : docs/DEPLOYMENT_SYNOLOGY.md
+##
+
+services:
+
+  ##
+  ## Base de données PostgreSQL
+  ## Données persistées dans /volume1/docker/scannar/postgres
+  ##
+  db:
+    image: postgres:16-alpine
+    container_name: scanarr-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: scanarr
+      POSTGRES_USER: scanarr
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD est requis}
+    volumes:
+      - /volume1/docker/scannar/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scanarr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scanarr-net
+
+  ##
+  ## API Symfony + WebSocket
+  ## Port 8081 exposé pour le watcher natif sur le NAS
+  ##
+  api:
+    image: ghcr.io/voclinx/scannarr-api:latest
+    container_name: scanarr-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://scanarr:${DB_PASSWORD}@db:5432/scanarr?serverVersion=16&charset=utf8
+      APP_ENV: prod
+      APP_SECRET: ${APP_SECRET:?APP_SECRET est requis}
+      JWT_PASSPHRASE: ${JWT_PASSPHRASE:?JWT_PASSPHRASE est requis}
+      JWT_TOKEN_TTL: ${JWT_TOKEN_TTL:-3600}
+      WATCHER_AUTH_TOKEN: ${WATCHER_AUTH_TOKEN:?WATCHER_AUTH_TOKEN est requis}
+      # CORS : autorise les requêtes depuis le front (port 8585)
+      CORS_ALLOW_ORIGIN: '^https?://192\.168\.1\.91(:[0-9]+)?$'
+      DEFAULT_URI: http://192.168.1.91:8585
+    volumes:
+      # Médias — dossier principal sur le NAS
+      - /volume1/filmarr:/mnt/filmarr:ro
+    ports:
+      # Port WebSocket : utilisé par le watcher natif sur le NAS
+      - "8081:8081"
+    networks:
+      - scanarr-net
+
+  ##
+  ## Frontend Vue.js (Nginx)
+  ## Point d'entrée unique : http://192.168.1.91:8585
+  ## Le nginx interne proxifie /api/ → api:8080 et /ws/ → api:8081
+  ##
+  front:
+    image: ghcr.io/voclinx/scannarr-front:latest
+    container_name: scanarr-front
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8585:80"
+    networks:
+      - scanarr-net
+
+networks:
+  scanarr-net:
+    driver: bridge
