@@ -13,16 +13,15 @@ use App\Repository\MovieRepository;
 use App\Repository\ScheduledDeletionRepository;
 use DateTime;
 use Doctrine\ORM\EntityManagerInterface;
-use Psr\Log\LoggerInterface;
 
-final class ScheduledDeletionService
+final readonly class ScheduledDeletionService
 {
     public function __construct(
-        private readonly ScheduledDeletionRepository $deletionRepository,
-        private readonly MovieRepository $movieRepository,
-        private readonly EntityManagerInterface $em,
-        private readonly LoggerInterface $logger,
-    ) {}
+        private ScheduledDeletionRepository $deletionRepository,
+        private MovieRepository $movieRepository,
+        private EntityManagerInterface $em,
+    ) {
+    }
 
     /**
      * @return array{data: array<int, array<string, mixed>>, meta: array<string, mixed>}
@@ -62,31 +61,65 @@ final class ScheduledDeletionService
      */
     public function create(array $data, User $user): array
     {
-        $scheduledDate = $data['scheduled_date'] ?? null;
-        $items = $data['items'] ?? [];
+        $validationError = $this->validateCreateInput($data);
+        if ($validationError !== null) {
+            return $validationError;
+        }
 
-        if (!$scheduledDate) {
+        $date = new DateTime((string)$data['scheduled_date']);
+        $deletion = $this->buildDeletion($data, $user, $date);
+
+        $addResult = $this->addItemsFromData($deletion, $data['items']);
+        if (isset($addResult['error'])) {
+            return $addResult;
+        }
+
+        $this->em->persist($deletion);
+        $this->em->flush();
+
+        return ['result' => 'created', 'data' => $this->serializeCreated($deletion, $addResult['total_files'], $user)];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function validateCreateInput(array $data): ?array
+    {
+        if (empty($data['scheduled_date'])) {
             return ['result' => 'validation_error', 'field' => 'scheduled_date', 'error' => 'Required'];
         }
-        if ($items === []) {
+        if (empty($data['items'])) {
             return ['result' => 'validation_error', 'field' => 'items', 'error' => 'At least one item is required'];
         }
 
-        $date = new DateTime((string) $scheduledDate);
-        $today = new DateTime('today');
-        if ($date < $today) {
+        $date = new DateTime((string)$data['scheduled_date']);
+        if ($date < new DateTime('today')) {
             return ['result' => 'validation_error', 'field' => 'scheduled_date', 'error' => 'Date must be in the future'];
         }
 
+        return null;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function buildDeletion(array $data, User $user, DateTime $date): ScheduledDeletion
+    {
         $deletion = new ScheduledDeletion();
         $deletion->setCreatedBy($user);
         $deletion->setScheduledDate($date);
-        $deletion->setDeletePhysicalFiles((bool) ($data['delete_physical_files'] ?? true));
-        $deletion->setDeleteRadarrReference((bool) ($data['delete_radarr_reference'] ?? false));
-        $deletion->setDeleteMediaPlayerReference((bool) ($data['delete_media_player_reference'] ?? false));
-        $deletion->setDisableRadarrAutoSearch((bool) ($data['disable_radarr_auto_search'] ?? false));
-        $deletion->setReminderDaysBefore((int) ($data['reminder_days_before'] ?? 3));
+        $deletion->setDeletePhysicalFiles((bool)($data['delete_physical_files'] ?? true));
+        $deletion->setDeleteRadarrReference((bool)($data['delete_radarr_reference'] ?? false));
+        $deletion->setDeleteMediaPlayerReference((bool)($data['delete_media_player_reference'] ?? false));
+        $deletion->setDisableRadarrAutoSearch((bool)($data['disable_radarr_auto_search'] ?? false));
+        $deletion->setReminderDaysBefore((int)($data['reminder_days_before'] ?? 3));
 
+        return $deletion;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     *
+     * @return array{total_files: int}|array{result: string, error: string}
+     */
+    private function addItemsFromData(ScheduledDeletion $deletion, array $items): array
+    {
         $totalFilesCount = 0;
         foreach ($items as $itemData) {
             $movieId = $itemData['movie_id'] ?? null;
@@ -107,26 +140,26 @@ final class ScheduledDeletionService
             $totalFilesCount += count($mediaFileIds);
         }
 
-        $this->em->persist($deletion);
-        $this->em->flush();
+        return ['total_files' => $totalFilesCount];
+    }
 
+    /** @return array<string, mixed> */
+    private function serializeCreated(ScheduledDeletion $deletion, int $totalFilesCount, User $user): array
+    {
         return [
-            'result' => 'created',
-            'data' => [
-                'id' => (string) $deletion->getId(),
-                'scheduled_date' => $deletion->getScheduledDate()->format('Y-m-d'),
-                'execution_time' => $deletion->getExecutionTime()->format('H:i:s'),
-                'status' => $deletion->getStatus()->value,
-                'delete_physical_files' => $deletion->isDeletePhysicalFiles(),
-                'delete_radarr_reference' => $deletion->isDeleteRadarrReference(),
-                'delete_media_player_reference' => $deletion->isDeleteMediaPlayerReference(),
-                'disable_radarr_auto_search' => $deletion->isDisableRadarrAutoSearch(),
-                'reminder_days_before' => $deletion->getReminderDaysBefore(),
-                'items_count' => $deletion->getItems()->count(),
-                'total_files_count' => $totalFilesCount,
-                'created_by' => $user->getUsername(),
-                'created_at' => $deletion->getCreatedAt()->format('c'),
-            ],
+            'id' => (string)$deletion->getId(),
+            'scheduled_date' => $deletion->getScheduledDate()->format('Y-m-d'),
+            'execution_time' => $deletion->getExecutionTime()->format('H:i:s'),
+            'status' => $deletion->getStatus()->value,
+            'delete_physical_files' => $deletion->isDeletePhysicalFiles(),
+            'delete_radarr_reference' => $deletion->isDeleteRadarrReference(),
+            'delete_media_player_reference' => $deletion->isDeleteMediaPlayerReference(),
+            'disable_radarr_auto_search' => $deletion->isDisableRadarrAutoSearch(),
+            'reminder_days_before' => $deletion->getReminderDaysBefore(),
+            'items_count' => $deletion->getItems()->count(),
+            'total_files_count' => $totalFilesCount,
+            'created_by' => $user->getUsername(),
+            'created_at' => $deletion->getCreatedAt()->format('c'),
         ];
     }
 
@@ -146,50 +179,17 @@ final class ScheduledDeletionService
             return ['result' => 'invalid_status', 'error' => 'Cannot modify a deletion with status: ' . $deletion->getStatus()->value];
         }
 
-        if (isset($data['scheduled_date'])) {
-            $date = new DateTime((string) $data['scheduled_date']);
-            $today = new DateTime('today');
-            if ($date < $today) {
-                return ['result' => 'validation_error', 'error' => 'Date must be in the future'];
-            }
-            $deletion->setScheduledDate($date);
-            $deletion->setStatus(DeletionStatus::PENDING);
+        $dateError = $this->updateScheduledDate($deletion, $data);
+        if ($dateError !== null) {
+            return $dateError;
         }
 
-        if (isset($data['delete_physical_files'])) {
-            $deletion->setDeletePhysicalFiles((bool) $data['delete_physical_files']);
-        }
-        if (isset($data['delete_radarr_reference'])) {
-            $deletion->setDeleteRadarrReference((bool) $data['delete_radarr_reference']);
-        }
-        if (isset($data['delete_media_player_reference'])) {
-            $deletion->setDeleteMediaPlayerReference((bool) $data['delete_media_player_reference']);
-        }
-        if (isset($data['disable_radarr_auto_search'])) {
-            $deletion->setDisableRadarrAutoSearch((bool) $data['disable_radarr_auto_search']);
-        }
-        if (isset($data['reminder_days_before'])) {
-            $deletion->setReminderDaysBefore((int) $data['reminder_days_before']);
-        }
+        $this->updateDeletionFields($deletion, $data);
 
         if (isset($data['items'])) {
-            foreach ($deletion->getItems() as $existingItem) {
-                $this->em->remove($existingItem);
-            }
-
-            foreach ($data['items'] as $itemData) {
-                $movieId = $itemData['movie_id'] ?? null;
-                if (!$movieId) {
-                    continue;
-                }
-                $movie = $this->movieRepository->find($movieId);
-                if (!$movie instanceof Movie) {
-                    return ['result' => 'movie_not_found', 'error' => "Movie not found: {$movieId}"];
-                }
-                $item = new ScheduledDeletionItem();
-                $item->setMovie($movie);
-                $item->setMediaFileIds($itemData['media_file_ids'] ?? []);
-                $deletion->addItem($item);
+            $itemsError = $this->replaceItems($deletion, $data['items']);
+            if ($itemsError !== null) {
+                return $itemsError;
             }
         }
 
@@ -198,13 +198,80 @@ final class ScheduledDeletionService
         return ['result' => 'updated', 'data' => $this->serializeDetail($deletion)];
     }
 
+    /** @param array<string, mixed> $data */
+    private function updateScheduledDate(ScheduledDeletion $deletion, array $data): ?array
+    {
+        if (!isset($data['scheduled_date'])) {
+            return null;
+        }
+
+        $date = new DateTime((string)$data['scheduled_date']);
+        if ($date < new DateTime('today')) {
+            return ['result' => 'validation_error', 'error' => 'Date must be in the future'];
+        }
+
+        $deletion->setScheduledDate($date);
+        $deletion->setStatus(DeletionStatus::PENDING);
+
+        return null;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function updateDeletionFields(ScheduledDeletion $deletion, array $data): void
+    {
+        if (isset($data['delete_physical_files'])) {
+            $deletion->setDeletePhysicalFiles((bool)$data['delete_physical_files']);
+        }
+        if (isset($data['delete_radarr_reference'])) {
+            $deletion->setDeleteRadarrReference((bool)$data['delete_radarr_reference']);
+        }
+        if (isset($data['delete_media_player_reference'])) {
+            $deletion->setDeleteMediaPlayerReference((bool)$data['delete_media_player_reference']);
+        }
+        if (isset($data['disable_radarr_auto_search'])) {
+            $deletion->setDisableRadarrAutoSearch((bool)$data['disable_radarr_auto_search']);
+        }
+        if (isset($data['reminder_days_before'])) {
+            $deletion->setReminderDaysBefore((int)$data['reminder_days_before']);
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $itemsData
+     *
+     * @return array{result: string, error: string}|null
+     */
+    private function replaceItems(ScheduledDeletion $deletion, array $itemsData): ?array
+    {
+        foreach ($deletion->getItems() as $existingItem) {
+            $this->em->remove($existingItem);
+        }
+
+        foreach ($itemsData as $itemData) {
+            $movieId = $itemData['movie_id'] ?? null;
+            if (!$movieId) {
+                continue;
+            }
+            $movie = $this->movieRepository->find($movieId);
+            if (!$movie instanceof Movie) {
+                return ['result' => 'movie_not_found', 'error' => "Movie not found: {$movieId}"];
+            }
+            $item = new ScheduledDeletionItem();
+            $item->setMovie($movie);
+            $item->setMediaFileIds($itemData['media_file_ids'] ?? []);
+            $deletion->addItem($item);
+        }
+
+        return null;
+    }
+
     /** @return array<string, mixed> */
     public function cancel(ScheduledDeletion $deletion): array
     {
         $deletion->setStatus(DeletionStatus::CANCELLED);
         $this->em->flush();
 
-        return ['message' => 'Scheduled deletion cancelled', 'id' => (string) $deletion->getId()];
+        return ['message' => 'Scheduled deletion cancelled', 'id' => (string)$deletion->getId()];
     }
 
     /** @return array<string, mixed> */
@@ -216,7 +283,7 @@ final class ScheduledDeletionService
         }
 
         return [
-            'id' => (string) $deletion->getId(),
+            'id' => (string)$deletion->getId(),
             'scheduled_date' => $deletion->getScheduledDate()?->format('Y-m-d'),
             'execution_time' => $deletion->getExecutionTime()->format('H:i:s'),
             'status' => $deletion->getStatus()->value,
@@ -235,29 +302,10 @@ final class ScheduledDeletionService
     /** @return array<string, mixed> */
     private function serializeDetail(ScheduledDeletion $deletion): array
     {
-        $items = [];
-        $totalFiles = 0;
-
-        foreach ($deletion->getItems() as $item) {
-            $movie = $item->getMovie();
-            $totalFiles += count($item->getMediaFileIds());
-
-            $items[] = [
-                'id' => (string) $item->getId(),
-                'movie' => $movie !== null ? [
-                    'id' => (string) $movie->getId(),
-                    'title' => $movie->getTitle(),
-                    'year' => $movie->getYear(),
-                    'poster_url' => $movie->getPosterUrl(),
-                ] : null,
-                'media_file_ids' => $item->getMediaFileIds(),
-                'status' => $item->getStatus(),
-                'error_message' => $item->getErrorMessage(),
-            ];
-        }
+        [$items, $totalFiles] = $this->buildDeletionItems($deletion);
 
         return [
-            'id' => (string) $deletion->getId(),
+            'id' => (string)$deletion->getId(),
             'scheduled_date' => $deletion->getScheduledDate()?->format('Y-m-d'),
             'execution_time' => $deletion->getExecutionTime()->format('H:i:s'),
             'status' => $deletion->getStatus()->value,
@@ -276,5 +324,34 @@ final class ScheduledDeletionService
             'created_at' => $deletion->getCreatedAt()->format('c'),
             'updated_at' => $deletion->getUpdatedAt()->format('c'),
         ];
+    }
+
+    /**
+     * @return array{0: list<array<string, mixed>>, 1: int}
+     */
+    private function buildDeletionItems(ScheduledDeletion $deletion): array
+    {
+        $items = [];
+        $totalFiles = 0;
+
+        foreach ($deletion->getItems() as $item) {
+            $movie = $item->getMovie();
+            $totalFiles += count($item->getMediaFileIds());
+
+            $items[] = [
+                'id' => (string)$item->getId(),
+                'movie' => $movie !== null ? [
+                    'id' => (string)$movie->getId(),
+                    'title' => $movie->getTitle(),
+                    'year' => $movie->getYear(),
+                    'poster_url' => $movie->getPosterUrl(),
+                ] : null,
+                'media_file_ids' => $item->getMediaFileIds(),
+                'status' => $item->getStatus(),
+                'error_message' => $item->getErrorMessage(),
+            ];
+        }
+
+        return [$items, $totalFiles];
     }
 }

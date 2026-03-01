@@ -108,20 +108,24 @@
     <rule ref="rulesets/codesize.xml/TooManyPublicMethods">
         <properties>
             <property name="maxmethods" value="12" />
-            <!-- Exclure les méthodes de test (setUp, tearDown, test*) -->
-            <property name="ignorepattern" value="(^(test|setUp|tearDown|provide))" />
+            <!--
+                Exclure : tests, getters, setters, adders, removers, issers, hassers.
+                Les entités Doctrine ont obligatoirement un getter/setter par colonne.
+                §5.1 : Entity = conteneur de données, accesseurs ne comptent pas.
+            -->
+            <property name="ignorepattern" value="(^(test|setUp|tearDown|provide|get|set|is|has|add|remove))" />
         </properties>
     </rule>
 
     <!--
         Trop de méthodes (publiques + protégées + privées) : max 20.
         Inclut les helpers privés. Au-delà, la classe doit être découpée.
-        §1.1 SRP.
+        §1.1 SRP. Mêmes exclusions d'accesseurs que TooManyPublicMethods.
     -->
     <rule ref="rulesets/codesize.xml/TooManyMethods">
         <properties>
             <property name="maxmethods" value="20" />
-            <property name="ignorepattern" value="(^(test|setUp|tearDown|provide))" />
+            <property name="ignorepattern" value="(^(test|setUp|tearDown|provide|get|set|is|has|add|remove))" />
         </properties>
     </rule>
 

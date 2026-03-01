@@ -317,14 +317,14 @@ export interface WatcherLogsResponse {
 
 // V1.5 — Suggestions
 export interface MovieSummary {
-  id: string;
+  id: string | null;
   title: string;
   year?: number;
   poster_url?: string;
 }
 
 export interface SuggestionFile {
-  media_file_id: string;
+  id: string;
   file_name: string;
   file_size_bytes: number;
   resolution?: string;
@@ -332,6 +332,9 @@ export interface SuggestionFile {
   cross_seed_count: number;
   is_protected: boolean;
   tracker_rule_satisfied: boolean;
+  is_in_radarr: boolean;
+  is_in_torrent_client: boolean;
+  is_in_media_player: boolean;
 }
 
 export interface SuggestionItem {
@@ -345,4 +348,7 @@ export interface SuggestionItem {
   multi_file: boolean;
   blocked_by_tracker_rules: boolean;
   blocked_reason: string | null;
+  is_in_radarr: boolean;
+  is_in_torrent_client: boolean;
+  is_in_media_player: boolean;
 }

@@ -11,6 +11,7 @@ use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Symfony\Contracts\HttpClient\ResponseInterface;
 
 class RadarrService implements MediaManagerInterface
 {
@@ -146,6 +147,21 @@ class RadarrService implements MediaManagerInterface
     }
 
     /**
+     * Parse a filename using Radarr's internal parser.
+     *
+     * Returns parsed movie info (titles, year, quality) and optionally
+     * the matched movie if Radarr recognizes it.
+     *
+     * @return array<string, mixed>
+     */
+    public function parseTitle(RadarrInstance $instance, string $title): array
+    {
+        return $this->request($instance, 'GET', '/api/v3/parse', [
+            'query' => ['title' => $title],
+        ]);
+    }
+
+    /**
      * Get grab history from Radarr (downloaded torrents).
      *
      * @return array<int, array<string, mixed>>
@@ -181,33 +197,56 @@ class RadarrService implements MediaManagerInterface
 
         try {
             $response = $this->httpClient->request($method, $url, $options);
-            $statusCode = $response->getStatusCode();
 
-            // DELETE requests may return 200 with empty body
-            if ($method === 'DELETE' && $statusCode >= 200 && $statusCode < 300) {
-                return [];
-            }
-
-            $content = $response->getContent();
-
-            if ($content === '' || $content === '0') {
-                return [];
-            }
-
-            return json_decode($content, true, 512, JSON_THROW_ON_ERROR);
-        } catch (ExceptionInterface $e) {
-            $this->logger->error('Radarr API request failed', [
-                'instance' => $instance->getName(),
-                'method' => $method,
-                'endpoint' => $endpoint,
-                'error' => $e->getMessage(),
-            ]);
-
-            throw new RuntimeException(
-                sprintf('Radarr API error: %s', $e->getMessage()),
-                0,
-                $e,
-            );
+            return $this->parseResponse($response, $method);
+        } catch (ExceptionInterface $exception) {
+            throw $this->handleRequestError($instance, $method, $endpoint, $exception);
         }
+    }
+
+    /**
+     * Parse the HTTP response body into an array.
+     *
+     * @return array<string, mixed>
+     */
+    private function parseResponse(ResponseInterface $response, string $method): array
+    {
+        $statusCode = $response->getStatusCode();
+
+        // DELETE requests may return 200 with empty body
+        if ($method === 'DELETE' && $statusCode >= 200 && $statusCode < 300) {
+            return [];
+        }
+
+        $content = $response->getContent();
+
+        if ($content === '' || $content === '0') {
+            return [];
+        }
+
+        return json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * Log and wrap an API exception into a RuntimeException.
+     */
+    private function handleRequestError(
+        RadarrInstance $instance,
+        string $method,
+        string $endpoint,
+        ExceptionInterface $exception,
+    ): RuntimeException {
+        $this->logger->error('Radarr API request failed', [
+            'instance' => $instance->getName(),
+            'method' => $method,
+            'endpoint' => $endpoint,
+            'error' => $exception->getMessage(),
+        ]);
+
+        return new RuntimeException(
+            sprintf('Radarr API error: %s', $exception->getMessage()),
+            0,
+            $exception,
+        );
     }
 }

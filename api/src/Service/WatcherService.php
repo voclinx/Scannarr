@@ -11,15 +11,16 @@ use App\Repository\WatcherLogRepository;
 use App\Repository\WatcherRepository;
 use Doctrine\ORM\EntityManagerInterface;
 
-final class WatcherService
+final readonly class WatcherService
 {
     public function __construct(
-        private readonly WatcherRepository $watcherRepository,
-        private readonly WatcherLogRepository $watcherLogRepository,
-        private readonly EntityManagerInterface $em,
-        private readonly WatcherCommandService $watcherCommandService,
-        private readonly WatcherVolumeSyncService $volumeSyncService,
-    ) {}
+        private WatcherRepository $watcherRepository,
+        private WatcherLogRepository $watcherLogRepository,
+        private EntityManagerInterface $em,
+        private WatcherCommandService $watcherCommandService,
+        private WatcherVolumeSyncService $volumeSyncService,
+    ) {
+    }
 
     /** @return array<int, array<string, mixed>> */
     public function list(): array
@@ -179,7 +180,7 @@ final class WatcherService
     private function serializeWatcher(Watcher $watcher): array
     {
         return [
-            'id' => (string) $watcher->getId(),
+            'id' => (string)$watcher->getId(),
             'watcher_id' => $watcher->getWatcherId(),
             'name' => $watcher->getName(),
             'status' => $watcher->getStatus()->value,
@@ -197,7 +198,7 @@ final class WatcherService
     private function serializeLog(WatcherLog $log): array
     {
         return [
-            'id' => (string) $log->getId(),
+            'id' => (string)$log->getId(),
             'level' => $log->getLevel(),
             'message' => $log->getMessage(),
             'context' => $log->getContext(),

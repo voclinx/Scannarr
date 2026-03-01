@@ -8,6 +8,7 @@ use Symfony\Component\HttpFoundation\Request;
 
 final readonly class MovieListFilters
 {
+    /** @SuppressWarnings(PHPMD.ExcessiveParameterList) */
     public function __construct(
         public ?string $search = null,
         public string $sort = 'title',

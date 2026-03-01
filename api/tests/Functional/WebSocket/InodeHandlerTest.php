@@ -62,12 +62,12 @@ class InodeHandlerTest extends AbstractApiTestCase
         $this->createVolume('Vol1', '/mnt/media');
 
         $this->fileCreatedHandler->handleCreated([
-            'path'           => '/mnt/media/Movies/film.mkv',
-            'name'           => 'film.mkv',
-            'size_bytes'     => 1000000,
+            'path' => '/mnt/media/Movies/film.mkv',
+            'name' => 'film.mkv',
+            'size_bytes' => 1000000,
             'hardlink_count' => 1,
-            'inode'          => 123456,
-            'device_id'      => 65024,
+            'inode' => 123456,
+            'device_id' => 65024,
         ]);
 
         $file = $this->mediaFileRepository->findByInode('65024', '123456');
@@ -97,12 +97,12 @@ class InodeHandlerTest extends AbstractApiTestCase
 
         // Re-created event with inode
         $this->fileCreatedHandler->handleCreated([
-            'path'           => '/mnt/nas/Movies/movie.mkv',
-            'name'           => 'movie.mkv',
-            'size_bytes'     => 500000,
+            'path' => '/mnt/nas/Movies/movie.mkv',
+            'name' => 'movie.mkv',
+            'size_bytes' => 500000,
             'hardlink_count' => 2,
-            'inode'          => 999888,
-            'device_id'      => 65024,
+            'inode' => 999888,
+            'device_id' => 65024,
         ]);
 
         $this->em->refresh($mediaFile);
@@ -129,13 +129,13 @@ class InodeHandlerTest extends AbstractApiTestCase
         $this->fileRenamedHandler->handle([
             'type' => 'file.renamed',
             'data' => [
-                'old_path'       => '/mnt/data/old/film.mkv',
-                'new_path'       => '/mnt/data/new/film.mkv',
-                'name'           => 'film.mkv',
-                'size_bytes'     => 800000,
+                'old_path' => '/mnt/data/old/film.mkv',
+                'new_path' => '/mnt/data/new/film.mkv',
+                'name' => 'film.mkv',
+                'size_bytes' => 800000,
                 'hardlink_count' => 1,
-                'inode'          => 77777,
-                'device_id'      => 65024,
+                'inode' => 77777,
+                'device_id' => 65024,
             ],
         ]);
 
@@ -163,12 +163,12 @@ class InodeHandlerTest extends AbstractApiTestCase
         $this->fileModifiedHandler->handle([
             'type' => 'file.modified',
             'data' => [
-                'path'           => '/mnt/store/Films/a.mkv',
-                'name'           => 'a.mkv',
-                'size_bytes'     => 100001,
+                'path' => '/mnt/store/Films/a.mkv',
+                'name' => 'a.mkv',
+                'size_bytes' => 100001,
                 'hardlink_count' => 1,
-                'inode'          => 444111,
-                'device_id'      => 65024,
+                'inode' => 444111,
+                'device_id' => 65024,
             ],
         ]);
 

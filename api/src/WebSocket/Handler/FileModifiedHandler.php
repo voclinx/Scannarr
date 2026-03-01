@@ -5,19 +5,21 @@ declare(strict_types=1);
 namespace App\WebSocket\Handler;
 
 use App\Contract\WebSocket\WatcherMessageHandlerInterface;
+use App\Entity\MediaFile;
+use App\Entity\Volume;
 use App\Repository\MediaFileRepository;
 use App\WebSocket\WatcherFileHelper;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 
-final class FileModifiedHandler implements WatcherMessageHandlerInterface
+final readonly class FileModifiedHandler implements WatcherMessageHandlerInterface
 {
     public function __construct(
-        private readonly EntityManagerInterface $em,
-        private readonly MediaFileRepository $mediaFileRepository,
-        private readonly WatcherFileHelper $helper,
-        private readonly FileCreatedHandler $fileCreatedHandler,
-        private readonly LoggerInterface $logger,
+        private EntityManagerInterface $em,
+        private MediaFileRepository $mediaFileRepository,
+        private WatcherFileHelper $helper,
+        private FileCreatedHandler $fileCreatedHandler,
+        private LoggerInterface $logger,
     ) {
     }
 
@@ -35,31 +37,28 @@ final class FileModifiedHandler implements WatcherMessageHandlerInterface
         }
 
         $volume = $this->helper->resolveVolume($path);
-        if ($volume === null) {
+        if (!$volume instanceof Volume) {
             return;
         }
 
         $relativePath = $this->helper->getRelativePath($path, $volume);
         $mediaFile = $this->mediaFileRepository->findByVolumeAndFilePath($volume, $relativePath);
 
-        if ($mediaFile === null) {
-            // File not in DB yet — treat as created
+        if (!$mediaFile instanceof MediaFile) {
             $this->fileCreatedHandler->handleCreated($data);
 
             return;
         }
 
+        $this->updateFileMetadata($mediaFile, $data, $relativePath);
+    }
+
+    /** @param array<string, mixed> $data */
+    private function updateFileMetadata(MediaFile $mediaFile, array $data, string $relativePath): void
+    {
         $mediaFile->setFileSizeBytes((int)($data['size_bytes'] ?? $mediaFile->getFileSizeBytes()));
         $mediaFile->setHardlinkCount((int)($data['hardlink_count'] ?? $mediaFile->getHardlinkCount()));
-        if (isset($data['partial_hash']) && $data['partial_hash'] !== '') {
-            $mediaFile->setPartialHash($data['partial_hash']);
-        }
-        if (isset($data['inode']) && $data['inode'] > 0) {
-            $mediaFile->setInode((string) $data['inode']);
-        }
-        if (isset($data['device_id']) && $data['device_id'] > 0) {
-            $mediaFile->setDeviceId((string) $data['device_id']);
-        }
+        $this->helper->applyOptionalFields($mediaFile, $data);
         $this->em->flush();
 
         $this->logger->info('File modified', ['path' => $relativePath, 'size' => $data['size_bytes'] ?? 0]);

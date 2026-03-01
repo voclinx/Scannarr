@@ -28,6 +28,11 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\Uid\Uuid;
 use Throwable;
 
+/**
+ * @SuppressWarnings(PHPMD.ExcessiveClassComplexity)
+ * @SuppressWarnings(PHPMD.ExcessiveClassLength)
+ * @SuppressWarnings(PHPMD.TooManyMethods)
+ */
 final class QBittorrentSyncService
 {
     private const array MEDIA_EXTENSIONS = ['mkv', 'mp4', 'avi', 'm4v', 'ts', 'wmv'];
@@ -35,6 +40,7 @@ final class QBittorrentSyncService
     /** @var array<string, TrackerRule> In-memory cache of tracker rules created during current sync */
     private array $trackerCache = [];
 
+    /** @SuppressWarnings(PHPMD.ExcessiveParameterList) */
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly QBittorrentService $qbitService,
@@ -59,14 +65,7 @@ final class QBittorrentSyncService
     public function sync(): array
     {
         $this->trackerCache = [];
-
-        $result = [
-            'torrents_synced' => 0,
-            'new_trackers' => 0,
-            'unmatched' => 0,
-            'stale_removed' => 0,
-            'errors' => 0,
-        ];
+        $result = $this->initSyncResult();
 
         if (!$this->qbitService->isConfigured()) {
             $this->logger->warning('qBittorrent is not configured, skipping sync');
@@ -74,109 +73,166 @@ final class QBittorrentSyncService
             return $result;
         }
 
-        try {
-            $torrents = $this->qbitService->getAllTorrents();
-        } catch (Throwable $e) {
-            $this->logger->error('Failed to fetch torrents from qBittorrent', [
-                'error' => $e->getMessage(),
-            ]);
-            $result['errors'] = 1;
-            $this->saveResult($result);
-
+        $torrents = $this->fetchTorrents($result);
+        if ($torrents === null) {
             return $result;
         }
 
-        // Build Radarr hash→movie map
         $hashToMovie = $this->buildRadarrHashMap();
-
-        // Load all volumes for path matching
         $volumes = $this->volumeRepository->findAllActive();
 
-        $seenHashes = [];
+        $this->processTorrents($torrents, $hashToMovie, $volumes, $result);
 
-        foreach ($torrents as $torrent) {
-            try {
-                $hash = strtolower($torrent['hash'] ?? '');
-                if ($hash === '') {
-                    continue;
-                }
-
-                $domain = $this->extractTrackerDomain($torrent['tracker'] ?? '');
-
-                // Auto-detect tracker
-                $trackerRule = $this->autoDetectTracker($domain);
-                if ($trackerRule instanceof TrackerRule && !$trackerRule->getId() instanceof Uuid) {
-                    ++$result['new_trackers'];
-                }
-
-                // Match torrent to media file
-                $mediaFile = $this->findMediaFileForTorrent($torrent, $hashToMovie, $volumes);
-
-                if ($mediaFile instanceof MediaFile) {
-                    $stat = $this->createOrUpdateTorrentStat($torrent, $mediaFile, $domain);
-                    $this->maybeCreateSnapshot($stat);
-                    $seenHashes[] = $hash;
-                    ++$result['torrents_synced'];
-                } else {
-                    ++$result['unmatched'];
-                    $this->logger->debug('No media file match for torrent', [
-                        'hash' => $hash,
-                        'name' => $torrent['name'] ?? 'unknown',
-                    ]);
-                }
-            } catch (Throwable $e) {
-                ++$result['errors'];
-                $this->logger->error('Error processing torrent during sync', [
-                    'hash' => $torrent['hash'] ?? 'unknown',
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        // Mark stale torrents as REMOVED (absent for 3+ sync intervals = 90 minutes)
         $result['stale_removed'] = $this->markStaleTorrents();
-
         $this->em->flush();
         $this->saveResult($result);
 
         return $result;
     }
 
+    /** @return array{torrents_synced: int, new_trackers: int, unmatched: int, stale_removed: int, errors: int} */
+    private function initSyncResult(): array
+    {
+        return [
+            'torrents_synced' => 0,
+            'new_trackers' => 0,
+            'unmatched' => 0,
+            'stale_removed' => 0,
+            'errors' => 0,
+        ];
+    }
+
     /**
-     * Build a map of torrent hash → Radarr movie info from all active Radarr instances.
+     * Fetch all torrents from qBittorrent. Returns null on failure.
+     *
+     * @param array<string, int> $result
+     *
+     * @return array<int, array<string, mixed>>|null
+     */
+    private function fetchTorrents(array &$result): ?array
+    {
+        try {
+            return $this->qbitService->getAllTorrents();
+        } catch (Throwable $ex) {
+            $this->logger->error('Failed to fetch torrents from qBittorrent', [
+                'error' => $ex->getMessage(),
+            ]);
+            $result['errors'] = 1;
+            $this->saveResult($result);
+
+            return null;
+        }
+    }
+
+    /**
+     * Process each torrent from qBittorrent against known media files.
+     *
+     * @param array<int, array<string, mixed>> $torrents
+     * @param array<string, array{radarrId: int, instance: RadarrInstance}> $hashToMovie
+     * @param array<Volume> $volumes
+     * @param array<string, int> $result
+     */
+    private function processTorrents(array $torrents, array $hashToMovie, array $volumes, array &$result): void
+    {
+        foreach ($torrents as $torrent) {
+            try {
+                $this->processSingleTorrent($torrent, $hashToMovie, $volumes, $result);
+            } catch (Throwable $ex) {
+                ++$result['errors'];
+                $this->logger->error('Error processing torrent during sync', [
+                    'hash' => $torrent['hash'] ?? 'unknown',
+                    'error' => $ex->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $torrent
+     * @param array<string, array{radarrId: int, instance: RadarrInstance}> $hashToMovie
+     * @param array<Volume> $volumes
+     * @param array<string, int> $result
+     */
+    private function processSingleTorrent(array $torrent, array $hashToMovie, array $volumes, array &$result): void
+    {
+        $hash = strtolower($torrent['hash'] ?? '');
+        if ($hash === '') {
+            return;
+        }
+
+        $domain = $this->extractTrackerDomain($torrent['tracker'] ?? '');
+        $trackerRule = $this->autoDetectTracker($domain);
+        if ($trackerRule instanceof TrackerRule && !$trackerRule->getId() instanceof Uuid) {
+            ++$result['new_trackers'];
+        }
+
+        $mediaFile = $this->findMediaFileForTorrent($torrent, $hashToMovie, $volumes);
+        if (!$mediaFile instanceof MediaFile) {
+            ++$result['unmatched'];
+            $this->logger->debug('No media file match for torrent', [
+                'hash' => $hash,
+                'name' => $torrent['name'] ?? 'unknown',
+            ]);
+
+            return;
+        }
+
+        $stat = $this->createOrUpdateTorrentStat($torrent, $mediaFile, $domain);
+        $this->maybeCreateSnapshot($stat);
+        ++$result['torrents_synced'];
+    }
+
+    /**
+     * Build a map of torrent hash -> Radarr movie info from all active Radarr instances.
      *
      * @return array<string, array{radarrId: int, instance: RadarrInstance}>
      */
     private function buildRadarrHashMap(): array
     {
         $hashToMovie = [];
-
         $instances = $this->radarrInstanceRepository->findBy(['isActive' => true]);
 
         foreach ($instances as $instance) {
-            try {
-                $records = $this->radarrService->getHistory($instance);
-
-                foreach ($records as $record) {
-                    $downloadId = $record['downloadId'] ?? null;
-                    $movieId = $record['movieId'] ?? null;
-
-                    if ($downloadId !== null && $movieId !== null) {
-                        $hashToMovie[strtolower((string)$downloadId)] = [
-                            'radarrId' => $movieId,
-                            'instance' => $instance,
-                        ];
-                    }
-                }
-            } catch (Throwable $e) {
-                $this->logger->warning('Failed to get Radarr history', [
-                    'instance' => $instance->getName(),
-                    'error' => $e->getMessage(),
-                ]);
-            }
+            $this->mergeInstanceHistory($instance, $hashToMovie);
         }
 
         return $hashToMovie;
+    }
+
+    /** @param array<string, array{radarrId: int, instance: RadarrInstance}> $hashToMovie */
+    private function mergeInstanceHistory(RadarrInstance $instance, array &$hashToMovie): void
+    {
+        try {
+            $records = $this->radarrService->getHistory($instance);
+        } catch (Throwable $ex) {
+            $this->logger->warning('Failed to get Radarr history', [
+                'instance' => $instance->getName(),
+                'error' => $ex->getMessage(),
+            ]);
+
+            return;
+        }
+
+        foreach ($records as $record) {
+            $this->applyHistoryRecord($record, $instance, $hashToMovie);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $record
+     * @param array<string, array{radarrId: int, instance: RadarrInstance}> $hashToMovie
+     */
+    private function applyHistoryRecord(array $record, RadarrInstance $instance, array &$hashToMovie): void
+    {
+        $downloadId = $record['downloadId'] ?? null;
+        $movieId = $record['movieId'] ?? null;
+        if ($downloadId === null || $movieId === null) {
+            return;
+        }
+        $hashToMovie[strtolower((string)$downloadId)] = [
+            'radarrId' => $movieId,
+            'instance' => $instance,
+        ];
     }
 
     /**
@@ -322,29 +378,7 @@ final class QBittorrentSyncService
      */
     private function matchByFileSize(array $torrent): ?MediaFile
     {
-        try {
-            $files = $this->qbitService->getTorrentFiles($torrent['hash'] ?? '');
-        } catch (Throwable) {
-            return null;
-        }
-
-        // Filter for media files and find the largest
-        $largestSize = 0;
-
-        foreach ($files as $file) {
-            $name = $file['name'] ?? '';
-            $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-
-            if (!in_array($extension, self::MEDIA_EXTENSIONS, true)) {
-                continue;
-            }
-
-            $size = (int)($file['size'] ?? 0);
-            if ($size > $largestSize) {
-                $largestSize = $size;
-            }
-        }
-
+        $largestSize = $this->findLargestMediaFileSize($torrent);
         if ($largestSize === 0) {
             return null;
         }
@@ -355,14 +389,48 @@ final class QBittorrentSyncService
             return $matches[0];
         }
 
-        // Multiple matches: try partial_hash comparison if available
-        if (count($matches) > 1) {
-            $torrentFileHash = $torrent['hash'] ?? '';
+        return $this->resolveMultipleMatches($matches, $torrent['hash'] ?? '');
+    }
 
-            foreach ($matches as $match) {
-                if ($match->getFileHash() !== null && $match->getFileHash() === $torrentFileHash) {
-                    return $match;
-                }
+    /**
+     * Find the largest media file size from a torrent's file list.
+     *
+     * @param array<string, mixed> $torrent
+     */
+    private function findLargestMediaFileSize(array $torrent): int
+    {
+        try {
+            $files = $this->qbitService->getTorrentFiles($torrent['hash'] ?? '');
+        } catch (Throwable) {
+            return 0;
+        }
+
+        $largestSize = 0;
+        foreach ($files as $file) {
+            $name = $file['name'] ?? '';
+            $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+            if (!in_array($extension, self::MEDIA_EXTENSIONS, true)) {
+                continue;
+            }
+            $size = (int)($file['size'] ?? 0);
+            if ($size > $largestSize) {
+                $largestSize = $size;
+            }
+        }
+
+        return $largestSize;
+    }
+
+    /**
+     * Try to resolve multiple size matches via partial hash comparison.
+     *
+     * @param array<MediaFile> $matches
+     */
+    private function resolveMultipleMatches(array $matches, string $torrentHash): ?MediaFile
+    {
+        foreach ($matches as $match) {
+            if ($match->getFileHash() !== null && $match->getFileHash() === $torrentHash) {
+                return $match;
             }
         }
 
@@ -377,14 +445,31 @@ final class QBittorrentSyncService
     private function createOrUpdateTorrentStat(array $torrent, MediaFile $mediaFile, string $domain): TorrentStat
     {
         $hash = strtolower($torrent['hash'] ?? '');
-        $stat = $this->torrentStatRepository->findByHash($hash);
+        $stat = $this->findOrCreateTorrentStat($hash);
 
-        if (!$stat instanceof TorrentStat) {
-            $stat = new TorrentStat();
-            $stat->setTorrentHash($hash);
-            $this->em->persist($stat);
+        $this->applyTorrentData($stat, $torrent, $mediaFile, $domain);
+        $this->applyTorrentTimestamps($stat, $torrent);
+
+        return $stat;
+    }
+
+    private function findOrCreateTorrentStat(string $hash): TorrentStat
+    {
+        $stat = $this->torrentStatRepository->findByHash($hash);
+        if ($stat instanceof TorrentStat) {
+            return $stat;
         }
 
+        $stat = new TorrentStat();
+        $stat->setTorrentHash($hash);
+        $this->em->persist($stat);
+
+        return $stat;
+    }
+
+    /** @param array<string, mixed> $torrent */
+    private function applyTorrentData(TorrentStat $stat, array $torrent, MediaFile $mediaFile, string $domain): void
+    {
         $stat->setMediaFile($mediaFile);
         $stat->setTorrentName($torrent['name'] ?? null);
         $stat->setTrackerDomain($domain !== '' ? $domain : null);
@@ -396,20 +481,20 @@ final class QBittorrentSyncService
         $stat->setStatus($this->mapQbitStatus($torrent['state'] ?? ''));
         $stat->setQbitContentPath($torrent['content_path'] ?? null);
         $stat->setLastSyncedAt(new DateTimeImmutable());
+    }
 
-        // Set addedAt from qBit's added_on (unix timestamp)
+    /** @param array<string, mixed> $torrent */
+    private function applyTorrentTimestamps(TorrentStat $stat, array $torrent): void
+    {
         $addedOn = $torrent['added_on'] ?? null;
         if ($addedOn !== null && $addedOn > 0) {
             $stat->setAddedAt((new DateTimeImmutable())->setTimestamp((int)$addedOn));
         }
 
-        // Set lastActivityAt from qBit's last_activity (unix timestamp)
         $lastActivity = $torrent['last_activity'] ?? null;
         if ($lastActivity !== null && $lastActivity > 0) {
             $stat->setLastActivityAt((new DateTimeImmutable())->setTimestamp((int)$lastActivity));
         }
-
-        return $stat;
     }
 
     /**

@@ -165,4 +165,32 @@ class MediaFileRepository extends ServiceEntityRepository
             ->getQuery()
             ->getResult();
     }
+
+    /**
+     * Find all MediaFiles that are NOT linked to any Movie (no MovieFile junction).
+     *
+     * Includes files with or without TorrentStats — used to surface orphan files
+     * in the suggestions page (files in qBit/Plex but not identified as a movie).
+     *
+     * @return MediaFile[]
+     */
+    public function findOrphansWithoutMovie(?string $volumeId, bool $excludeProtected): array
+    {
+        $qb = $this->createQueryBuilder('mf')
+            ->leftJoin('mf.movieFiles', 'mvf')
+            ->leftJoin('mf.volume', 'v')
+            ->addSelect('v')
+            ->where('mvf.id IS NULL');
+
+        if ($volumeId !== null) {
+            $qb->andWhere('mf.volume = :volumeId')
+                ->setParameter('volumeId', $volumeId);
+        }
+
+        if ($excludeProtected) {
+            $qb->andWhere('mf.isProtected = false');
+        }
+
+        return $qb->getQuery()->getResult();
+    }
 }

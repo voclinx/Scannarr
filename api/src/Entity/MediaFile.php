@@ -21,6 +21,9 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'idx_media_files_partial_hash', columns: ['partial_hash'])]
 #[ORM\Index(name: 'idx_media_files_inode', columns: ['device_id', 'inode'])]
 #[ORM\HasLifecycleCallbacks]
+/**
+ * @SuppressWarnings(PHPMD.TooManyFields)
+ */
 class MediaFile
 {
     #[ORM\Id]

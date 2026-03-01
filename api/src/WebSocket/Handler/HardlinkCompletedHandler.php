@@ -18,15 +18,16 @@ use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
-final class HardlinkCompletedHandler implements WatcherMessageHandlerInterface
+final readonly class HardlinkCompletedHandler implements WatcherMessageHandlerInterface
 {
+    /** @SuppressWarnings(PHPMD.ExcessiveParameterList) */
     public function __construct(
-        private readonly EntityManagerInterface $em,
-        private readonly MediaFileRepository $mediaFileRepository,
-        private readonly DeletionService $deletionService,
-        private readonly RadarrService $radarrService,
-        private readonly WatcherFileHelper $helper,
-        private readonly LoggerInterface $logger,
+        private EntityManagerInterface $em,
+        private MediaFileRepository $mediaFileRepository,
+        private DeletionService $deletionService,
+        private RadarrService $radarrService,
+        private WatcherFileHelper $helper,
+        private LoggerInterface $logger,
     ) {
     }
 
@@ -39,9 +40,6 @@ final class HardlinkCompletedHandler implements WatcherMessageHandlerInterface
     {
         $data = $message['data'] ?? [];
         $deletionId = $data['deletion_id'] ?? null;
-        $status = $data['status'] ?? 'failed';
-        $targetPath = $data['target_path'] ?? '';
-        $error = $data['error'] ?? '';
 
         if ($deletionId === null) {
             $this->logger->warning('files.hardlink.completed without deletion_id');
@@ -56,44 +54,73 @@ final class HardlinkCompletedHandler implements WatcherMessageHandlerInterface
             return;
         }
 
+        $status = $data['status'] ?? 'failed';
         if ($status === 'failed') {
-            $this->logger->error('Hardlink creation failed — aborting deletion', [
-                'deletion_id' => $deletionId,
-                'error' => $error,
-            ]);
-            $deletion->setStatus(DeletionStatus::FAILED);
-            $deletion->setExecutionReport([
-                'finished_at' => (new DateTimeImmutable())->format('c'),
-                'error' => 'Hardlink creation failed: ' . $error,
-            ]);
+            $this->handleHardlinkError($deletion, $deletionId, $data['error'] ?? '');
+
+            return;
+        }
+
+        $this->processHardlinkSuccess($deletion, $deletionId, $data);
+    }
+
+    private function handleHardlinkError(ScheduledDeletion $deletion, string $deletionId, string $error): void
+    {
+        $this->logger->error('Hardlink creation failed — aborting deletion', [
+            'deletion_id' => $deletionId,
+            'error' => $error,
+        ]);
+        $deletion->setStatus(DeletionStatus::FAILED);
+        $deletion->setExecutionReport([
+            'finished_at' => (new DateTimeImmutable())->format('c'),
+            'error' => 'Hardlink creation failed: ' . $error,
+        ]);
+        $this->em->flush();
+    }
+
+    /** @param array<string, mixed> $data */
+    private function processHardlinkSuccess(ScheduledDeletion $deletion, string $deletionId, array $data): void
+    {
+        $targetPath = $data['target_path'] ?? '';
+        $this->logger->info('Hardlink created successfully', ['deletion_id' => $deletionId, 'target' => $targetPath]);
+
+        $this->updateFileAfterHardlink($targetPath);
+        $this->rescanRadarrMovies($deletion);
+        $this->continueDeletionChain($deletion);
+    }
+
+    private function updateFileAfterHardlink(string $targetPath): void
+    {
+        if ($targetPath === '') {
+            return;
+        }
+
+        $targetVolume = $this->helper->resolveVolume($targetPath);
+        if (!$targetVolume instanceof Volume) {
+            return;
+        }
+
+        $relPath = $this->helper->getRelativePath($targetPath, $targetVolume);
+        $existing = $this->mediaFileRepository->findByVolumeAndFilePath($targetVolume, $relPath);
+
+        if ($existing instanceof MediaFile) {
+            $existing->setIsLinkedMediaPlayer(true);
             $this->em->flush();
 
             return;
         }
 
-        $this->logger->info('Hardlink created successfully', ['deletion_id' => $deletionId, 'target' => $targetPath]);
+        $newFile = new MediaFile();
+        $newFile->setVolume($targetVolume);
+        $newFile->setFilePath($relPath);
+        $newFile->setFileName(basename($targetPath));
+        $newFile->setIsLinkedMediaPlayer(true);
+        $this->em->persist($newFile);
+        $this->em->flush();
+    }
 
-        // a. Create/update MediaFile for the new hardlink in media/
-        if ($targetPath !== '') {
-            $targetVolume = $this->helper->resolveVolume($targetPath);
-            if ($targetVolume instanceof Volume) {
-                $relPath = $this->helper->getRelativePath($targetPath, $targetVolume);
-                $existing = $this->mediaFileRepository->findByVolumeAndFilePath($targetVolume, $relPath);
-                if ($existing instanceof MediaFile) {
-                    $existing->setIsLinkedMediaPlayer(true);
-                } else {
-                    $newFile = new MediaFile();
-                    $newFile->setVolume($targetVolume);
-                    $newFile->setFilePath($relPath);
-                    $newFile->setFileName(basename((string)$targetPath));
-                    $newFile->setIsLinkedMediaPlayer(true);
-                    $this->em->persist($newFile);
-                }
-                $this->em->flush();
-            }
-        }
-
-        // b. Radarr rescan (best-effort)
+    private function rescanRadarrMovies(ScheduledDeletion $deletion): void
+    {
         foreach ($deletion->getItems() as $item) {
             $movie = $item->getMovie();
             if ($movie === null) {
@@ -101,16 +128,22 @@ final class HardlinkCompletedHandler implements WatcherMessageHandlerInterface
             }
             $radarrInstance = $movie->getRadarrInstance();
             $radarrId = $movie->getRadarrId();
-            if ($radarrInstance !== null && $radarrId !== null) {
-                try {
-                    $this->radarrService->rescanMovie($radarrInstance, $radarrId);
-                } catch (Throwable $e) {
-                    $this->logger->warning('Radarr rescan failed after hardlink', ['error' => $e->getMessage()]);
-                }
+            if ($radarrInstance === null) {
+                continue;
+            }
+            if ($radarrId === null) {
+                continue;
+            }
+            try {
+                $this->radarrService->rescanMovie($radarrInstance, $radarrId);
+            } catch (Throwable $e) {
+                $this->logger->warning('Radarr rescan failed after hardlink', ['error' => $e->getMessage()]);
             }
         }
+    }
 
-        // c. Continue deletion chain
+    private function continueDeletionChain(ScheduledDeletion $deletion): void
+    {
         try {
             $this->deletionService->executeDeletion($deletion);
         } catch (Throwable $e) {

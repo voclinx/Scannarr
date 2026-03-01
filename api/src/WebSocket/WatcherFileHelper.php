@@ -15,10 +15,10 @@ use Symfony\Component\Uid\Uuid;
  * Shared helper methods for watcher message handlers.
  * Provides volume resolution, path translation, and entity creation utilities.
  */
-final class WatcherFileHelper
+final readonly class WatcherFileHelper
 {
     public function __construct(
-        private readonly VolumeRepository $volumeRepository,
+        private VolumeRepository $volumeRepository,
     ) {
     }
 
@@ -61,13 +61,31 @@ final class WatcherFileHelper
         }
 
         if (isset($data['inode']) && $data['inode'] > 0) {
-            $mediaFile->setInode((string) $data['inode']);
+            $mediaFile->setInode((string)$data['inode']);
         }
         if (isset($data['device_id']) && $data['device_id'] > 0) {
-            $mediaFile->setDeviceId((string) $data['device_id']);
+            $mediaFile->setDeviceId((string)$data['device_id']);
         }
 
         return $mediaFile;
+    }
+
+    /**
+     * Apply optional fields (partial_hash, inode, device_id) from event data to a MediaFile.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function applyOptionalFields(MediaFile $mediaFile, array $data): void
+    {
+        if (isset($data['partial_hash']) && $data['partial_hash'] !== '') {
+            $mediaFile->setPartialHash($data['partial_hash']);
+        }
+        if (isset($data['inode']) && $data['inode'] > 0) {
+            $mediaFile->setInode((string)$data['inode']);
+        }
+        if (isset($data['device_id']) && $data['device_id'] > 0) {
+            $mediaFile->setDeviceId((string)$data['device_id']);
+        }
     }
 
     /**

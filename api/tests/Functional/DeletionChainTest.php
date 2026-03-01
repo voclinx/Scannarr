@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Tests\Functional;
 
 use App\Entity\ActivityLog;
@@ -468,7 +470,13 @@ class DeletionChainTest extends AbstractApiTestCase
                 $lines = explode("\n", $content);
                 foreach ($lines as $lineNum => $line) {
                     $trimmed = trim($line);
-                    if (str_starts_with($trimmed, '//') || str_starts_with($trimmed, '*') || str_starts_with($trimmed, '/*')) {
+                    if (str_starts_with($trimmed, '//')) {
+                        continue;
+                    }
+                    if (str_starts_with($trimmed, '*')) {
+                        continue;
+                    }
+                    if (str_starts_with($trimmed, '/*')) {
                         continue;
                     }
                     if (str_contains($line, $pattern)) {

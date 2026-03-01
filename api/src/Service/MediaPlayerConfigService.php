@@ -11,14 +11,14 @@ use App\Repository\MediaPlayerInstanceRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
-final class MediaPlayerConfigService
+final readonly class MediaPlayerConfigService
 {
     public function __construct(
-        private readonly MediaPlayerInstanceRepository $playerRepository,
-        private readonly EntityManagerInterface $em,
-        private readonly ValidatorInterface $validator,
-        private readonly PlexService $plexService,
-        private readonly JellyfinService $jellyfinService,
+        private MediaPlayerInstanceRepository $playerRepository,
+        private EntityManagerInterface $em,
+        private ValidatorInterface $validator,
+        private PlexService $plexService,
+        private JellyfinService $jellyfinService,
     ) {
     }
 
@@ -46,14 +46,9 @@ final class MediaPlayerConfigService
             $instance->setIsActive((bool)$data['is_active']);
         }
 
-        $errors = $this->validator->validate($instance);
-        if (count($errors) > 0) {
-            $details = [];
-            foreach ($errors as $error) {
-                $details[$error->getPropertyPath()] = $error->getMessage();
-            }
-
-            return ['result' => 'validation_error', 'errors' => $details];
+        $validationError = $this->validateInstance($instance);
+        if ($validationError !== null) {
+            return $validationError;
         }
 
         $this->em->persist($instance);
@@ -74,6 +69,21 @@ final class MediaPlayerConfigService
             return null;
         }
 
+        $this->applyUpdateFields($instance, $data);
+
+        $validationError = $this->validateInstance($instance);
+        if ($validationError !== null) {
+            return $validationError;
+        }
+
+        $this->em->flush();
+
+        return ['result' => 'updated', 'data' => $this->serialize($instance)];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function applyUpdateFields(MediaPlayerInstance $instance, array $data): void
+    {
         if (isset($data['name'])) {
             $instance->setName($data['name']);
         }
@@ -89,20 +99,22 @@ final class MediaPlayerConfigService
         if (isset($data['is_active'])) {
             $instance->setIsActive((bool)$data['is_active']);
         }
+    }
 
+    /** @return array{result: string, errors: array<string, string>}|null */
+    private function validateInstance(MediaPlayerInstance $instance): ?array
+    {
         $errors = $this->validator->validate($instance);
-        if (count($errors) > 0) {
-            $details = [];
-            foreach ($errors as $error) {
-                $details[$error->getPropertyPath()] = $error->getMessage();
-            }
-
-            return ['result' => 'validation_error', 'errors' => $details];
+        if (count($errors) === 0) {
+            return null;
         }
 
-        $this->em->flush();
+        $details = [];
+        foreach ($errors as $error) {
+            $details[$error->getPropertyPath()] = $error->getMessage();
+        }
 
-        return ['result' => 'updated', 'data' => $this->serialize($instance)];
+        return ['result' => 'validation_error', 'errors' => $details];
     }
 
     public function delete(string $id): bool

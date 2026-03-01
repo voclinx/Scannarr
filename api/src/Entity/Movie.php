@@ -17,6 +17,9 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'idx_movies_tmdb', columns: ['tmdb_id'])]
 #[ORM\Index(name: 'idx_movies_title', columns: ['title'])]
 #[ORM\HasLifecycleCallbacks]
+/**
+ * @SuppressWarnings(PHPMD.TooManyFields)
+ */
 class Movie
 {
     #[ORM\Id]

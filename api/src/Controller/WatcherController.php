@@ -14,7 +14,9 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 #[Route('/api/v1/watchers')]
 class WatcherController extends AbstractController
 {
-    public function __construct(private readonly WatcherService $watcherService) {}
+    public function __construct(private readonly WatcherService $watcherService)
+    {
+    }
 
     #[Route('', methods: ['GET'])]
     #[IsGranted('ROLE_ADMIN')]
@@ -73,7 +75,7 @@ class WatcherController extends AbstractController
     public function updateName(string $id, Request $request): JsonResponse
     {
         $data = json_decode($request->getContent(), true);
-        $name = trim((string) ($data['name'] ?? ''));
+        $name = trim((string)($data['name'] ?? ''));
         $result = $this->watcherService->updateName($id, $name);
 
         if ($result['result'] === 'not_found') {
@@ -114,8 +116,8 @@ class WatcherController extends AbstractController
     public function logs(string $id, Request $request): JsonResponse
     {
         $level = $request->query->get('level');
-        $limit = min((int) $request->query->get('limit', 100), 1000);
-        $offset = max((int) $request->query->get('offset', 0), 0);
+        $limit = min((int)$request->query->get('limit', 100), 1000);
+        $offset = max((int)$request->query->get('offset', 0), 0);
 
         $result = $this->watcherService->getLogs($id, $level, $limit, $offset);
         if ($result === null) {

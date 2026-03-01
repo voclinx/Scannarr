@@ -18,12 +18,12 @@ use Symfony\Component\Uid\Uuid;
  * Handles watcher lifecycle operations: registration, authentication, disconnection, and pending command retrieval.
  * Extracted from WatcherMessageProcessor.
  */
-final class WatcherLifecycleService
+final readonly class WatcherLifecycleService
 {
     public function __construct(
-        private readonly EntityManagerInterface $em,
-        private readonly WatcherRepository $watcherRepository,
-        private readonly MediaFileRepository $mediaFileRepository,
+        private EntityManagerInterface $em,
+        private WatcherRepository $watcherRepository,
+        private MediaFileRepository $mediaFileRepository,
     ) {
     }
 
@@ -35,14 +35,16 @@ final class WatcherLifecycleService
     {
         $watcher = $this->watcherRepository->findByWatcherId($watcherId);
 
+        if ($watcher instanceof Watcher) {
+            $this->em->refresh($watcher);
+        }
+
         if (!$watcher instanceof Watcher) {
             $watcher = new Watcher();
             $watcher->setWatcherId($watcherId);
             $watcher->setName($hostname ?? $watcherId);
             $watcher->setStatus(WatcherStatus::PENDING);
             $this->em->persist($watcher);
-        } else {
-            $this->em->refresh($watcher);
         }
 
         $watcher->setHostname($hostname);
@@ -104,27 +106,7 @@ final class WatcherLifecycleService
 
         $commands = [];
         foreach ($waitingDeletions as $deletion) {
-            $files = [];
-            foreach ($deletion->getItems() as $item) {
-                foreach ($item->getMediaFileIds() as $mediaFileId) {
-                    $mediaFile = $this->mediaFileRepository->find($mediaFileId);
-                    if ($mediaFile === null || $mediaFile->getVolume() === null) {
-                        continue;
-                    }
-
-                    $volume = $mediaFile->getVolume();
-                    $volumeHostPath = $volume->getHostPath();
-                    if ($volumeHostPath === null || $volumeHostPath === '') {
-                        $volumeHostPath = $volume->getPath();
-                    }
-
-                    $files[] = [
-                        'media_file_id' => (string)$mediaFile->getId(),
-                        'volume_path' => rtrim($volumeHostPath ?? '', '/'),
-                        'file_path' => $mediaFile->getFilePath(),
-                    ];
-                }
-            }
+            $files = $this->buildFilesForDeletion($deletion);
 
             if ($files === []) {
                 $deletion->setStatus(DeletionStatus::COMPLETED);
@@ -145,5 +127,40 @@ final class WatcherLifecycleService
         $this->em->flush();
 
         return $commands;
+    }
+
+    /**
+     * @SuppressWarnings(PHPMD.ExcessiveMethodLength)
+     *
+     * @return array<int, array{media_file_id: string, volume_path: string, file_path: ?string}>
+     */
+    private function buildFilesForDeletion(ScheduledDeletion $deletion): array
+    {
+        $files = [];
+        foreach ($deletion->getItems() as $item) {
+            foreach ($item->getMediaFileIds() as $mediaFileId) {
+                $mediaFile = $this->mediaFileRepository->find($mediaFileId);
+                if ($mediaFile === null) {
+                    continue;
+                }
+                if ($mediaFile->getVolume() === null) {
+                    continue;
+                }
+
+                $volume = $mediaFile->getVolume();
+                $volumeHostPath = $volume->getHostPath();
+                if ($volumeHostPath === null || $volumeHostPath === '') {
+                    $volumeHostPath = $volume->getPath();
+                }
+
+                $files[] = [
+                    'media_file_id' => (string)$mediaFile->getId(),
+                    'volume_path' => rtrim($volumeHostPath ?? '', '/'),
+                    'file_path' => $mediaFile->getFilePath(),
+                ];
+            }
+        }
+
+        return $files;
     }
 }

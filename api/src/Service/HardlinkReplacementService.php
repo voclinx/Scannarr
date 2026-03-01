@@ -8,11 +8,11 @@ use App\Entity\MediaFile;
 use App\Entity\Movie;
 use Psr\Log\LoggerInterface;
 
-final class HardlinkReplacementService
+final readonly class HardlinkReplacementService
 {
     public function __construct(
-        private readonly WatcherCommandService $watcherCommandService,
-        private readonly LoggerInterface $logger,
+        private WatcherCommandService $watcherCommandService,
+        private LoggerInterface $logger,
     ) {
     }
 
@@ -31,6 +31,40 @@ final class HardlinkReplacementService
      */
     public function suggestReplacement(Movie $movie, array $excludeFileIds): ?array
     {
+        $candidates = $this->buildCandidates($movie, $excludeFileIds);
+
+        if ($candidates === []) {
+            return null;
+        }
+
+        usort($candidates, function (MediaFile $fileA, MediaFile $fileB): int {
+            $resA = $this->resolutionScore($fileA->getResolution() ?? '');
+            $resB = $this->resolutionScore($fileB->getResolution() ?? '');
+            if ($resA !== $resB) {
+                return $resB <=> $resA; // DESC
+            }
+
+            $qualA = $this->qualityScore($fileA->getQuality() ?? '');
+            $qualB = $this->qualityScore($fileB->getQuality() ?? '');
+            if ($qualA !== $qualB) {
+                return $qualB <=> $qualA; // DESC
+            }
+
+            return $fileA->getFileSizeBytes() <=> $fileB->getFileSizeBytes(); // ASC
+        });
+
+        $suggested = array_shift($candidates);
+
+        return ['suggested' => $suggested, 'alternatives' => $candidates];
+    }
+
+    /**
+     * @param string[] $excludeFileIds
+     *
+     * @return MediaFile[]
+     */
+    private function buildCandidates(Movie $movie, array $excludeFileIds): array
+    {
         $candidates = [];
         foreach ($movie->getMovieFiles() as $mf) {
             $mediaFile = $mf->getMediaFile();
@@ -43,29 +77,7 @@ final class HardlinkReplacementService
             $candidates[] = $mediaFile;
         }
 
-        if ($candidates === []) {
-            return null;
-        }
-
-        usort($candidates, function (MediaFile $a, MediaFile $b): int {
-            $resA = $this->resolutionScore($a->getResolution() ?? '');
-            $resB = $this->resolutionScore($b->getResolution() ?? '');
-            if ($resA !== $resB) {
-                return $resB <=> $resA; // DESC
-            }
-
-            $qualA = $this->qualityScore($a->getQuality() ?? '');
-            $qualB = $this->qualityScore($b->getQuality() ?? '');
-            if ($qualA !== $qualB) {
-                return $qualB <=> $qualA; // DESC
-            }
-
-            return $a->getFileSizeBytes() <=> $b->getFileSizeBytes(); // ASC
-        });
-
-        $suggested = array_shift($candidates);
-
-        return ['suggested' => $suggested, 'alternatives' => $candidates];
+        return $candidates;
     }
 
     /**

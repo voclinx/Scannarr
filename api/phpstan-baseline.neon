@@ -1,0 +1,1213 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Offset ''data'' might not exist on array\{result\: string, data\?\: array\<string, mixed\>, error\?\: string, details\?\: array\<string, string\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/AuthController.php
+
+		-
+			message: '#^Offset ''details'' might not exist on array\{result\: ''validation_error'', data\?\: array\<string, mixed\>, error\?\: string, details\?\: array\<string, string\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/AuthController.php
+
+		-
+			message: '#^Offset ''error'' on array\{access_token\: string, refresh_token\: string, user\: array\<string, mixed\>\} in isset\(\) does not exist\.$#'
+			identifier: isset.offset
+			count: 1
+			path: src/Controller/AuthController.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 1
+			path: src/Controller/AuthController.php
+
+		-
+			message: '#^Offset ''data'' might not exist on array\{result\: string, data\?\: array\<string, mixed\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/DeletionPresetController.php
+
+		-
+			message: '#^Offset ''data'' might not exist on array\{result\: string, data\?\: array\<string, mixed\>, errors\?\: array\<string, string\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Controller/MediaPlayerController.php
+
+		-
+			message: '#^Offset ''errors'' might not exist on array\{result\: ''validation_error'', data\?\: array\<string, mixed\>, errors\?\: array\<string, string\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Controller/MediaPlayerController.php
+
+		-
+			message: '#^Offset ''data'' might not exist on array\{result\: string, data\?\: array\<int, mixed\>, error\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/RadarrController.php
+
+		-
+			message: '#^Offset ''data'' might not exist on array\{result\: string, data\?\: array\<string, mixed\>, errors\?\: array\<string, string\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Controller/RadarrController.php
+
+		-
+			message: '#^Offset ''error'' might not exist on array\{result\: ''error'', data\?\: array\<int, mixed\>, error\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/RadarrController.php
+
+		-
+			message: '#^Offset ''errors'' might not exist on array\{result\: ''validation_error'', data\?\: array\<string, mixed\>, errors\?\: array\<string, string\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Controller/RadarrController.php
+
+		-
+			message: '#^Offset ''data'' might not exist on array\{result\: string, data\?\: array\<string, mixed\>, error\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Controller/ScheduledDeletionController.php
+
+		-
+			message: '#^Offset ''error'' might not exist on array\{result\: ''invalid_status'', data\?\: array\<string, mixed\>, error\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/ScheduledDeletionController.php
+
+		-
+			message: '#^Offset ''error'' might not exist on array\{result\: ''movie_not_found'', data\?\: array\<string, mixed\>, error\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Controller/ScheduledDeletionController.php
+
+		-
+			message: '#^Offset ''error'' might not exist on array\{result\: ''validation_error'', data\?\: array\<string, mixed\>, error\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Controller/ScheduledDeletionController.php
+
+		-
+			message: '#^Offset ''field'' does not exist on array\{result\: ''validation_error'', data\?\: array\<string, mixed\>, error\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/ScheduledDeletionController.php
+
+		-
+			message: '#^Offset ''code'' on array\{success\: false, message\?\: string, error\?\: string\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Controller/SettingsController.php
+
+		-
+			message: '#^Offset ''error'' might not exist on array\{success\: false, message\?\: string, error\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/SettingsController.php
+
+		-
+			message: '#^Offset ''message'' might not exist on array\{success\: true, message\?\: string, error\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/SettingsController.php
+
+		-
+			message: '#^Offset ''updated_keys'' might not exist on array\{result\: string, updated_keys\?\: array\<string\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/SettingsController.php
+
+		-
+			message: '#^Strict comparison using \=\=\= between null and 422 will always evaluate to false\.$#'
+			identifier: identical.alwaysFalse
+			count: 1
+			path: src/Controller/SettingsController.php
+
+		-
+			message: '#^Offset ''deletion_id'' might not exist on array\{result\: string, deletion_id\?\: string, scheduled_date\?\: string, status\?\: string, items_count\?\: int\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/SuggestionController.php
+
+		-
+			message: '#^Offset ''deletion_id'' might not exist on array\{result\: string, deletion_id\?\: string, status\: string, items_count\?\: int, message\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/SuggestionController.php
+
+		-
+			message: '#^Offset ''items_count'' might not exist on array\{result\: string, deletion_id\?\: string, scheduled_date\?\: string, status\?\: string, items_count\?\: int\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/SuggestionController.php
+
+		-
+			message: '#^Offset ''items_count'' might not exist on array\{result\: string, deletion_id\?\: string, status\: string, items_count\?\: int, message\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/SuggestionController.php
+
+		-
+			message: '#^Offset ''scheduled_date'' might not exist on array\{result\: string, deletion_id\?\: string, scheduled_date\?\: string, status\?\: string, items_count\?\: int\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/SuggestionController.php
+
+		-
+			message: '#^Offset ''status'' might not exist on array\{result\: string, deletion_id\?\: string, scheduled_date\?\: string, status\?\: string, items_count\?\: int\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/SuggestionController.php
+
+		-
+			message: '#^Offset ''status'' might not exist on array\{result\: string, deletion_id\?\: string, status\?\: string, items_count\?\: int, message\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/SuggestionController.php
+
+		-
+			message: '#^Offset ''data'' might not exist on array\{result\: string, data\?\: array\<string, mixed\>, details\?\: array\<string, string\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/UserController.php
+
+		-
+			message: '#^Offset ''data'' might not exist on array\{result\: string, data\?\: array\<string, mixed\>, error\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/UserController.php
+
+		-
+			message: '#^Offset ''details'' does not exist on array\{result\: ''validation_error'', data\?\: array\<string, mixed\>, error\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/UserController.php
+
+		-
+			message: '#^Offset ''details'' might not exist on array\{result\: ''validation_error'', data\?\: array\<string, mixed\>, details\?\: array\<string, string\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/UserController.php
+
+		-
+			message: '#^Offset ''message'' might not exist on array\{status\: ''inactive'', code\: int, scan_id\?\: string, message\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/VolumeController.php
+
+		-
+			message: '#^Offset ''message'' might not exist on array\{status\: string, code\: int, scan_id\?\: string, message\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/VolumeController.php
+
+		-
+			message: '#^Offset ''scan_id'' might not exist on array\{status\: string, code\: int, scan_id\?\: string, message\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/VolumeController.php
+
+		-
+			message: '#^Offset ''volume_id'' does not exist on array\{status\: string, code\: int, scan_id\?\: string, message\?\: string\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Controller/VolumeController.php
+
+		-
+			message: '#^Offset ''data'' might not exist on array\{result\: string, data\?\: array\<string, mixed\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Controller/WatcherController.php
+
+		-
+			message: '#^Method App\\Entity\\ActivityLog\:\:getDetails\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/ActivityLog.php
+
+		-
+			message: '#^Method App\\Entity\\ActivityLog\:\:setDetails\(\) has parameter \$details with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/ActivityLog.php
+
+		-
+			message: '#^Property App\\Entity\\ActivityLog\:\:\$details type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/ActivityLog.php
+
+		-
+			message: '#^Method App\\Entity\\DeletionPreset\:\:getCriteria\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/DeletionPreset.php
+
+		-
+			message: '#^Method App\\Entity\\DeletionPreset\:\:getFilters\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/DeletionPreset.php
+
+		-
+			message: '#^Method App\\Entity\\DeletionPreset\:\:setCriteria\(\) has parameter \$criteria with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/DeletionPreset.php
+
+		-
+			message: '#^Method App\\Entity\\DeletionPreset\:\:setFilters\(\) has parameter \$filters with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/DeletionPreset.php
+
+		-
+			message: '#^Property App\\Entity\\DeletionPreset\:\:\$criteria type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/DeletionPreset.php
+
+		-
+			message: '#^Property App\\Entity\\DeletionPreset\:\:\$filters type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/DeletionPreset.php
+
+		-
+			message: '#^Method App\\Entity\\RadarrInstance\:\:getRootFolders\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/RadarrInstance.php
+
+		-
+			message: '#^Method App\\Entity\\RadarrInstance\:\:setRootFolders\(\) has parameter \$rootFolders with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/RadarrInstance.php
+
+		-
+			message: '#^Property App\\Entity\\RadarrInstance\:\:\$rootFolders type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/RadarrInstance.php
+
+		-
+			message: '#^Method App\\Entity\\ScheduledDeletion\:\:getExecutionReport\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/ScheduledDeletion.php
+
+		-
+			message: '#^Method App\\Entity\\ScheduledDeletion\:\:setExecutionReport\(\) has parameter \$executionReport with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/ScheduledDeletion.php
+
+		-
+			message: '#^Property App\\Entity\\ScheduledDeletion\:\:\$executionReport type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/ScheduledDeletion.php
+
+		-
+			message: '#^Method App\\Entity\\ScheduledDeletionItem\:\:getMediaFileIds\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/ScheduledDeletionItem.php
+
+		-
+			message: '#^Method App\\Entity\\ScheduledDeletionItem\:\:setMediaFileIds\(\) has parameter \$mediaFileIds with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/ScheduledDeletionItem.php
+
+		-
+			message: '#^Property App\\Entity\\ScheduledDeletionItem\:\:\$mediaFileIds type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/ScheduledDeletionItem.php
+
+		-
+			message: '#^Method App\\Entity\\User\:\:getUserIdentifier\(\) should return non\-empty\-string but returns string\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Entity/User.php
+
+		-
+			message: '#^Class App\\Entity\\Watcher has an uninitialized property \$watcherId\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: src/Entity/Watcher.php
+
+		-
+			message: '#^Method App\\Entity\\Watcher\:\:defaultConfig\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/Watcher.php
+
+		-
+			message: '#^Method App\\Entity\\Watcher\:\:getConfig\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/Watcher.php
+
+		-
+			message: '#^Method App\\Entity\\Watcher\:\:mergeConfig\(\) has parameter \$partial with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/Watcher.php
+
+		-
+			message: '#^Method App\\Entity\\Watcher\:\:setConfig\(\) has parameter \$config with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/Watcher.php
+
+		-
+			message: '#^Property App\\Entity\\Watcher\:\:\$config type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/Watcher.php
+
+		-
+			message: '#^Class App\\Entity\\WatcherLog has an uninitialized property \$watcher\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: src/Entity/WatcherLog.php
+
+		-
+			message: '#^Method App\\Entity\\WatcherLog\:\:getContext\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/WatcherLog.php
+
+		-
+			message: '#^Method App\\Entity\\WatcherLog\:\:setContext\(\) has parameter \$context with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/WatcherLog.php
+
+		-
+			message: '#^Property App\\Entity\\WatcherLog\:\:\$context type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Entity/WatcherLog.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/ExternalService/MediaManager/RadarrService.php
+
+		-
+			message: '#^Method App\\ExternalService\\MediaManager\\RadarrService\:\:getAllMovies\(\) should return array\<int, array\<string, mixed\>\> but returns array\<string, mixed\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/ExternalService/MediaManager/RadarrService.php
+
+		-
+			message: '#^Method App\\ExternalService\\MediaManager\\RadarrService\:\:getMovieFiles\(\) should return array\<int, array\<string, mixed\>\> but returns array\<string, mixed\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/ExternalService/MediaManager/RadarrService.php
+
+		-
+			message: '#^Method App\\ExternalService\\MediaManager\\RadarrService\:\:getRootFolders\(\) should return array\<int, array\{id\: int, path\: string, freeSpace\: int\}\> but returns array\<string, mixed\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/ExternalService/MediaManager/RadarrService.php
+
+		-
+			message: '#^Return type \(array\{success\: bool, version\?\: string, movies_count\?\: int, error\?\: string\}\) of method App\\ExternalService\\MediaManager\\RadarrService\:\:testConnection\(\) should be compatible with return type \(array\{success\: bool, message\: string\}\) of method App\\Contract\\MediaManager\\MediaManagerInterface\:\:testConnection\(\)$#'
+			identifier: method.childReturnType
+			count: 1
+			path: src/ExternalService/MediaManager/RadarrService.php
+
+		-
+			message: '#^Return type \(array\{success\: bool, name\?\: string, version\?\: string, error\?\: string\}\) of method App\\ExternalService\\MediaPlayer\\JellyfinService\:\:testConnection\(\) should be compatible with return type \(array\{success\: bool, message\: string\}\) of method App\\Contract\\MediaPlayer\\MediaPlayerInterface\:\:testConnection\(\)$#'
+			identifier: method.childReturnType
+			count: 1
+			path: src/ExternalService/MediaPlayer/JellyfinService.php
+
+		-
+			message: '#^Offset ''type'' on array\{key\: string, title\: string, type\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/ExternalService/MediaPlayer/PlexService.php
+
+		-
+			message: '#^Return type \(array\{success\: bool, name\?\: string, version\?\: string, error\?\: string\}\) of method App\\ExternalService\\MediaPlayer\\PlexService\:\:testConnection\(\) should be compatible with return type \(array\{success\: bool, message\: string\}\) of method App\\Contract\\MediaPlayer\\MediaPlayerInterface\:\:testConnection\(\)$#'
+			identifier: method.childReturnType
+			count: 1
+			path: src/ExternalService/MediaPlayer/PlexService.php
+
+		-
+			message: '#^Method App\\ExternalService\\Metadata\\TmdbService\:\:enrichMovieData\(\) should return array\{title\?\: string, original_title\?\: string, synopsis\?\: string, poster_url\?\: string, backdrop_url\?\: string, genres\?\: string, rating\?\: float, runtime_minutes\?\: int, \.\.\.\} but returns array\<string, float\|int\<min, \-1\>\|int\<1, max\>\|non\-falsy\-string\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/ExternalService/Metadata/TmdbService.php
+
+		-
+			message: '#^Method App\\ExternalService\\Metadata\\TmdbService\:\:extractImageUrls\(\) should return array\<string, string\> but returns array\<string, string\|null\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/ExternalService/Metadata/TmdbService.php
+
+		-
+			message: '#^Method App\\ExternalService\\Metadata\\TmdbService\:\:getMovieDetails\(\) should return array\{id\: int, title\: string, original_title\: string, overview\: string, release_date\: string, poster_path\: string\|null, backdrop_path\: string\|null, genres\: array\<int, array\{id\: int, name\: string\}\>, \.\.\.\}\|null but returns array\<string, mixed\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/ExternalService/Metadata/TmdbService.php
+
+		-
+			message: '#^Method App\\ExternalService\\Metadata\\TmdbService\:\:getMovieImages\(\) should return array\{posters\: array\<int, array\{file_path\: string, width\: int, height\: int\}\>, backdrops\: array\<int, array\{file_path\: string, width\: int, height\: int\}\>\}\|null but returns array\<string, mixed\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/ExternalService/Metadata/TmdbService.php
+
+		-
+			message: '#^Return type \(array\{success\: bool, version\?\: string, error\?\: string\}\) of method App\\ExternalService\\TorrentClient\\QBittorrentService\:\:testConnection\(\) should be compatible with return type \(array\{success\: bool, message\: string\}\) of method App\\Contract\\TorrentClient\\TorrentClientInterface\:\:testConnection\(\)$#'
+			identifier: method.childReturnType
+			count: 1
+			path: src/ExternalService/TorrentClient/QBittorrentService.php
+
+		-
+			message: '#^Method App\\Repository\\MovieRepository\:\:applyMovieFilters\(\) has parameter \$filters with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Repository/MovieRepository.php
+
+		-
+			message: '#^Cannot call method equals\(\) on Symfony\\Component\\Uid\\Uuid\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Security/Voter/DeletionVoter.php
+
+		-
+			message: '#^Class App\\Security\\Voter\\DeletionVoter extends generic class Symfony\\Component\\Security\\Core\\Authorization\\Voter\\Voter but does not specify its types\: TAttribute, TSubject$#'
+			identifier: missingType.generics
+			count: 1
+			path: src/Security/Voter/DeletionVoter.php
+
+		-
+			message: '#^Class App\\Security\\Voter\\FileVoter extends generic class Symfony\\Component\\Security\\Core\\Authorization\\Voter\\Voter but does not specify its types\: TAttribute, TSubject$#'
+			identifier: missingType.generics
+			count: 1
+			path: src/Security/Voter/FileVoter.php
+
+		-
+			message: '#^Method App\\Service\\AuthService\:\:login\(\) should return array\{access_token\: string, refresh_token\: string, user\: array\<string, mixed\>\}\|null but returns array\{access_token\: string, refresh_token\: string\|null, user\: array\<string, mixed\>\}\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Service/AuthService.php
+
+		-
+			message: '#^Method App\\Service\\AuthService\:\:login\(\) should return array\{access_token\: string, refresh_token\: string, user\: array\<string, mixed\>\}\|null but returns array\{error\: ''disabled''\}\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Service/AuthService.php
+
+		-
+			message: '#^Method App\\Service\\AuthService\:\:validateSetupUser\(\) should return array\{result\: string, details\: array\<string, string\>\}\|null but returns array\{result\: ''validation_error'', details\: array\<string, string\|Stringable\>\}\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Service/AuthService.php
+
+		-
+			message: '#^Parameter &\$allFilesToDelete by\-ref type of method App\\Service\\DeletionService\:\:processFileForDeletion\(\) expects array\<int, array\{media_file_id\: string, volume_path\: string, file_path\: string\}\>, non\-empty\-array\<int, array\{media_file_id\: string, volume_path\: string, file_path\: string\|null\}\> given\.$#'
+			identifier: parameterByRef.type
+			count: 1
+			path: src/Service/DeletionService.php
+
+		-
+			message: '#^Cannot call method getId\(\) on App\\Entity\\Volume\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Service/FileService.php
+
+		-
+			message: '#^Cannot call method getName\(\) on App\\Entity\\Volume\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Service/FileService.php
+
+		-
+			message: '#^Parameter \#1 \$fileName of method App\\Repository\\MediaFileRepository\:\:findByFileName\(\) expects string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Service/FileService.php
+
+		-
+			message: '#^Method App\\Service\\MediaPlayerConfigService\:\:validateInstance\(\) should return array\{result\: string, errors\: array\<string, string\>\}\|null but returns array\{result\: ''validation_error'', errors\: array\<string, string\|Stringable\>\}\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Service/MediaPlayerConfigService.php
+
+		-
+			message: '#^Parameter \#2 \$type of method App\\Service\\MediaPlayerRefreshService\:\:doRefreshByType\(\) expects string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Service/MediaPlayerRefreshService.php
+
+		-
+			message: '#^Cannot call method equals\(\) on Symfony\\Component\\Uid\\Uuid\|null\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: src/Service/MovieMatcherService.php
+
+		-
+			message: '#^Parameter \#1 \$fileName of method App\\Service\\MovieMatcherService\:\:parseViaRadarr\(\) expects string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Service/MovieMatcherService.php
+
+		-
+			message: '#^Parameter \#1 \$tmdbId of method App\\Service\\MovieMatcherService\:\:findOrCreateMovieByTmdbId\(\) expects int, int\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Service/MovieMatcherService.php
+
+		-
+			message: '#^Method App\\Service\\QBittorrentSyncService\:\:sync\(\) should return array\{torrents_synced\: int, new_trackers\: int, unmatched\: int, stale_removed\: int, errors\: int\} but returns array\<string, int\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Service/QBittorrentSyncService.php
+
+		-
+			message: '#^Method App\\Service\\QBittorrentSyncService\:\:sync\(\) should return array\{torrents_synced\: int, new_trackers\: int, unmatched\: int, stale_removed\: int, errors\: int\} but returns non\-empty\-array\<string, int\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Service/QBittorrentSyncService.php
+
+		-
+			message: '#^Parameter &\$hashToMovie by\-ref type of method App\\Service\\QBittorrentSyncService\:\:applyHistoryRecord\(\) expects array\<string, array\{radarrId\: int, instance\: App\\Entity\\RadarrInstance\}\>, non\-empty\-array\<string, array\{radarrId\: mixed, instance\: App\\Entity\\RadarrInstance\}\> given\.$#'
+			identifier: parameterByRef.type
+			count: 1
+			path: src/Service/QBittorrentSyncService.php
+
+		-
+			message: '#^Method App\\Service\\RadarrConfigService\:\:create\(\) should return array\{result\: string, data\?\: array\<string, mixed\>, errors\?\: array\<string, string\>\} but returns array\{result\: ''validation_error'', errors\: array\<string, string\|Stringable\>\}\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Service/RadarrConfigService.php
+
+		-
+			message: '#^Method App\\Service\\RadarrConfigService\:\:validateInstance\(\) should return array\{result\: string, errors\: array\<string, string\>\}\|null but returns array\{result\: ''validation_error'', errors\: array\<string, string\|Stringable\>\}\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Service/RadarrConfigService.php
+
+		-
+			message: '#^Cannot call method format\(\) on DateTimeInterface\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Service/ScheduledDeletionService.php
+
+		-
+			message: '#^Method App\\Service\\ScheduledDeletionService\:\:create\(\) should return array\{result\: string, data\?\: array\<string, mixed\>, error\?\: string\} but returns array\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Service/ScheduledDeletionService.php
+
+		-
+			message: '#^Method App\\Service\\ScheduledDeletionService\:\:update\(\) should return array\{result\: string, data\?\: array\<string, mixed\>, error\?\: string\} but returns array\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Service/ScheduledDeletionService.php
+
+		-
+			message: '#^Method App\\Service\\ScheduledDeletionService\:\:updateScheduledDate\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Service/ScheduledDeletionService.php
+
+		-
+			message: '#^Method App\\Service\\ScheduledDeletionService\:\:validateCreateInput\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Service/ScheduledDeletionService.php
+
+		-
+			message: '#^Offset ''discord_reminder…''\|''discord_webhook_url''\|''qbittorrent_password''\|''qbittorrent_url''\|''qbittorrent_username''\|''tmdb_api_key'' on array\{tmdb_api_key\: ''string'', discord_webhook_url\: ''string'', discord_reminder_days\: ''integer'', qbittorrent_url\: ''string'', qbittorrent_username\: ''string'', qbittorrent_password\: ''string''\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Service/SettingsService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Service/SettingsService.php
+
+		-
+			message: '#^Cannot call method format\(\) on DateTimeInterface\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/Service/SuggestionService.php
+
+		-
+			message: '#^Method App\\Service\\SuggestionService\:\:calculateMovieSeedingStatus\(\) has parameter \$filesData with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Service/SuggestionService.php
+
+		-
+			message: '#^Method App\\Service\\SuggestionService\:\:calculateSeedingStatus\(\) has parameter \$torrents with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Service/SuggestionService.php
+
+		-
+			message: '#^Parameter &\$trackersDetected by\-ref type of method App\\Service\\SuggestionService\:\:collectTrackersFromItem\(\) expects array\<string, bool\>, array\<bool\> given\.$#'
+			identifier: parameterByRef.type
+			count: 1
+			path: src/Service/SuggestionService.php
+
+		-
+			message: '#^Cannot call method equals\(\) on Symfony\\Component\\Uid\\Uuid\|null\.$#'
+			identifier: method.nonObject
+			count: 2
+			path: src/Service/UserService.php
+
+		-
+			message: '#^Method App\\Service\\UserService\:\:create\(\) should return array\{result\: string, data\?\: array\<string, mixed\>, error\?\: string\} but returns array\<string, mixed\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Service/UserService.php
+
+		-
+			message: '#^Method App\\Service\\UserService\:\:update\(\) should return array\{result\: string, data\?\: array\<string, mixed\>, details\?\: array\<string, string\>\} but returns array\<string, mixed\>\.$#'
+			identifier: return.type
+			count: 2
+			path: src/Service/UserService.php
+
+		-
+			message: '#^Parameter \#2 \$oldEmail of method App\\Service\\UserService\:\:handleEmailChange\(\) expects string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Service/UserService.php
+
+		-
+			message: '#^Parameter \#1 \$hostPath of method App\\Service\\WatcherCommandService\:\:requestScan\(\) expects string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Service/VolumeService.php
+
+		-
+			message: '#^Method App\\Service\\WatcherCommandService\:\:buildPostContext\(\) has parameter \$command with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Service/WatcherCommandService.php
+
+		-
+			message: '#^Method App\\Service\\WatcherCommandService\:\:getHttpStatusCode\(\) has parameter \$headers with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Service/WatcherCommandService.php
+
+		-
+			message: '#^Method App\\Service\\WatcherCommandService\:\:getStatus\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Service/WatcherCommandService.php
+
+		-
+			message: '#^Method App\\Service\\WatcherCommandService\:\:handleCommandResponse\(\) has parameter \$command with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Service/WatcherCommandService.php
+
+		-
+			message: '#^Method App\\Service\\WatcherCommandService\:\:requestFilesDelete\(\) has parameter \$files with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Service/WatcherCommandService.php
+
+		-
+			message: '#^Method App\\Service\\WatcherCommandService\:\:sendCommand\(\) has parameter \$command with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Service/WatcherCommandService.php
+
+		-
+			message: '#^Parameter \#1 \$string of function strlen expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Service/WatcherCommandService.php
+
+		-
+			message: '#^Variable \$http_response_header on left side of \?\? is never defined\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: src/Service/WatcherCommandService.php
+
+		-
+			message: '#^Method App\\Service\\WatcherService\:\:toggleDebug\(\) should return array\{result\: string, data\?\: array\<string, mixed\>\}\|null but returns array\<string, mixed\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Service/WatcherService.php
+
+		-
+			message: '#^Method App\\Service\\WatcherVolumeSyncService\:\:sync\(\) has parameter \$watchPaths with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Service/WatcherVolumeSyncService.php
+
+		-
+			message: '#^Cannot call method getTitle\(\) on App\\Entity\\Movie\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/WebSocket/Handler/FileCreatedHandler.php
+
+		-
+			message: '#^Call to an undefined method object\:\:getMediaFileIds\(\)\.$#'
+			identifier: method.notFound
+			count: 2
+			path: src/WebSocket/Handler/FilesDeleteCompletedHandler.php
+
+		-
+			message: '#^Call to an undefined method object\:\:getMovie\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/WebSocket/Handler/FilesDeleteCompletedHandler.php
+
+		-
+			message: '#^Call to an undefined method object\:\:getTitle\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: src/WebSocket/Handler/FilesDeleteCompletedHandler.php
+
+		-
+			message: '#^Parameter &\$fileNames by\-ref type of method App\\WebSocket\\Handler\\FilesDeleteCompletedHandler\:\:processFileResults\(\) expects array\<string, string\>, array\<string\|null\> given\.$#'
+			identifier: parameterByRef.type
+			count: 1
+			path: src/WebSocket/Handler/FilesDeleteCompletedHandler.php
+
+		-
+			message: '#^Parameter &\$fileSizes by\-ref type of method App\\WebSocket\\Handler\\FilesDeleteCompletedHandler\:\:processFileResults\(\) expects array\<string, int\>, array\<int\> given\.$#'
+			identifier: parameterByRef.type
+			count: 1
+			path: src/WebSocket/Handler/FilesDeleteCompletedHandler.php
+
+		-
+			message: '#^Parameter \#2 \$volume of method App\\WebSocket\\ScanStateManager\:\:updateVolume\(\) expects App\\Entity\\Volume, App\\Entity\\Volume\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/WebSocket/Handler/ScanFileHandler.php
+
+		-
+			message: '#^Property App\\WebSocket\\WatcherMessageDispatcher\:\:\$em \(Doctrine\\ORM\\EntityManagerInterface\) does not accept Doctrine\\Persistence\\ObjectManager\.$#'
+			identifier: assign.propertyType
+			count: 1
+			path: src/WebSocket/WatcherMessageDispatcher.php
+
+		-
+			message: '#^Call to function is_array\(\) with array will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/WebSocket/WatcherWebSocketServer.php
+
+		-
+			message: '#^Method App\\WebSocket\\WatcherWebSocketServer\:\:broadcastToAllBrowsers\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/WebSocket/WatcherWebSocketServer.php
+
+		-
+			message: '#^Method App\\WebSocket\\WatcherWebSocketServer\:\:dispatchAuthenticatedMessage\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/WebSocket/WatcherWebSocketServer.php
+
+		-
+			message: '#^Method App\\WebSocket\\WatcherWebSocketServer\:\:handleBrowserAuth\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/WebSocket/WatcherWebSocketServer.php
+
+		-
+			message: '#^Method App\\WebSocket\\WatcherWebSocketServer\:\:handleWatcherAuth\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/WebSocket/WatcherWebSocketServer.php
+
+		-
+			message: '#^Method App\\WebSocket\\WatcherWebSocketServer\:\:handleWatcherHello\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/WebSocket/WatcherWebSocketServer.php
+
+		-
+			message: '#^Method App\\WebSocket\\WatcherWebSocketServer\:\:sendToBrowser\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/WebSocket/WatcherWebSocketServer.php
+
+		-
+			message: '#^Method App\\WebSocket\\WatcherWebSocketServer\:\:sendToConnection\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/WebSocket/WatcherWebSocketServer.php
+
+		-
+			message: '#^Parameter \#1 \$payload of class Ratchet\\RFC6455\\Messaging\\Frame constructor expects string\|null, string\|false given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/WebSocket/WatcherWebSocketServer.php
+
+		-
+			message: '#^Property App\\WebSocket\\WatcherWebSocketServer\:\:\$connections \(array\<int, array\{conn\: React\\Socket\\ConnectionInterface, buffer\: Ratchet\\RFC6455\\Messaging\\MessageBuffer, authenticated\: bool, watcherId\: string\|null, watcherDbId\: string\|null\}\>\) does not accept non\-empty\-array\<int, array\{authenticated\: true, watcherId\: string, watcherDbId\: string\}\|array\{conn\: React\\Socket\\ConnectionInterface, buffer\: Ratchet\\RFC6455\\Messaging\\MessageBuffer, authenticated\: bool, watcherId\: string\|null, watcherDbId\: string\|null\}\>\.$#'
+			identifier: assign.propertyType
+			count: 1
+			path: src/WebSocket/WatcherWebSocketServer.php
+
+		-
+			message: '#^Property App\\WebSocket\\WatcherWebSocketServer\:\:\$connections \(array\<int, array\{conn\: React\\Socket\\ConnectionInterface, buffer\: Ratchet\\RFC6455\\Messaging\\MessageBuffer, authenticated\: bool, watcherId\: string\|null, watcherDbId\: string\|null\}\>\) does not accept non\-empty\-array\<int, array\{authenticated\: true, watcherId\: string\}\|array\{conn\: React\\Socket\\ConnectionInterface, buffer\: Ratchet\\RFC6455\\Messaging\\MessageBuffer, authenticated\: bool, watcherId\: string\|null, watcherDbId\: string\|null\}\>\.$#'
+			identifier: assign.propertyType
+			count: 1
+			path: src/WebSocket/WatcherWebSocketServer.php
+
+		-
+			message: '#^Class App\\Tests\\AbstractApiTestCase has an uninitialized property \$client\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/AbstractApiTestCase.php
+
+		-
+			message: '#^Class App\\Tests\\AbstractApiTestCase has an uninitialized property \$em\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/AbstractApiTestCase.php
+
+		-
+			message: '#^Method App\\Tests\\AbstractApiTestCase\:\:apiDelete\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/AbstractApiTestCase.php
+
+		-
+			message: '#^Method App\\Tests\\AbstractApiTestCase\:\:apiGet\(\) has parameter \$parameters with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/AbstractApiTestCase.php
+
+		-
+			message: '#^Method App\\Tests\\AbstractApiTestCase\:\:apiPost\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/AbstractApiTestCase.php
+
+		-
+			message: '#^Method App\\Tests\\AbstractApiTestCase\:\:apiPut\(\) has parameter \$data with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/AbstractApiTestCase.php
+
+		-
+			message: '#^Method App\\Tests\\AbstractApiTestCase\:\:getResponseData\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/AbstractApiTestCase.php
+
+		-
+			message: '#^Parameter \#1 \$json of function json_decode expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/AbstractApiTestCase.php
+
+		-
+			message: '#^Parameter \#1 \$string of function substr expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/AbstractApiTestCase.php
+
+		-
+			message: '#^Parameter \#6 \$content of method Symfony\\Component\\BrowserKit\\AbstractBrowser\<Symfony\\Component\\HttpFoundation\\Request,Symfony\\Component\\HttpFoundation\\Response\>\:\:request\(\) expects string\|null, string\|false given\.$#'
+			identifier: argument.type
+			count: 2
+			path: tests/AbstractApiTestCase.php
+
+		-
+			message: '#^Parameter \#6 \$content of method Symfony\\Component\\BrowserKit\\AbstractBrowser\<Symfony\\Component\\HttpFoundation\\Request,Symfony\\Component\\HttpFoundation\\Response\>\:\:request\(\) expects string\|null, string\|false\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/AbstractApiTestCase.php
+
+		-
+			message: '#^Parameter \#2 \$string of method PHPUnit\\Framework\\Assert\:\:assertStringStartsWith\(\) expects string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/Functional/Controller/AuthControllerTest.php
+
+		-
+			message: '#^Cannot call method isDefault\(\) on App\\Entity\\DeletionPreset\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: tests/Functional/Controller/DeletionPresetControllerTest.php
+
+		-
+			message: '#^Method App\\Tests\\Functional\\Controller\\DeletionPresetControllerTest\:\:createPreset\(\) has parameter \$criteria with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/Functional/Controller/DeletionPresetControllerTest.php
+
+		-
+			message: '#^Method App\\Tests\\Functional\\Controller\\DeletionPresetControllerTest\:\:createPreset\(\) has parameter \$filters with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/Functional/Controller/DeletionPresetControllerTest.php
+
+		-
+			message: '#^Method App\\Tests\\Functional\\Controller\\ScheduledDeletionControllerTest\:\:addDeletionItem\(\) has parameter \$mediaFileIds with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/Functional/Controller/ScheduledDeletionControllerTest.php
+
+		-
+			message: '#^Parameter \#1 \$kernel of class Symfony\\Bundle\\FrameworkBundle\\Console\\Application constructor expects Symfony\\Component\\HttpKernel\\KernelInterface, Symfony\\Component\\HttpKernel\\KernelInterface\|null given\.$#'
+			identifier: argument.type
+			count: 3
+			path: tests/Functional/Controller/ScheduledDeletionControllerTest.php
+
+		-
+			message: '#^Parameter \#2 \$haystack of method PHPUnit\\Framework\\Assert\:\:assertStringContainsStringIgnoringCase\(\) expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 2
+			path: tests/Functional/Controller/ScheduledDeletionControllerTest.php
+
+		-
+			message: '#^Parameter \#1 \$kernel of class Symfony\\Bundle\\FrameworkBundle\\Console\\Application constructor expects Symfony\\Component\\HttpKernel\\KernelInterface, Symfony\\Component\\HttpKernel\\KernelInterface\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/Functional/DeletionChainTest.php
+
+		-
+			message: '#^Parameter \#2 \$string of function explode expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/Functional/DeletionChainTest.php
+
+		-
+			message: '#^Parameter \#2 \$subject of function preg_match expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: tests/Functional/DeletionChainTest.php
+
+		-
+			message: '#^Class App\\Tests\\Functional\\WebSocket\\InodeHandlerTest has an uninitialized property \$fileCreatedHandler\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Functional/WebSocket/InodeHandlerTest.php
+
+		-
+			message: '#^Class App\\Tests\\Functional\\WebSocket\\InodeHandlerTest has an uninitialized property \$fileModifiedHandler\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Functional/WebSocket/InodeHandlerTest.php
+
+		-
+			message: '#^Class App\\Tests\\Functional\\WebSocket\\InodeHandlerTest has an uninitialized property \$fileRenamedHandler\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Functional/WebSocket/InodeHandlerTest.php
+
+		-
+			message: '#^Class App\\Tests\\Functional\\WebSocket\\InodeHandlerTest has an uninitialized property \$mediaFileRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Functional/WebSocket/InodeHandlerTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Entity\\TorrentStatTest has an uninitialized property \$stat\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Entity/TorrentStatTest.php
+
+		-
+			message: '#^Call to method PHPUnit\\Framework\\Assert\:\:assertIsArray\(\) with array will always evaluate to true\.$#'
+			identifier: method.alreadyNarrowedType
+			count: 1
+			path: tests/Unit/Entity/WatcherTest.php
+
+		-
+			message: '#^Call to an undefined method App\\Repository\\MediaFileRepository\:\:method\(\)\.$#'
+			identifier: method.notFound
+			count: 3
+			path: tests/Unit/Matching/InodeMatchingStrategyTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Matching\\InodeMatchingStrategyTest has an uninitialized property \$repo\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Matching/InodeMatchingStrategyTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Matching\\InodeMatchingStrategyTest has an uninitialized property \$strategy\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Matching/InodeMatchingStrategyTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Security\\Voter\\DeletionVoterTest has an uninitialized property \$voter\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Security/Voter/DeletionVoterTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Security\\Voter\\FileVoterTest has an uninitialized property \$voter\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Security/Voter/FileVoterTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\HardlinkReplacementServiceTest has an uninitialized property \$service\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/HardlinkReplacementServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\HardlinkReplacementServiceTest has an uninitialized property \$watcherCommandService\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/HardlinkReplacementServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentServiceTest has an uninitialized property \$httpClient\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentServiceTest has an uninitialized property \$logger\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentServiceTest has an uninitialized property \$settingRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentServiceTest.php
+
+		-
+			message: '#^Method App\\Tests\\Unit\\Service\\QBittorrentServiceTest\:\:createServiceWithSettings\(\) has parameter \$settingsMap with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/Unit/Service/QBittorrentServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$em\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$historyRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$logger\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$mediaFileRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$movieRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$qbitService\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$radarrInstanceRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$radarrService\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$service\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$settingRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$torrentStatRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$trackerRuleRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\QBittorrentSyncServiceTest has an uninitialized property \$volumeRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/QBittorrentSyncServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\SuggestionServiceTest has an uninitialized property \$movieRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/SuggestionServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\SuggestionServiceTest has an uninitialized property \$service\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/SuggestionServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\SuggestionServiceTest has an uninitialized property \$torrentStatRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/SuggestionServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\SuggestionServiceTest has an uninitialized property \$trackerRuleRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/SuggestionServiceTest.php
+
+		-
+			message: '#^Class App\\Tests\\Unit\\Service\\SuggestionServiceTest has an uninitialized property \$volumeRepository\. Give it default value or assign it in the constructor\.$#'
+			identifier: property.uninitialized
+			count: 1
+			path: tests/Unit/Service/SuggestionServiceTest.php
+
+		-
+			message: '#^Method App\\Tests\\Unit\\Service\\SuggestionServiceTest\:\:createMovieWithFile\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: tests/Unit/Service/SuggestionServiceTest.php

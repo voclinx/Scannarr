@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\Entity\MediaFile;
 use App\Entity\User;
 use App\Security\Voter\FileVoter;
 use App\Service\FileService;
@@ -34,7 +35,7 @@ class FileController extends AbstractController
     public function show(string $id): JsonResponse
     {
         $file = $this->fileService->findById($id);
-        if ($file === null) {
+        if (!$file instanceof MediaFile) {
             return $this->json(['error' => ['code' => 404, 'message' => 'File not found']], 404);
         }
 
@@ -46,7 +47,7 @@ class FileController extends AbstractController
     public function delete(string $id, Request $request): JsonResponse
     {
         $file = $this->fileService->findById($id);
-        if ($file === null) {
+        if (!$file instanceof MediaFile) {
             return $this->json(['error' => ['code' => 404, 'message' => 'File not found']], 404);
         }
 
@@ -72,7 +73,7 @@ class FileController extends AbstractController
     public function siblings(string $id): JsonResponse
     {
         $file = $this->fileService->findById($id);
-        if ($file === null) {
+        if (!$file instanceof MediaFile) {
             return $this->json(['error' => ['code' => 404, 'message' => 'File not found']], 404);
         }
 
@@ -86,7 +87,7 @@ class FileController extends AbstractController
     public function globalDelete(string $id, Request $request): JsonResponse
     {
         $sourceFile = $this->fileService->findById($id);
-        if ($sourceFile === null) {
+        if (!$sourceFile instanceof MediaFile) {
             return $this->json(['error' => ['code' => 404, 'message' => 'File not found']], 404);
         }
 

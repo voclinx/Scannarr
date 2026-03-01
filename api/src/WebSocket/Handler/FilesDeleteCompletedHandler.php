@@ -7,6 +7,7 @@ namespace App\WebSocket\Handler;
 use App\Contract\WebSocket\WatcherMessageHandlerInterface;
 use App\Entity\ActivityLog;
 use App\Entity\ScheduledDeletion;
+use App\Entity\User;
 use App\Enum\DeletionStatus;
 use App\ExternalService\Notification\DiscordNotificationService;
 use App\Repository\MediaFileRepository;
@@ -16,14 +17,14 @@ use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
-final class FilesDeleteCompletedHandler implements WatcherMessageHandlerInterface
+final readonly class FilesDeleteCompletedHandler implements WatcherMessageHandlerInterface
 {
     public function __construct(
-        private readonly EntityManagerInterface $em,
-        private readonly MediaFileRepository $mediaFileRepository,
-        private readonly MediaPlayerRefreshService $mediaPlayerRefreshService,
-        private readonly DiscordNotificationService $discordNotificationService,
-        private readonly LoggerInterface $logger,
+        private EntityManagerInterface $em,
+        private MediaFileRepository $mediaFileRepository,
+        private MediaPlayerRefreshService $mediaPlayerRefreshService,
+        private DiscordNotificationService $discordNotificationService,
+        private LoggerInterface $logger,
     ) {
     }
 
@@ -50,79 +51,116 @@ final class FilesDeleteCompletedHandler implements WatcherMessageHandlerInterfac
             return;
         }
 
+        $this->processDeletion($deletion, $data, $deletionId);
+    }
+
+    /** @param array<string, mixed> $data */
+    private function processDeletion(ScheduledDeletion $deletion, array $data, string $deletionId): void
+    {
         $results = $data['results'] ?? [];
         $successCount = $data['deleted'] ?? 0;
         $failedCount = $data['failed'] ?? 0;
 
-        // 1. Remove successfully deleted media_files from DB
         $fileSizes = [];
         $fileNames = [];
-        foreach ($results as $result) {
-            if (($result['status'] ?? '') === 'deleted') {
-                $mediaFile = $this->mediaFileRepository->find($result['media_file_id'] ?? '');
-                if ($mediaFile !== null) {
-                    $fileSizes[$result['media_file_id']] = $mediaFile->getFileSizeBytes();
-                    $fileNames[$result['media_file_id']] = $mediaFile->getFileName();
-                    $this->em->remove($mediaFile);
-                }
-            }
-        }
+        $this->processFileResults($results, $fileSizes, $fileNames);
+        $this->updateItemStatuses($deletion, $results);
 
-        // 2. Update item statuses
-        foreach ($deletion->getItems() as $item) {
-            $itemFileIds = $item->getMediaFileIds();
-            $itemErrors = [];
-            foreach ($results as $r) {
-                if (in_array($r['media_file_id'] ?? '', $itemFileIds, true) && ($r['status'] ?? '') === 'failed') {
-                    $itemErrors[] = $r['error'] ?? 'Unknown';
-                }
+        $this->buildExecutionReport($deletion, $results, $fileSizes, $fileNames, $successCount, $failedCount, $data);
+        $this->updateDeletionStatus($deletion, $successCount, $failedCount);
+        $this->refreshMediaPlayers($deletion, $successCount);
+        $this->sendDiscordNotification($deletion);
+        $this->logDeletionActivity($deletion, $deletionId, $successCount, $failedCount);
+    }
+
+    /**
+     * Remove successfully deleted media_files from DB and collect their sizes/names.
+     *
+     * @param array<int, array<string, mixed>> $results
+     * @param array<string, int> $fileSizes
+     * @param array<string, string> $fileNames
+     */
+    private function processFileResults(array $results, array &$fileSizes, array &$fileNames): void
+    {
+        foreach ($results as $result) {
+            if (($result['status'] ?? '') !== 'deleted') {
+                continue;
             }
+            $mediaFile = $this->mediaFileRepository->find($result['media_file_id'] ?? '');
+            if ($mediaFile === null) {
+                continue;
+            }
+            $fileSizes[$result['media_file_id']] = $mediaFile->getFileSizeBytes();
+            $fileNames[$result['media_file_id']] = $mediaFile->getFileName();
+            $this->em->remove($mediaFile);
+        }
+    }
+
+    /**
+     * Update each deletion item's status based on per-file results.
+     *
+     * @param array<int, array<string, mixed>> $results
+     */
+    private function updateItemStatuses(ScheduledDeletion $deletion, array $results): void
+    {
+        foreach ($deletion->getItems() as $item) {
+            $itemErrors = $this->collectItemErrors($item->getMediaFileIds(), $results);
             $item->setStatus($itemErrors === [] ? 'deleted' : 'partial_failure');
             if ($itemErrors !== []) {
                 $item->setErrorMessage(implode('; ', $itemErrors));
             }
         }
+    }
 
-        // 3. Build enriched items for execution report
+    /**
+     * Collect error messages for a given set of media file IDs.
+     *
+     * @param array<int, string> $mediaFileIds
+     * @param array<int, array<string, mixed>> $results
+     *
+     * @return array<int, string>
+     */
+    private function collectItemErrors(array $mediaFileIds, array $results): array
+    {
+        $errors = [];
+        foreach ($results as $r) {
+            if (!in_array($r['media_file_id'] ?? '', $mediaFileIds, true)) {
+                continue;
+            }
+            if (($r['status'] ?? '') === 'failed') {
+                $errors[] = $r['error'] ?? 'Unknown';
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Build enriched execution report with per-item details.
+     *
+     * @param array<int, array<string, mixed>> $results
+     * @param array<string, int> $fileSizes
+     * @param array<string, string> $fileNames
+     * @param array<string, mixed> $data
+     *
+     * @SuppressWarnings(PHPMD.ExcessiveParameterList)
+     */
+    private function buildExecutionReport(
+        ScheduledDeletion $deletion,
+        array $results,
+        array $fileSizes,
+        array $fileNames,
+        int $successCount,
+        int $failedCount,
+        array $data,
+    ): int {
         $itemReports = [];
         $totalSpaceFreed = 0;
+
         foreach ($deletion->getItems() as $item) {
-            $movie = $item->getMovie();
-            $itemErrors = [];
-            $itemSpaceFreed = 0;
-
-            foreach ($item->getMediaFileIds() as $fileId) {
-                foreach ($results as $r) {
-                    if (($r['media_file_id'] ?? '') === $fileId) {
-                        if (($r['status'] ?? '') === 'failed') {
-                            $itemErrors[] = $r['error'] ?? 'Unknown';
-                        }
-                        $size = $r['size_bytes'] ?? 0;
-                        if ($size === 0) {
-                            $size = $fileSizes[$fileId] ?? 0;
-                        }
-                        $itemSpaceFreed += $size;
-                    }
-                }
-            }
-
-            if ($movie === null) {
-                $names = array_values(array_filter(array_map(
-                    fn (string $fid) => $fileNames[$fid] ?? null,
-                    $item->getMediaFileIds(),
-                )));
-                $movieLabel = $names !== [] ? implode(', ', $names) : '(fichier orphelin)';
-            } else {
-                $movieLabel = $movie->getTitle();
-            }
-
-            $itemReports[] = [
-                'movie' => $movieLabel,
-                'year' => $movie?->getYear(),
-                'space_freed_bytes' => $itemSpaceFreed,
-                'errors' => $itemErrors,
-            ];
-            $totalSpaceFreed += $itemSpaceFreed;
+            $itemReport = $this->buildItemReport($item, $results, $fileSizes, $fileNames);
+            $itemReports[] = $itemReport;
+            $totalSpaceFreed += $itemReport['space_freed_bytes'];
         }
 
         $deletion->setExecutionReport([
@@ -136,39 +174,142 @@ final class FilesDeleteCompletedHandler implements WatcherMessageHandlerInterfac
         ]);
         $deletion->setExecutedAt(new DateTimeImmutable());
 
-        if ($successCount === 0 && $failedCount > 0) {
-            $deletion->setStatus(DeletionStatus::FAILED);
-        } else {
-            $deletion->setStatus(DeletionStatus::COMPLETED);
+        return $totalSpaceFreed;
+    }
+
+    /**
+     * Build a single item report entry.
+     *
+     * @param array<int, array<string, mixed>> $results
+     * @param array<string, int> $fileSizes
+     * @param array<string, string> $fileNames
+     *
+     * @return array<string, mixed>
+     */
+    private function buildItemReport(object $item, array $results, array $fileSizes, array $fileNames): array
+    {
+        $movie = $item->getMovie();
+        [$itemErrors, $itemSpaceFreed] = $this->collectFileStats($item->getMediaFileIds(), $results, $fileSizes);
+
+        return [
+            'movie' => $this->resolveMovieLabel($movie, $item->getMediaFileIds(), $fileNames),
+            'year' => $movie?->getYear(),
+            'space_freed_bytes' => $itemSpaceFreed,
+            'errors' => $itemErrors,
+        ];
+    }
+
+    /**
+     * @param array<int, string> $fileIds
+     * @param array<int, array<string, mixed>> $results
+     * @param array<string, int> $fileSizes
+     *
+     * @return array{0: array<string>, 1: int}
+     */
+    private function collectFileStats(array $fileIds, array $results, array $fileSizes): array
+    {
+        $errors = [];
+        $spaceFreed = 0;
+
+        foreach ($fileIds as $fileId) {
+            $fileResult = $this->findFileResult($fileId, $results);
+            if ($fileResult === null) {
+                continue;
+            }
+            if (($fileResult['status'] ?? '') === 'failed') {
+                $errors[] = $fileResult['error'] ?? 'Unknown';
+            }
+            $size = $fileResult['size_bytes'] ?? 0;
+            $spaceFreed += $size === 0 ? ($fileSizes[$fileId] ?? 0) : $size;
         }
 
-        // 4. Refresh Plex/Jellyfin (best-effort)
-        if ($successCount > 0 && $deletion->isDeleteMediaPlayerReference()) {
-            try {
-                $this->mediaPlayerRefreshService->refreshAll();
-            } catch (Throwable $e) {
-                $this->logger->warning('Media player refresh failed after deletion', ['error' => $e->getMessage()]);
+        return [$errors, $spaceFreed];
+    }
+
+    /**
+     * Find a result entry matching a given media file ID.
+     *
+     * @param array<int, array<string, mixed>> $results
+     *
+     * @return array<string, mixed>|null
+     */
+    private function findFileResult(string $fileId, array $results): ?array
+    {
+        foreach ($results as $r) {
+            if (($r['media_file_id'] ?? '') === $fileId) {
+                return $r;
             }
         }
 
-        // 5. Discord notification
+        return null;
+    }
+
+    /**
+     * Resolve a human-readable label for the movie or orphan files.
+     *
+     * @param array<int, string> $mediaFileIds
+     * @param array<string, string> $fileNames
+     */
+    private function resolveMovieLabel(?object $movie, array $mediaFileIds, array $fileNames): string
+    {
+        if ($movie !== null) {
+            return $movie->getTitle();
+        }
+
+        $names = array_values(array_filter(array_map(
+            fn (string $fid) => $fileNames[$fid] ?? null,
+            $mediaFileIds,
+        )));
+
+        return $names !== [] ? implode(', ', $names) : '(fichier orphelin)';
+    }
+
+    private function updateDeletionStatus(ScheduledDeletion $deletion, int $successCount, int $failedCount): void
+    {
+        if ($successCount === 0 && $failedCount > 0) {
+            $deletion->setStatus(DeletionStatus::FAILED);
+
+            return;
+        }
+
+        $deletion->setStatus(DeletionStatus::COMPLETED);
+    }
+
+    private function refreshMediaPlayers(ScheduledDeletion $deletion, int $successCount): void
+    {
+        if ($successCount <= 0 || !$deletion->isDeleteMediaPlayerReference()) {
+            return;
+        }
+
+        try {
+            $this->mediaPlayerRefreshService->refreshAll();
+        } catch (Throwable $e) {
+            $this->logger->warning('Media player refresh failed after deletion', ['error' => $e->getMessage()]);
+        }
+    }
+
+    private function sendDiscordNotification(ScheduledDeletion $deletion): void
+    {
         try {
             if ($deletion->getStatus() === DeletionStatus::COMPLETED) {
                 $this->discordNotificationService->sendDeletionSuccess($deletion);
-            } else {
-                $this->discordNotificationService->sendDeletionError($deletion);
+
+                return;
             }
+            $this->discordNotificationService->sendDeletionError($deletion);
         } catch (Throwable $e) {
             $this->logger->warning('Discord notification failed', ['error' => $e->getMessage()]);
         }
+    }
 
-        // 6. Activity log
+    private function logDeletionActivity(ScheduledDeletion $deletion, string $deletionId, int $successCount, int $failedCount): void
+    {
         $log = new ActivityLog();
         $log->setAction('scheduled_deletion.executed');
         $log->setEntityType('scheduled_deletion');
         $log->setEntityId($deletion->getId());
         $log->setDetails(['success' => $successCount, 'failed' => $failedCount]);
-        if ($deletion->getCreatedBy() !== null) {
+        if ($deletion->getCreatedBy() instanceof User) {
             $log->setUser($deletion->getCreatedBy());
         }
         $this->em->persist($log);

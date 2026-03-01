@@ -7,6 +7,7 @@ namespace App\Repository;
 use App\Entity\Movie;
 use App\Entity\RadarrInstance;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
+use Doctrine\ORM\QueryBuilder;
 use Doctrine\Persistence\ManagerRegistry;
 
 /**
@@ -14,6 +15,14 @@ use Doctrine\Persistence\ManagerRegistry;
  */
 class MovieRepository extends ServiceEntityRepository
 {
+    private const array SORT_MAP = [
+        'title' => 'm.title',
+        'year' => 'm.year',
+        'rating' => 'm.rating',
+        'runtime_minutes' => 'm.runtimeMinutes',
+        'created_at' => 'm.createdAt',
+    ];
+
     public function __construct(ManagerRegistry $registry)
     {
         parent::__construct($registry, Movie::class);
@@ -38,24 +47,33 @@ class MovieRepository extends ServiceEntityRepository
     {
         $page = max(1, (int)($filters['page'] ?? 1));
         $limit = min(100, max(1, (int)($filters['limit'] ?? 25)));
-        $sort = $filters['sort'] ?? 'title';
-        $order = strtoupper($filters['order'] ?? 'ASC');
-
-        if (!in_array($order, ['ASC', 'DESC'], true)) {
-            $order = 'ASC';
-        }
-
-        $sortMap = [
-            'title' => 'm.title',
-            'year' => 'm.year',
-            'rating' => 'm.rating',
-            'runtime_minutes' => 'm.runtimeMinutes',
-            'created_at' => 'm.createdAt',
-        ];
-        $sortField = $sortMap[$sort] ?? 'm.title';
 
         $qb = $this->createQueryBuilder('m');
+        $this->applyMovieFilters($qb, $filters);
 
+        $total = (int)(clone $qb)->select('COUNT(m.id)')->getQuery()->getSingleScalarResult();
+
+        $sortField = self::SORT_MAP[$filters['sort'] ?? 'title'] ?? 'm.title';
+        $order = $this->sanitizeOrder($filters['order'] ?? 'ASC');
+
+        $qb->orderBy($sortField, $order)
+            ->setFirstResult(($page - 1) * $limit)
+            ->setMaxResults($limit);
+
+        return [
+            'data' => $qb->getQuery()->getResult(),
+            'total' => $total,
+            'page' => $page,
+            'limit' => $limit,
+            'total_pages' => (int)ceil($total / $limit),
+        ];
+    }
+
+    /**
+     * Apply search and instance filters to a QueryBuilder.
+     */
+    private function applyMovieFilters(QueryBuilder $qb, array $filters): void
+    {
         if (!empty($filters['search'])) {
             $qb->andWhere('LOWER(m.title) LIKE LOWER(:search) OR LOWER(m.originalTitle) LIKE LOWER(:search)')
                 ->setParameter('search', '%' . $filters['search'] . '%');
@@ -65,24 +83,15 @@ class MovieRepository extends ServiceEntityRepository
             $qb->andWhere('m.radarrInstance = :instanceId')
                 ->setParameter('instanceId', $filters['radarr_instance_id']);
         }
+    }
 
-        // Count total
-        $countQb = clone $qb;
-        $total = (int)$countQb->select('COUNT(m.id)')->getQuery()->getSingleScalarResult();
+    /**
+     * Sanitize sort order to ASC or DESC.
+     */
+    private function sanitizeOrder(string $order): string
+    {
+        $order = strtoupper($order);
 
-        // Apply sort and pagination
-        $qb->orderBy($sortField, $order)
-            ->setFirstResult(($page - 1) * $limit)
-            ->setMaxResults($limit);
-
-        $movies = $qb->getQuery()->getResult();
-
-        return [
-            'data' => $movies,
-            'total' => $total,
-            'page' => $page,
-            'limit' => $limit,
-            'total_pages' => (int)ceil($total / $limit),
-        ];
+        return in_array($order, ['ASC', 'DESC'], true) ? $order : 'ASC';
     }
 }

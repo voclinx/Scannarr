@@ -7,10 +7,10 @@ namespace App\WebSocket\Handler;
 use App\Contract\WebSocket\WatcherMessageHandlerInterface;
 use Psr\Log\LoggerInterface;
 
-final class FilesDeleteProgressHandler implements WatcherMessageHandlerInterface
+final readonly class FilesDeleteProgressHandler implements WatcherMessageHandlerInterface
 {
     public function __construct(
-        private readonly LoggerInterface $logger,
+        private LoggerInterface $logger,
     ) {
     }
 

@@ -9,12 +9,12 @@ use App\Enum\VolumeStatus;
 use App\Repository\MediaFileRepository;
 use App\Repository\VolumeRepository;
 
-final class VolumeService
+final readonly class VolumeService
 {
     public function __construct(
-        private readonly VolumeRepository $volumeRepository,
-        private readonly MediaFileRepository $mediaFileRepository,
-        private readonly WatcherCommandService $watcherCommandService,
+        private VolumeRepository $volumeRepository,
+        private MediaFileRepository $mediaFileRepository,
+        private WatcherCommandService $watcherCommandService,
     ) {
     }
 

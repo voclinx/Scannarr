@@ -11,7 +11,7 @@ use Psr\Log\LoggerInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Throwable;
 
-final class SettingsService
+final readonly class SettingsService
 {
     private const array ALLOWED_KEYS = [
         'tmdb_api_key',
@@ -32,10 +32,10 @@ final class SettingsService
     ];
 
     public function __construct(
-        private readonly SettingRepository $settingRepository,
-        private readonly QBittorrentService $qBittorrentService,
-        private readonly HttpClientInterface $httpClient,
-        private readonly LoggerInterface $logger,
+        private SettingRepository $settingRepository,
+        private QBittorrentService $qBittorrentService,
+        private HttpClientInterface $httpClient,
+        private LoggerInterface $logger,
     ) {
     }
 
@@ -94,15 +94,7 @@ final class SettingsService
 
         try {
             $response = $this->httpClient->request('POST', $webhookUrl, [
-                'json' => [
-                    'embeds' => [[
-                        'title' => '🔔 Test Scanarr',
-                        'description' => 'Les notifications Discord fonctionnent correctement !',
-                        'color' => 3066993,
-                        'footer' => ['text' => 'Scanarr — Test de notification'],
-                        'timestamp' => (new DateTimeImmutable())->format('c'),
-                    ]],
-                ],
+                'json' => ['embeds' => [$this->buildTestEmbed()]],
                 'timeout' => 10,
             ]);
 
@@ -117,5 +109,17 @@ final class SettingsService
 
             return ['success' => false, 'error' => sprintf('Discord webhook test failed: %s', $e->getMessage())];
         }
+    }
+
+    /** @return array<string, mixed> */
+    private function buildTestEmbed(): array
+    {
+        return [
+            'title' => '🔔 Test Scanarr',
+            'description' => 'Les notifications Discord fonctionnent correctement !',
+            'color' => 3066993,
+            'footer' => ['text' => 'Scanarr — Test de notification'],
+            'timestamp' => (new DateTimeImmutable())->format('c'),
+        ];
     }
 }

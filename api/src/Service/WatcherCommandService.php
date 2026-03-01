@@ -123,7 +123,7 @@ class WatcherCommandService
 
         // The Go watcher expects watch_paths as a flat list of strings, not [{path, name}] objects
         $config['watch_paths'] = array_values(array_filter(array_map(
-            static fn ($wp) => is_array($wp) ? ($wp['path'] ?? '') : (string)$wp,
+            static fn ($wp): mixed => is_array($wp) ? ($wp['path'] ?? '') : (string)$wp,
             $config['watch_paths'] ?? [],
         )));
 
@@ -139,6 +139,7 @@ class WatcherCommandService
     /**
      * Get the WebSocket server status (connected watchers, etc.).
      */
+    /** @SuppressWarnings(PHPMD.ErrorControlOperator) */
     public function getStatus(): array
     {
         $url = $this->wsInternalUrl . '/internal/status';
@@ -172,6 +173,7 @@ class WatcherCommandService
      *
      * @return bool True if sent (HTTP 200), false if watcher offline (HTTP 503) or error
      */
+    /** @SuppressWarnings(PHPMD.ErrorControlOperator) */
     public function sendCommand(array $command, ?string $targetWatcherId = null): bool
     {
         if ($targetWatcherId !== null) {
@@ -179,9 +181,27 @@ class WatcherCommandService
         }
 
         $url = $this->wsInternalUrl . '/internal/send-to-watcher';
+        $context = $this->buildPostContext($command);
+
+        try {
+            $response = @file_get_contents($url, false, $context);
+
+            return $this->handleCommandResponse($command, $response);
+        } catch (Throwable $e) {
+            $this->logger->error('Error sending command to WS server', [
+                'type' => $command['type'],
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    private function buildPostContext(array $command): mixed
+    {
         $json = json_encode($command);
 
-        $context = stream_context_create([
+        return stream_context_create([
             'http' => [
                 'method' => 'POST',
                 'header' => implode("\r\n", [
@@ -194,54 +214,42 @@ class WatcherCommandService
                 'ignore_errors' => true,
             ],
         ]);
+    }
 
-        try {
-            $response = @file_get_contents($url, false, $context);
-
-            if ($response === false) {
-                $this->logger->warning('Failed to send command to WS server (no response)', [
-                    'type' => $command['type'],
-                    'url' => $url,
-                ]);
-
-                return false;
-            }
-
-            $statusCode = $this->getHttpStatusCode($http_response_header ?? []);
-
-            if ($statusCode === 503) {
-                $this->logger->info('Watcher offline, command not sent', [
-                    'type' => $command['type'],
-                ]);
-
-                return false;
-            }
-
-            if ($statusCode >= 200 && $statusCode < 300) {
-                $result = json_decode($response, true);
-                $this->logger->info('Command sent to watcher', [
-                    'type' => $command['type'],
-                    'watchers' => $result['watchers'] ?? 0,
-                ]);
-
-                return true;
-            }
-
-            $this->logger->warning('Unexpected response from WS server', [
-                'type' => $command['type'],
-                'status' => $statusCode,
-                'response' => $response,
-            ]);
-
-            return false;
-        } catch (Throwable $e) {
-            $this->logger->error('Error sending command to WS server', [
-                'type' => $command['type'],
-                'error' => $e->getMessage(),
-            ]);
+    /** @SuppressWarnings(PHPMD.ExcessiveMethodLength) */
+    private function handleCommandResponse(array $command, mixed $response): bool
+    {
+        if ($response === false) {
+            $this->logger->warning('Failed to send command to WS server (no response)', ['type' => $command['type']]);
 
             return false;
         }
+
+        $statusCode = $this->getHttpStatusCode($http_response_header ?? []);
+
+        if ($statusCode === 503) {
+            $this->logger->info('Watcher offline, command not sent', ['type' => $command['type']]);
+
+            return false;
+        }
+
+        if ($statusCode >= 200 && $statusCode < 300) {
+            $result = json_decode((string)$response, true);
+            $this->logger->info('Command sent to watcher', [
+                'type' => $command['type'],
+                'watchers' => $result['watchers'] ?? 0,
+            ]);
+
+            return true;
+        }
+
+        $this->logger->warning('Unexpected response from WS server', [
+            'type' => $command['type'],
+            'status' => $statusCode,
+            'response' => $response,
+        ]);
+
+        return false;
     }
 
     /**

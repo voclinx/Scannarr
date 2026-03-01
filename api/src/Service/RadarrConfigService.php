@@ -11,13 +11,13 @@ use Doctrine\ORM\EntityManagerInterface;
 use Exception;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
-final class RadarrConfigService
+final readonly class RadarrConfigService
 {
     public function __construct(
-        private readonly RadarrInstanceRepository $radarrRepository,
-        private readonly EntityManagerInterface $em,
-        private readonly ValidatorInterface $validator,
-        private readonly RadarrService $radarrService,
+        private RadarrInstanceRepository $radarrRepository,
+        private EntityManagerInterface $em,
+        private ValidatorInterface $validator,
+        private RadarrService $radarrService,
     ) {
     }
 
@@ -77,6 +77,21 @@ final class RadarrConfigService
             return null;
         }
 
+        $this->applyInstanceFields($instance, $data);
+
+        $validationResult = $this->validateInstance($instance);
+        if ($validationResult !== null) {
+            return $validationResult;
+        }
+
+        $this->em->flush();
+
+        return ['result' => 'updated', 'data' => $this->serialize($instance)];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function applyInstanceFields(RadarrInstance $instance, array $data): void
+    {
         if (isset($data['name'])) {
             $instance->setName($data['name']);
         }
@@ -89,20 +104,22 @@ final class RadarrConfigService
         if (isset($data['is_active'])) {
             $instance->setIsActive((bool)$data['is_active']);
         }
+    }
 
+    /** @return array{result: string, errors: array<string, string>}|null */
+    private function validateInstance(RadarrInstance $instance): ?array
+    {
         $errors = $this->validator->validate($instance);
-        if (count($errors) > 0) {
-            $details = [];
-            foreach ($errors as $error) {
-                $details[$error->getPropertyPath()] = $error->getMessage();
-            }
-
-            return ['result' => 'validation_error', 'errors' => $details];
+        if (count($errors) === 0) {
+            return null;
         }
 
-        $this->em->flush();
+        $details = [];
+        foreach ($errors as $error) {
+            $details[$error->getPropertyPath()] = $error->getMessage();
+        }
 
-        return ['result' => 'updated', 'data' => $this->serialize($instance)];
+        return ['result' => 'validation_error', 'errors' => $details];
     }
 
     public function delete(string $id): bool

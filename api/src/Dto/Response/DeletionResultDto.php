@@ -9,6 +9,7 @@ use App\Enum\DeletionStatus;
 
 final readonly class DeletionResultDto
 {
+    /** @SuppressWarnings(PHPMD.ExcessiveParameterList) */
     public function __construct(
         public string $deletionId,
         public string $status,

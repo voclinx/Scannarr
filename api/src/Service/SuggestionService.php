@@ -20,16 +20,21 @@ use App\Repository\VolumeRepository;
 use DateTime;
 use Doctrine\ORM\EntityManagerInterface;
 
-final class SuggestionService
+/**
+ * @SuppressWarnings(PHPMD.ExcessiveClassComplexity)
+ * @SuppressWarnings(PHPMD.ExcessiveClassLength)
+ */
+final readonly class SuggestionService
 {
+    /** @SuppressWarnings(PHPMD.ExcessiveParameterList) */
     public function __construct(
-        private readonly MovieRepository $movieRepository,
-        private readonly TorrentStatRepository $torrentStatRepository,
-        private readonly TrackerRuleRepository $trackerRuleRepository,
-        private readonly VolumeRepository $volumeRepository,
-        private readonly EntityManagerInterface $em,
-        private readonly DeletionService $deletionService,
-        private readonly MediaFileRepository $mediaFileRepository,
+        private MovieRepository $movieRepository,
+        private TorrentStatRepository $torrentStatRepository,
+        private TrackerRuleRepository $trackerRuleRepository,
+        private VolumeRepository $volumeRepository,
+        private EntityManagerInterface $em,
+        private DeletionService $deletionService,
+        private MediaFileRepository $mediaFileRepository,
     ) {
     }
 
@@ -53,81 +58,109 @@ final class SuggestionService
             $trackerRules[$rule->getTrackerDomain()] = $rule;
         }
 
-        $allMovies = $this->movieRepository->findAll();
+        [$suggestions, $totalSelectableSize, $trackersDetected] = $this->collectSuggestions(
+            $trackerRules, $seedingStatus, $volumeId, $excludeProtected,
+        );
 
+        $meta = $this->buildResponseMeta($suggestions, $page, $perPage, $totalSelectableSize, $trackersDetected, $volumeId);
+        $paginatedData = array_slice($suggestions, ($page - 1) * $perPage, $perPage);
+
+        return ['data' => $paginatedData, 'meta' => $meta];
+    }
+
+    /**
+     * @param array<string, TrackerRule> $trackerRules
+     *
+     * @return array{0: list<array<string, mixed>>, 1: int, 2: array<string, bool>}
+     */
+    private function collectSuggestions(array $trackerRules, string $seedingStatus, ?string $volumeId, bool $excludeProtected): array
+    {
         $suggestions = [];
         $totalSelectableSize = 0;
         $trackersDetected = [];
 
-        foreach ($allMovies as $movie) {
+        foreach ($this->movieRepository->findAll() as $movie) {
             $item = $this->buildSuggestionItem($movie, $trackerRules, $seedingStatus, $volumeId, $excludeProtected);
-            if ($item === null) {
-                continue;
+            if ($item !== null) {
+                $suggestions[] = $item;
+                $totalSelectableSize += $item['total_size_bytes'];
+                $this->collectTrackersFromItem($item, $trackersDetected);
             }
-
-            $totalSelectableSize += $item['total_size_bytes'];
-
-            foreach ($item['files'] as $file) {
-                foreach ($file['torrents'] as $torrent) {
-                    if ($torrent['tracker_domain'] !== null) {
-                        $trackersDetected[$torrent['tracker_domain']] = true;
-                    }
-                }
-            }
-
-            $suggestions[] = $item;
         }
 
-        // Include orphan files (not linked to any movie — files in qBit/Plex but unidentified)
-        $orphanFiles = $this->mediaFileRepository->findOrphansWithoutMovie($volumeId, $excludeProtected);
-        foreach ($orphanFiles as $mediaFile) {
+        foreach ($this->mediaFileRepository->findOrphansWithoutMovie($volumeId, $excludeProtected) as $mediaFile) {
             $item = $this->buildOrphanSuggestionItem($mediaFile, $trackerRules, $seedingStatus);
-            if ($item === null) {
-                continue;
+            if ($item !== null) {
+                $suggestions[] = $item;
+                $totalSelectableSize += $item['total_size_bytes'];
+                $this->collectTrackersFromItem($item, $trackersDetected);
             }
-
-            $totalSelectableSize += $item['total_size_bytes'];
-
-            foreach ($item['files'] as $file) {
-                foreach ($file['torrents'] as $torrent) {
-                    if ($torrent['tracker_domain'] !== null) {
-                        $trackersDetected[$torrent['tracker_domain']] = true;
-                    }
-                }
-            }
-
-            $suggestions[] = $item;
         }
 
+        return [$suggestions, $totalSelectableSize, $trackersDetected];
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     * @param array<string, bool> $trackersDetected
+     */
+    private function collectTrackersFromItem(array $item, array &$trackersDetected): void
+    {
+        foreach ($item['files'] as $file) {
+            foreach ($file['torrents'] as $torrent) {
+                if ($torrent['tracker_domain'] !== null) {
+                    $trackersDetected[$torrent['tracker_domain']] = true;
+                }
+            }
+        }
+    }
+
+    /**
+     * @SuppressWarnings(PHPMD.ExcessiveParameterList)
+     *
+     * @param list<array<string, mixed>> $suggestions
+     * @param array<string, bool> $trackersDetected
+     *
+     * @return array<string, mixed>
+     */
+    private function buildResponseMeta(array $suggestions, int $page, int $perPage, int $totalSelectableSize, array $trackersDetected, ?string $volumeId): array
+    {
         $total = count($suggestions);
-        $totalPages = max(1, (int)ceil($total / $perPage));
-        $offset = ($page - 1) * $perPage;
-        $paginatedData = array_slice($suggestions, $offset, $perPage);
 
         $meta = [
             'total' => $total,
             'page' => $page,
             'per_page' => $perPage,
-            'total_pages' => $totalPages,
+            'total_pages' => max(1, (int)ceil($total / $perPage)),
             'summary' => [
                 'total_selectable_size' => $totalSelectableSize,
                 'trackers_detected' => array_keys($trackersDetected),
             ],
         ];
 
-        if ($volumeId !== null) {
-            $volume = $this->volumeRepository->find($volumeId);
-            if ($volume !== null) {
-                $meta['volume_space'] = [
-                    'volume_id' => (string)$volume->getId(),
-                    'volume_name' => $volume->getName(),
-                    'used_space_bytes' => $volume->getUsedSpaceBytes(),
-                    'total_space_bytes' => $volume->getTotalSpaceBytes(),
-                ];
-            }
+        $this->addVolumeSpaceToMeta($meta, $volumeId);
+
+        return $meta;
+    }
+
+    /** @param array<string, mixed> $meta */
+    private function addVolumeSpaceToMeta(array &$meta, ?string $volumeId): void
+    {
+        if ($volumeId === null) {
+            return;
         }
 
-        return ['data' => $paginatedData, 'meta' => $meta];
+        $volume = $this->volumeRepository->find($volumeId);
+        if ($volume === null) {
+            return;
+        }
+
+        $meta['volume_space'] = [
+            'volume_id' => (string)$volume->getId(),
+            'volume_name' => $volume->getName(),
+            'used_space_bytes' => $volume->getUsedSpaceBytes(),
+            'total_space_bytes' => $volume->getTotalSpaceBytes(),
+        ];
     }
 
     /**
@@ -184,18 +217,11 @@ final class SuggestionService
         }
 
         $date = new DateTime($scheduledDate);
-        $today = new DateTime('today');
-        if ($date < $today) {
+        if ($date < new DateTime('today')) {
             return ['result' => 'past_date'];
         }
 
-        $deletion = new ScheduledDeletion();
-        $deletion->setCreatedBy($user);
-        $deletion->setScheduledDate($date);
-        $deletion->setDeletePhysicalFiles(true);
-        $deletion->setDeleteRadarrReference((bool)($options['delete_radarr_reference'] ?? false));
-        $deletion->setDisableRadarrAutoSearch((bool)($options['disable_radarr_auto_search'] ?? true));
-
+        $deletion = $this->buildScheduledDeletion($date, $options, $user);
         $itemsCount = $this->addItemsToDeletion($deletion, $items);
         if ($itemsCount === 0) {
             return ['result' => 'no_valid_items'];
@@ -211,6 +237,19 @@ final class SuggestionService
             'status' => $deletion->getStatus()->value,
             'items_count' => $itemsCount,
         ];
+    }
+
+    /** @param array<string, mixed> $options */
+    private function buildScheduledDeletion(DateTime $date, array $options, User $user): ScheduledDeletion
+    {
+        $deletion = new ScheduledDeletion();
+        $deletion->setCreatedBy($user);
+        $deletion->setScheduledDate($date);
+        $deletion->setDeletePhysicalFiles(true);
+        $deletion->setDeleteRadarrReference((bool)($options['delete_radarr_reference'] ?? false));
+        $deletion->setDisableRadarrAutoSearch((bool)($options['disable_radarr_auto_search'] ?? true));
+
+        return $deletion;
     }
 
     /**
@@ -249,6 +288,10 @@ final class SuggestionService
     }
 
     /**
+     * @SuppressWarnings(PHPMD.CyclomaticComplexity)
+     * @SuppressWarnings(PHPMD.NPathComplexity)
+     * @SuppressWarnings(PHPMD.ExcessiveMethodLength)
+     *
      * Build a suggestion item for a movie. Returns null if filtered out.
      *
      * @param array<string, TrackerRule> $trackerRules
@@ -266,60 +309,11 @@ final class SuggestionService
             return null;
         }
 
-        $movieFiles = $movie->getMovieFiles();
-        if ($movieFiles->isEmpty()) {
+        if ($movie->getMovieFiles()->isEmpty()) {
             return null;
         }
 
-        $filesData = [];
-        $totalFileSize = 0;
-
-        foreach ($movieFiles as $mf) {
-            $mediaFile = $mf->getMediaFile();
-            if ($mediaFile === null) {
-                continue;
-            }
-
-            if ($excludeProtected && $mediaFile->isProtected()) {
-                continue;
-            }
-
-            if ($volumeId !== null && (string)$mediaFile->getVolume()?->getId() !== $volumeId) {
-                continue;
-            }
-
-            $torrents = $this->getFileTorrents($mediaFile);
-            $fileSeedingStatus = $this->calculateSeedingStatus($torrents);
-            $trackerCheck = $this->isBlockedByTrackerRules($torrents, $trackerRules);
-            $realFreedBytes = $this->calculateRealFreedBytes($mediaFile);
-
-            $filesData[] = [
-                'id' => (string)$mediaFile->getId(),
-                'file_name' => $mediaFile->getFileName(),
-                'file_path' => $mediaFile->getFilePath(),
-                'file_size_bytes' => $mediaFile->getFileSizeBytes(),
-                'hardlink_count' => $mediaFile->getHardlinkCount(),
-                'inode' => $mediaFile->getInode(),
-                'device_id' => $mediaFile->getDeviceId(),
-                'real_freed_bytes' => $realFreedBytes,
-                'volume_id' => (string)$mediaFile->getVolume()?->getId(),
-                'volume_name' => $mediaFile->getVolume()?->getName(),
-                'resolution' => $mediaFile->getResolution(),
-                'codec' => $mediaFile->getCodec(),
-                'is_protected' => $mediaFile->isProtected(),
-                'partial_hash' => $mediaFile->getPartialHash(),
-                'seeding_status' => $fileSeedingStatus,
-                'cross_seed_count' => count($torrents),
-                'blocked_by_tracker_rules' => $trackerCheck['blocked'],
-                'tracker_block_reason' => $trackerCheck['reason'],
-                'is_in_radarr' => $mediaFile->isLinkedRadarr(),
-                'is_in_torrent_client' => $torrents !== [],
-                'is_in_media_player' => $mediaFile->isLinkedMediaPlayer(),
-                'torrents' => $torrents,
-            ];
-
-            $totalFileSize += $mediaFile->getFileSizeBytes();
-        }
+        [$filesData, $totalFileSize] = $this->buildFilesData($movie, $trackerRules, $volumeId, $excludeProtected);
 
         if ($filesData === []) {
             return null;
@@ -334,69 +328,120 @@ final class SuggestionService
             return null;
         }
 
+        $hasRadarr = $movie->getRadarrId() !== null;
+        $stats = $this->aggregateFilesStats($filesData);
+        $totalFreedBytes = array_sum(array_column($filesData, 'real_freed_bytes'));
+
+        return [
+            'movie' => $this->buildMovieInfo($movie),
+            'files' => $filesData,
+            'seeding_status' => $movieSeedingStatus,
+            'total_size_bytes' => $totalFileSize,
+            'total_freed_bytes' => $totalFreedBytes,
+            'best_ratio' => $stats['best_ratio'],
+            'worst_ratio' => $stats['worst_ratio'],
+            'total_seed_time_max_seconds' => $stats['max_seed_time'],
+            'cross_seed_count' => $stats['cross_seed_count'],
+            'blocked_by_tracker_rules' => $stats['blocked'],
+            'file_count' => count($filesData),
+            'is_in_radarr' => $hasRadarr,
+            'is_in_torrent_client' => $stats['has_torrent_client'],
+            'is_in_media_player' => $stats['has_media_player'],
+        ];
+    }
+
+    /**
+     * @param array<string, TrackerRule> $trackerRules
+     *
+     * @return array{0: list<array<string, mixed>>, 1: int}
+     */
+    private function buildFilesData(Movie $movie, array $trackerRules, ?string $volumeId, bool $excludeProtected): array
+    {
+        $filesData = [];
+        $totalFileSize = 0;
+
+        foreach ($movie->getMovieFiles() as $mf) {
+            $mediaFile = $mf->getMediaFile();
+            if ($mediaFile === null) {
+                continue;
+            }
+            if ($excludeProtected && $mediaFile->isProtected()) {
+                continue;
+            }
+            if ($volumeId !== null && (string)$mediaFile->getVolume()?->getId() !== $volumeId) {
+                continue;
+            }
+
+            $torrents = $this->getFileTorrents($mediaFile);
+            $trackerCheck = $this->isBlockedByTrackerRules($torrents, $trackerRules);
+
+            $filesData[] = $this->buildSingleFileData($mediaFile, $torrents, $trackerCheck, $this->calculateRealFreedBytes($mediaFile));
+            $totalFileSize += $mediaFile->getFileSizeBytes();
+        }
+
+        return [$filesData, $totalFileSize];
+    }
+
+    /** @return array<string, mixed> */
+    private function buildMovieInfo(Movie $movie): array
+    {
+        return [
+            'id' => (string)$movie->getId(),
+            'title' => $movie->getTitle(),
+            'year' => $movie->getYear(),
+            'poster_url' => $movie->getPosterUrl(),
+            'genres' => $movie->getGenres(),
+            'rating' => $movie->getRating() !== null ? (float)$movie->getRating() : null,
+            'is_protected' => $movie->isProtected(),
+        ];
+    }
+
+    /**
+     * @SuppressWarnings(PHPMD.CyclomaticComplexity)
+     * @SuppressWarnings(PHPMD.ExcessiveMethodLength)
+     *
+     * @param array<int, array<string, mixed>> $filesData
+     *
+     * @return array{best_ratio: ?float, worst_ratio: ?float, max_seed_time: int, cross_seed_count: int, blocked: bool, has_torrent_client: bool, has_media_player: bool}
+     */
+    private function aggregateFilesStats(array $filesData): array
+    {
         $bestRatio = null;
         $worstRatio = null;
         $maxSeedTime = 0;
         $totalCrossSeedCount = 0;
         $isBlockedByAnyRule = false;
-        $hasRadarr = $movie->getRadarrId() !== null;
         $hasTorrentClient = false;
         $hasMediaPlayer = false;
 
         foreach ($filesData as $file) {
             $totalCrossSeedCount += $file['cross_seed_count'];
-            if ($file['blocked_by_tracker_rules']) {
-                $isBlockedByAnyRule = true;
-            }
-            if ($file['is_in_torrent_client']) {
-                $hasTorrentClient = true;
-            }
-            if ($file['is_in_media_player']) {
-                $hasMediaPlayer = true;
-            }
+            $isBlockedByAnyRule = $isBlockedByAnyRule || $file['blocked_by_tracker_rules'];
+            $hasTorrentClient = $hasTorrentClient || $file['is_in_torrent_client'];
+            $hasMediaPlayer = $hasMediaPlayer || $file['is_in_media_player'];
+
             foreach ($file['torrents'] as $torrent) {
                 $ratio = $torrent['ratio'];
-                if ($bestRatio === null || $ratio > $bestRatio) {
-                    $bestRatio = $ratio;
-                }
-                if ($worstRatio === null || $ratio < $worstRatio) {
-                    $worstRatio = $ratio;
-                }
-                if ($torrent['seed_time_seconds'] > $maxSeedTime) {
-                    $maxSeedTime = $torrent['seed_time_seconds'];
-                }
+                $bestRatio = $bestRatio === null || $ratio > $bestRatio ? $ratio : $bestRatio;
+                $worstRatio = $worstRatio === null || $ratio < $worstRatio ? $ratio : $worstRatio;
+                $maxSeedTime = max($maxSeedTime, $torrent['seed_time_seconds']);
             }
         }
 
-        $totalFreedBytes = array_sum(array_column($filesData, 'real_freed_bytes'));
-
         return [
-            'movie' => [
-                'id' => (string)$movie->getId(),
-                'title' => $movie->getTitle(),
-                'year' => $movie->getYear(),
-                'poster_url' => $movie->getPosterUrl(),
-                'genres' => $movie->getGenres(),
-                'rating' => $movie->getRating() !== null ? (float)$movie->getRating() : null,
-                'is_protected' => $movie->isProtected(),
-            ],
-            'files' => $filesData,
-            'seeding_status' => $movieSeedingStatus,
-            'total_size_bytes' => $totalFileSize,
-            'total_freed_bytes' => $totalFreedBytes,
             'best_ratio' => $bestRatio,
             'worst_ratio' => $worstRatio,
-            'total_seed_time_max_seconds' => $maxSeedTime,
+            'max_seed_time' => $maxSeedTime,
             'cross_seed_count' => $totalCrossSeedCount,
-            'blocked_by_tracker_rules' => $isBlockedByAnyRule,
-            'file_count' => count($filesData),
-            'is_in_radarr' => $hasRadarr,
-            'is_in_torrent_client' => $hasTorrentClient,
-            'is_in_media_player' => $hasMediaPlayer,
+            'blocked' => $isBlockedByAnyRule,
+            'has_torrent_client' => $hasTorrentClient,
+            'has_media_player' => $hasMediaPlayer,
         ];
     }
 
     /**
+     * @SuppressWarnings(PHPMD.ExcessiveMethodLength)
+     *
      * Build a suggestion item for an orphan file (no movie link).
      *
      * @param array<string, TrackerRule> $trackerRules
@@ -424,51 +469,12 @@ final class SuggestionService
 
         $trackerCheck = $this->isBlockedByTrackerRules($torrents, $trackerRules);
         $realFreedBytes = $this->calculateRealFreedBytes($mediaFile);
-
-        // Build a readable title from the filename
-        $baseName = pathinfo($mediaFile->getFileName(), PATHINFO_FILENAME);
+        $baseName = pathinfo((string)$mediaFile->getFileName(), PATHINFO_FILENAME);
         $displayTitle = preg_replace('/\s+/', ' ', str_replace(['.', '_'], ' ', $baseName));
 
-        $bestRatio = null;
-        $worstRatio = null;
-        $maxSeedTime = 0;
-        foreach ($torrents as $torrent) {
-            $ratio = $torrent['ratio'];
-            if ($bestRatio === null || $ratio > $bestRatio) {
-                $bestRatio = $ratio;
-            }
-            if ($worstRatio === null || $ratio < $worstRatio) {
-                $worstRatio = $ratio;
-            }
-            if ($torrent['seed_time_seconds'] > $maxSeedTime) {
-                $maxSeedTime = $torrent['seed_time_seconds'];
-            }
-        }
-
-        $fileData = [
-            'id' => (string)$mediaFile->getId(),
-            'file_name' => $mediaFile->getFileName(),
-            'file_path' => $mediaFile->getFilePath(),
-            'file_size_bytes' => $mediaFile->getFileSizeBytes(),
-            'hardlink_count' => $mediaFile->getHardlinkCount(),
-            'inode' => $mediaFile->getInode(),
-            'device_id' => $mediaFile->getDeviceId(),
-            'real_freed_bytes' => $realFreedBytes,
-            'volume_id' => (string)$mediaFile->getVolume()?->getId(),
-            'volume_name' => $mediaFile->getVolume()?->getName(),
-            'resolution' => $mediaFile->getResolution(),
-            'codec' => $mediaFile->getCodec(),
-            'is_protected' => false,
-            'partial_hash' => $mediaFile->getPartialHash(),
-            'seeding_status' => $fileSeedingStatus,
-            'cross_seed_count' => count($torrents),
-            'blocked_by_tracker_rules' => $trackerCheck['blocked'],
-            'tracker_block_reason' => $trackerCheck['reason'],
-            'is_in_radarr' => $mediaFile->isLinkedRadarr(),
-            'is_in_torrent_client' => $torrents !== [],
-            'is_in_media_player' => $mediaFile->isLinkedMediaPlayer(),
-            'torrents' => $torrents,
-        ];
+        [$bestRatio, $worstRatio, $maxSeedTime] = $this->computeTorrentRatioStats($torrents);
+        $fileData = $this->buildSingleFileData($mediaFile, $torrents, $trackerCheck, $realFreedBytes);
+        $fileData['seeding_status'] = $fileSeedingStatus;
 
         return [
             'movie' => [
@@ -493,6 +499,63 @@ final class SuggestionService
             'is_in_radarr' => false,
             'is_in_torrent_client' => $torrents !== [],
             'is_in_media_player' => $mediaFile->isLinkedMediaPlayer(),
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $torrents
+     *
+     * @return array{0: ?float, 1: ?float, 2: int}
+     */
+    private function computeTorrentRatioStats(array $torrents): array
+    {
+        $bestRatio = null;
+        $worstRatio = null;
+        $maxSeedTime = 0;
+
+        foreach ($torrents as $torrent) {
+            $ratio = $torrent['ratio'];
+            $bestRatio = $bestRatio === null || $ratio > $bestRatio ? $ratio : $bestRatio;
+            $worstRatio = $worstRatio === null || $ratio < $worstRatio ? $ratio : $worstRatio;
+            $maxSeedTime = max($maxSeedTime, $torrent['seed_time_seconds']);
+        }
+
+        return [$bestRatio, $worstRatio, $maxSeedTime];
+    }
+
+    /**
+     * @SuppressWarnings(PHPMD.ExcessiveMethodLength)
+     *
+     * @param array<int, array<string, mixed>> $torrents
+     * @param array{blocked: bool, reason: ?string} $trackerCheck
+     *
+     * @return array<string, mixed>
+     */
+    private function buildSingleFileData(MediaFile $mediaFile, array $torrents, array $trackerCheck, int $realFreedBytes): array
+    {
+        return [
+            'id' => (string)$mediaFile->getId(),
+            'file_name' => $mediaFile->getFileName(),
+            'file_path' => $mediaFile->getFilePath(),
+            'file_size_bytes' => $mediaFile->getFileSizeBytes(),
+            'hardlink_count' => $mediaFile->getHardlinkCount(),
+            'inode' => $mediaFile->getInode(),
+            'device_id' => $mediaFile->getDeviceId(),
+            'real_freed_bytes' => $realFreedBytes,
+            'volume_id' => (string)$mediaFile->getVolume()?->getId(),
+            'volume_name' => $mediaFile->getVolume()?->getName(),
+            'resolution' => $mediaFile->getResolution(),
+            'codec' => $mediaFile->getCodec(),
+            'is_protected' => $mediaFile->isProtected(),
+            'partial_hash' => $mediaFile->getPartialHash(),
+            'seeding_status' => $this->calculateSeedingStatus($torrents),
+            'cross_seed_count' => count($torrents),
+            'blocked_by_tracker_rules' => $trackerCheck['blocked'],
+            'tracker_block_reason' => $trackerCheck['reason'],
+            'is_in_radarr' => $mediaFile->isLinkedRadarr(),
+            'is_in_torrent_client' => $torrents !== [],
+            'is_in_media_player' => $mediaFile->isLinkedMediaPlayer(),
+            'torrents' => $torrents,
         ];
     }
 
@@ -566,7 +629,10 @@ final class SuggestionService
     {
         foreach ($torrents as $torrent) {
             $domain = $torrent['tracker_domain'] ?? null;
-            if ($domain === null || !isset($trackerRules[$domain])) {
+            if ($domain === null) {
+                continue;
+            }
+            if (!isset($trackerRules[$domain])) {
                 continue;
             }
 
