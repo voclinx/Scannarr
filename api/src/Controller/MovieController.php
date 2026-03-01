@@ -17,7 +17,9 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 #[Route('/api/v1/movies')]
 class MovieController extends AbstractController
 {
-    public function __construct(private readonly MovieService $movieService) {}
+    public function __construct(private readonly MovieService $movieService)
+    {
+    }
 
     #[Route('', methods: ['GET'])]
     #[IsGranted('ROLE_GUEST')]
@@ -69,7 +71,7 @@ class MovieController extends AbstractController
     public function protect(string $id, Request $request): JsonResponse
     {
         $payload = json_decode($request->getContent(), true) ?? [];
-        $data = $this->movieService->protect($id, (bool) ($payload['is_protected'] ?? false));
+        $data = $this->movieService->protect($id, (bool)($payload['is_protected'] ?? false));
 
         if ($data === null) {
             return $this->json(['error' => ['code' => 404, 'message' => 'Movie not found']], Response::HTTP_NOT_FOUND);

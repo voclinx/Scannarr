@@ -6,18 +6,19 @@ namespace App\WebSocket\Handler;
 
 use App\Contract\WebSocket\WatcherMessageHandlerInterface;
 use App\Entity\MediaFile;
+use App\Entity\Volume;
 use App\Repository\MediaFileRepository;
 use App\WebSocket\WatcherFileHelper;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 
-final class FileDeletedHandler implements WatcherMessageHandlerInterface
+final readonly class FileDeletedHandler implements WatcherMessageHandlerInterface
 {
     public function __construct(
-        private readonly EntityManagerInterface $em,
-        private readonly MediaFileRepository $mediaFileRepository,
-        private readonly WatcherFileHelper $helper,
-        private readonly LoggerInterface $logger,
+        private EntityManagerInterface $em,
+        private MediaFileRepository $mediaFileRepository,
+        private WatcherFileHelper $helper,
+        private LoggerInterface $logger,
     ) {
     }
 
@@ -35,7 +36,7 @@ final class FileDeletedHandler implements WatcherMessageHandlerInterface
         }
 
         $volume = $this->helper->resolveVolume($path);
-        if ($volume === null) {
+        if (!$volume instanceof Volume) {
             $this->logger->warning('No volume found for path', ['path' => $path]);
 
             return;
@@ -50,6 +51,11 @@ final class FileDeletedHandler implements WatcherMessageHandlerInterface
             return;
         }
 
+        $this->deleteMediaFile($mediaFile, $relativePath, $volume);
+    }
+
+    private function deleteMediaFile(MediaFile $mediaFile, string $relativePath, Volume $volume): void
+    {
         $this->helper->logActivity($this->em, 'file.deleted', 'MediaFile', $mediaFile->getId(), [
             'file_name' => $mediaFile->getFileName(),
             'file_path' => $relativePath,

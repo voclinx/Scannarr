@@ -17,6 +17,10 @@ includes:
     - vendor/phpstan/phpstan-symfony/extension.neon
     - vendor/phpstan/phpstan-doctrine/extension.neon
 
+    ## Baseline : erreurs pré-existantes acceptées — à résorber progressivement.
+    ## Régénérer avec : docker exec scanarr-api php vendor/bin/phpstan analyse src --generate-baseline phpstan-baseline.neon
+    - phpstan-baseline.neon
+
 parameters:
 
     ##
@@ -67,3 +71,11 @@ parameters:
     ## et autres service IDs Symfony utilisés comme générateurs d'ID.
     doctrine:
         objectManagerLoader: tests/phpstan-doctrine-object-manager.php
+
+    ##
+    ## @SuppressWarnings(PHPMD.XYZ) annotations are used to suppress PHPMD violations.
+    ## PHPStan cannot parse the dot-notation in their value, so we ignore this specific parseError.
+    ##
+    ignoreErrors:
+        - message: '#PHPDoc tag @SuppressWarnings has invalid value#'
+          identifier: phpDoc.parseError

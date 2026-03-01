@@ -159,6 +159,25 @@ class TmdbService implements MetadataProviderInterface
             return [];
         }
 
+        return array_filter([
+            ...$this->extractTextFields($details),
+            ...$this->extractImageUrls($details),
+            ...$this->extractGenres($details),
+            ...$this->extractRating($details),
+            ...$this->extractRuntime($details),
+            ...$this->extractYear($details),
+        ]);
+    }
+
+    /**
+     * Extract basic text fields (title, original_title, synopsis) from TMDB details.
+     *
+     * @param array<string, mixed> $details
+     *
+     * @return array<string, string>
+     */
+    private function extractTextFields(array $details): array
+    {
         $data = [];
 
         if (!empty($details['title'])) {
@@ -173,6 +192,20 @@ class TmdbService implements MetadataProviderInterface
             $data['synopsis'] = $details['overview'];
         }
 
+        return $data;
+    }
+
+    /**
+     * Extract poster and backdrop URLs from TMDB details.
+     *
+     * @param array<string, mixed> $details
+     *
+     * @return array<string, string>
+     */
+    private function extractImageUrls(array $details): array
+    {
+        $data = [];
+
         if (!empty($details['poster_path'])) {
             $data['poster_url'] = $this->getPosterUrl($details['poster_path']);
         }
@@ -181,27 +214,79 @@ class TmdbService implements MetadataProviderInterface
             $data['backdrop_url'] = $this->getBackdropUrl($details['backdrop_path']);
         }
 
-        if (!empty($details['genres'])) {
-            $genreNames = array_map(fn (array $g): string => $g['name'], $details['genres']);
-            $data['genres'] = implode(', ', $genreNames);
-        }
-
-        if (isset($details['vote_average']) && $details['vote_average'] > 0) {
-            $data['rating'] = round($details['vote_average'], 1);
-        }
-
-        if (!empty($details['runtime'])) {
-            $data['runtime_minutes'] = (int)$details['runtime'];
-        }
-
-        if (!empty($details['release_date'])) {
-            $year = (int)substr($details['release_date'], 0, 4);
-            if ($year > 0) {
-                $data['year'] = $year;
-            }
-        }
-
         return $data;
+    }
+
+    /**
+     * Extract genre names as a comma-separated string from TMDB details.
+     *
+     * @param array<string, mixed> $details
+     *
+     * @return array<string, string>
+     */
+    private function extractGenres(array $details): array
+    {
+        if (empty($details['genres'])) {
+            return [];
+        }
+
+        $genreNames = array_map(fn (array $genre): string => $genre['name'], $details['genres']);
+
+        return ['genres' => implode(', ', $genreNames)];
+    }
+
+    /**
+     * Extract vote average rating from TMDB details.
+     *
+     * @param array<string, mixed> $details
+     *
+     * @return array<string, float>
+     */
+    private function extractRating(array $details): array
+    {
+        if (!isset($details['vote_average']) || $details['vote_average'] <= 0) {
+            return [];
+        }
+
+        return ['rating' => round($details['vote_average'], 1)];
+    }
+
+    /**
+     * Extract runtime in minutes from TMDB details.
+     *
+     * @param array<string, mixed> $details
+     *
+     * @return array<string, int>
+     */
+    private function extractRuntime(array $details): array
+    {
+        if (empty($details['runtime'])) {
+            return [];
+        }
+
+        return ['runtime_minutes' => (int)$details['runtime']];
+    }
+
+    /**
+     * Extract release year from TMDB details.
+     *
+     * @param array<string, mixed> $details
+     *
+     * @return array<string, int>
+     */
+    private function extractYear(array $details): array
+    {
+        if (empty($details['release_date'])) {
+            return [];
+        }
+
+        $year = (int)substr((string)$details['release_date'], 0, 4);
+
+        if ($year <= 0) {
+            return [];
+        }
+
+        return ['year' => $year];
     }
 
     /**
@@ -231,36 +316,52 @@ class TmdbService implements MetadataProviderInterface
      */
     private function request(string $method, string $endpoint, array $options = []): array
     {
-        $apiKey = $this->getApiKey();
         $url = self::BASE_URL . $endpoint;
-
-        // Add API key as query parameter
-        $options['query'] = array_merge($options['query'] ?? [], [
-            'api_key' => $apiKey,
-        ]);
-
-        $options['headers'] = [
-            'Accept' => 'application/json',
-        ];
-
-        $options['timeout'] ??= 15;
+        $options = $this->buildRequestOptions($options);
 
         try {
             $response = $this->httpClient->request($method, $url, $options);
 
             return json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
-        } catch (ExceptionInterface $e) {
-            $this->logger->error('TMDB API request failed', [
-                'method' => $method,
-                'endpoint' => $endpoint,
-                'error' => $e->getMessage(),
-            ]);
-
-            throw new RuntimeException(
-                sprintf('TMDB API error: %s', $e->getMessage()),
-                0,
-                $e,
-            );
+        } catch (ExceptionInterface $exception) {
+            throw $this->handleRequestError($method, $endpoint, $exception);
         }
+    }
+
+    /**
+     * Build request options with API key, headers and timeout.
+     *
+     * @param array<string, mixed> $options
+     *
+     * @return array<string, mixed>
+     */
+    private function buildRequestOptions(array $options): array
+    {
+        $options['query'] = array_merge($options['query'] ?? [], [
+            'api_key' => $this->getApiKey(),
+        ]);
+
+        $options['headers'] = ['Accept' => 'application/json'];
+        $options['timeout'] ??= 15;
+
+        return $options;
+    }
+
+    /**
+     * Log and wrap an API exception into a RuntimeException.
+     */
+    private function handleRequestError(string $method, string $endpoint, ExceptionInterface $exception): RuntimeException
+    {
+        $this->logger->error('TMDB API request failed', [
+            'method' => $method,
+            'endpoint' => $endpoint,
+            'error' => $exception->getMessage(),
+        ]);
+
+        return new RuntimeException(
+            sprintf('TMDB API error: %s', $exception->getMessage()),
+            0,
+            $exception,
+        );
     }
 }

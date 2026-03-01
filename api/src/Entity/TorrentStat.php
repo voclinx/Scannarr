@@ -20,6 +20,9 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Index(name: 'idx_torrent_stats_hash', columns: ['torrent_hash'])]
 #[ORM\UniqueConstraint(name: 'uniq_torrent_hash', columns: ['torrent_hash'])]
 #[ORM\HasLifecycleCallbacks]
+/**
+ * @SuppressWarnings(PHPMD.TooManyFields)
+ */
 class TorrentStat
 {
     #[ORM\Id]

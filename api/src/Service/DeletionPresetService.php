@@ -9,11 +9,11 @@ use App\Entity\User;
 use App\Repository\DeletionPresetRepository;
 use Doctrine\ORM\EntityManagerInterface;
 
-final class DeletionPresetService
+final readonly class DeletionPresetService
 {
     public function __construct(
-        private readonly DeletionPresetRepository $presetRepository,
-        private readonly EntityManagerInterface $em,
+        private DeletionPresetRepository $presetRepository,
+        private EntityManagerInterface $em,
     ) {
     }
 
@@ -38,29 +38,19 @@ final class DeletionPresetService
      */
     public function create(array $data, User $user): array
     {
-        $name = $data['name'] ?? null;
-        $criteria = $data['criteria'] ?? null;
-
-        if (!$name || trim((string)$name) === '') {
-            return ['result' => 'validation_error', 'field' => 'name', 'message' => 'Name is required'];
-        }
-        if ($criteria === null) {
-            return ['result' => 'validation_error', 'field' => 'criteria', 'message' => 'Criteria is required'];
+        $validationError = $this->validatePresetData($data);
+        if ($validationError !== null) {
+            return $validationError;
         }
 
         $preset = new DeletionPreset();
-        $preset->setName(trim((string)$name));
-        $preset->setCriteria($criteria);
+        $preset->setName(trim((string)$data['name']));
+        $preset->setCriteria($data['criteria']);
         $preset->setFilters($data['filters'] ?? []);
         $preset->setIsSystem(false);
         $preset->setCreatedBy($user);
 
-        if (isset($data['is_default']) && $data['is_default'] === true) {
-            foreach ($this->presetRepository->findBy(['isDefault' => true]) as $existing) {
-                $existing->setIsDefault(false);
-            }
-            $preset->setIsDefault(true);
-        }
+        $this->applyIsDefault($preset, $data);
 
         $this->em->persist($preset);
         $this->em->flush();
@@ -83,25 +73,8 @@ final class DeletionPresetService
             return ['result' => 'system_preset'];
         }
 
-        if (isset($data['name'])) {
-            $preset->setName(trim((string)$data['name']));
-        }
-        if (array_key_exists('criteria', $data)) {
-            $preset->setCriteria($data['criteria']);
-        }
-        if (array_key_exists('filters', $data)) {
-            $preset->setFilters($data['filters']);
-        }
-        if (isset($data['is_default']) && $data['is_default'] === true) {
-            foreach ($this->presetRepository->findBy(['isDefault' => true]) as $existing) {
-                if ((string)$existing->getId() !== (string)$preset->getId()) {
-                    $existing->setIsDefault(false);
-                }
-            }
-            $preset->setIsDefault(true);
-        } elseif (isset($data['is_default']) && $data['is_default'] === false) {
-            $preset->setIsDefault(false);
-        }
+        $this->applyPresetFields($preset, $data);
+        $this->applyIsDefault($preset, $data);
 
         $this->em->flush();
 
@@ -122,6 +95,60 @@ final class DeletionPresetService
         $this->em->flush();
 
         return 'deleted';
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     *
+     * @return array{result: string, field: string, message: string}|null
+     */
+    private function validatePresetData(array $data): ?array
+    {
+        $name = $data['name'] ?? null;
+        if (!$name || trim((string)$name) === '') {
+            return ['result' => 'validation_error', 'field' => 'name', 'message' => 'Name is required'];
+        }
+
+        if (!array_key_exists('criteria', $data) || $data['criteria'] === null) {
+            return ['result' => 'validation_error', 'field' => 'criteria', 'message' => 'Criteria is required'];
+        }
+
+        return null;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function applyPresetFields(DeletionPreset $preset, array $data): void
+    {
+        if (isset($data['name'])) {
+            $preset->setName(trim((string)$data['name']));
+        }
+        if (array_key_exists('criteria', $data)) {
+            $preset->setCriteria($data['criteria']);
+        }
+        if (array_key_exists('filters', $data)) {
+            $preset->setFilters($data['filters']);
+        }
+    }
+
+    /** @param array<string, mixed> $data */
+    private function applyIsDefault(DeletionPreset $preset, array $data): void
+    {
+        if (!isset($data['is_default'])) {
+            return;
+        }
+
+        if ($data['is_default'] !== true) {
+            $preset->setIsDefault(false);
+
+            return;
+        }
+
+        foreach ($this->presetRepository->findBy(['isDefault' => true]) as $existing) {
+            if ((string)$existing->getId() !== (string)$preset->getId()) {
+                $existing->setIsDefault(false);
+            }
+        }
+        $preset->setIsDefault(true);
     }
 
     /** @return array<string, mixed> */

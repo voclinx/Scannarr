@@ -8,6 +8,7 @@ use App\Entity\ScheduledDeletion;
 use App\Enum\DeletionStatus;
 use DateTime;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
+use Doctrine\ORM\QueryBuilder;
 use Doctrine\Persistence\ManagerRegistry;
 
 /**
@@ -31,41 +32,17 @@ class ScheduledDeletionRepository extends ServiceEntityRepository
     {
         $page = max(1, $filters['page'] ?? 1);
         $limit = min(100, max(1, $filters['limit'] ?? 25));
-        $status = $filters['status'] ?? null;
 
-        $qb = $this->createQueryBuilder('d')
-            ->leftJoin('d.createdBy', 'u')
-            ->addSelect('u')
-            ->leftJoin('d.items', 'i')
-            ->addSelect('i');
-
-        if ($status !== null) {
-            $statusEnum = DeletionStatus::tryFrom($status);
-            if ($statusEnum !== null) {
-                $qb->andWhere('d.status = :status')
-                    ->setParameter('status', $statusEnum);
-            }
-        }
+        $qb = $this->createDeletionQueryBuilder();
+        $this->applyStatusFilter($qb, $filters['status'] ?? null);
 
         $qb->orderBy('d.scheduledDate', 'ASC')
             ->addOrderBy('d.createdAt', 'DESC');
 
-        // Count total
-        $countQb = $this->createQueryBuilder('d')
-            ->select('COUNT(d.id)');
+        $total = $this->countWithStatusFilter($filters['status'] ?? null);
 
-        if ($status !== null) {
-            $statusEnum = DeletionStatus::tryFrom($status);
-            if ($statusEnum !== null) {
-                $countQb->andWhere('d.status = :status')
-                    ->setParameter('status', $statusEnum);
-            }
-        }
-
-        $total = (int)$countQb->getQuery()->getSingleScalarResult();
-
-        $offset = ($page - 1) * $limit;
-        $qb->setFirstResult($offset)->setMaxResults($limit);
+        $qb->setFirstResult(($page - 1) * $limit)
+            ->setMaxResults($limit);
 
         return [
             'data' => $qb->getQuery()->getResult(),
@@ -118,5 +95,46 @@ class ScheduledDeletionRepository extends ServiceEntityRepository
             ->setParameter('status', DeletionStatus::PENDING)
             ->getQuery()
             ->getResult();
+    }
+
+    /**
+     * Create a QueryBuilder with eager-loaded relations for deletion listing.
+     */
+    private function createDeletionQueryBuilder(): QueryBuilder
+    {
+        return $this->createQueryBuilder('d')
+            ->leftJoin('d.createdBy', 'u')
+            ->addSelect('u')
+            ->leftJoin('d.items', 'i')
+            ->addSelect('i');
+    }
+
+    /**
+     * Apply status filter to a QueryBuilder.
+     */
+    private function applyStatusFilter(QueryBuilder $qb, ?string $status): void
+    {
+        if ($status === null) {
+            return;
+        }
+
+        $statusEnum = DeletionStatus::tryFrom($status);
+        if ($statusEnum !== null) {
+            $qb->andWhere('d.status = :status')
+                ->setParameter('status', $statusEnum);
+        }
+    }
+
+    /**
+     * Count total deletions matching the given status filter.
+     */
+    private function countWithStatusFilter(?string $status): int
+    {
+        $countQb = $this->createQueryBuilder('d')
+            ->select('COUNT(d.id)');
+
+        $this->applyStatusFilter($countQb, $status);
+
+        return (int)$countQb->getQuery()->getSingleScalarResult();
     }
 }

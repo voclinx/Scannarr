@@ -25,6 +25,9 @@ class FileVoter extends Voter
         return $attribute === self::DELETE && $subject instanceof MediaFile;
     }
 
+    /**
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     */
     protected function voteOnAttribute(string $attribute, mixed $subject, TokenInterface $token): bool
     {
         $user = $token->getUser();

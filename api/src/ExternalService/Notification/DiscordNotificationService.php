@@ -40,64 +40,7 @@ class DiscordNotificationService implements NotificationChannelInterface
             return false;
         }
 
-        $items = $deletion->getItems();
-        $movieLines = [];
-        $totalFiles = 0;
-        $totalSize = 0;
-
-        foreach ($items as $item) {
-            $movie = $item->getMovie();
-            $title = $movie?->getTitle() ?? 'Unknown';
-            $year = $movie?->getYear();
-            $movieLines[] = '• ' . $title . ($year !== null ? " ({$year})" : '');
-            $totalFiles += count($item->getMediaFileIds());
-
-            foreach ($item->getMediaFileIds() as $mediaFileId) {
-                $mediaFile = $this->mediaFileRepository->find($mediaFileId);
-                if ($mediaFile !== null) {
-                    $totalSize += $mediaFile->getFileSizeBytes();
-                }
-            }
-        }
-
-        $scheduledDate = $deletion->getScheduledDate();
-        $executionTime = $deletion->getExecutionTime();
-        $dateStr = $scheduledDate instanceof DateTimeInterface ? $scheduledDate->format('d/m/Y') : '??';
-        $timeStr = $executionTime->format('H:i');
-        $createdBy = $deletion->getCreatedBy()?->getUsername() ?? 'Unknown';
-
-        $embed = [
-            'title' => '⚠️ Rappel — Suppression planifiée',
-            'description' => sprintf(
-                '**%d film%s** %s supprimé%s le **%s à %s**.',
-                $items->count(),
-                $items->count() > 1 ? 's' : '',
-                $items->count() > 1 ? 'seront' : 'sera',
-                $items->count() > 1 ? 's' : '',
-                $dateStr,
-                $timeStr,
-            ),
-            'color' => self::COLOR_WARNING,
-            'fields' => [
-                [
-                    'name' => 'Films concernés',
-                    'value' => implode("\n", array_slice($movieLines, 0, 20)),
-                    'inline' => false,
-                ],
-                [
-                    'name' => 'Fichiers à supprimer',
-                    'value' => sprintf('%d fichier%s (%s)', $totalFiles, $totalFiles > 1 ? 's' : '', $this->formatSize($totalSize)),
-                    'inline' => true,
-                ],
-                [
-                    'name' => 'Créé par',
-                    'value' => $createdBy,
-                    'inline' => true,
-                ],
-            ],
-            'footer' => ['text' => 'Scanarr — Annulez via l\'interface si besoin'],
-            'timestamp' => (new DateTimeImmutable())->format('c'),
-        ];
+        $embed = $this->buildReminderEmbed($deletion);
 
         return $this->sendEmbed($webhookUrl, $embed);
     }
@@ -112,52 +55,7 @@ class DiscordNotificationService implements NotificationChannelInterface
             return false;
         }
 
-        $report = $deletion->getExecutionReport() ?? [];
-        $items = $report['items'] ?? [];
-
-        $movieLines = [];
-        $totalSpaceFreed = 0;
-
-        foreach ($items as $itemReport) {
-            $title = $itemReport['movie'] ?? 'Unknown';
-            $year = $itemReport['year'] ?? null;
-            $label = $title . ($year !== null ? " ({$year})" : '');
-
-            $movieLines[] = empty($itemReport['errors']) ? "• {$label} ✅" : "• {$label} ❌";
-
-            $totalSpaceFreed += $itemReport['space_freed_bytes'] ?? 0;
-        }
-
-        $embed = [
-            'title' => '✅ Suppression exécutée',
-            'description' => sprintf(
-                '**%d film%s** %s été supprimé%s avec succès.',
-                count($items),
-                count($items) > 1 ? 's' : '',
-                count($items) > 1 ? 'ont' : 'a',
-                count($items) > 1 ? 's' : '',
-            ),
-            'color' => self::COLOR_SUCCESS,
-            'fields' => [
-                [
-                    'name' => 'Films supprimés',
-                    'value' => implode("\n", array_slice($movieLines, 0, 20)),
-                    'inline' => false,
-                ],
-                [
-                    'name' => 'Espace libéré',
-                    'value' => $this->formatSize($totalSpaceFreed),
-                    'inline' => true,
-                ],
-                [
-                    'name' => 'Radarr déréférencé',
-                    'value' => $deletion->isDeleteRadarrReference() ? 'Oui' : 'Non',
-                    'inline' => true,
-                ],
-            ],
-            'footer' => ['text' => 'Scanarr'],
-            'timestamp' => (new DateTimeImmutable())->format('c'),
-        ];
+        $embed = $this->buildSuccessEmbed($deletion);
 
         return $this->sendEmbed($webhookUrl, $embed);
     }
@@ -172,47 +70,172 @@ class DiscordNotificationService implements NotificationChannelInterface
             return false;
         }
 
-        $report = $deletion->getExecutionReport() ?? [];
-        $items = $report['items'] ?? [];
+        $embed = $this->buildErrorEmbed($deletion);
 
-        $successLines = [];
-        $failedLines = [];
+        return $this->sendEmbed($webhookUrl, $embed);
+    }
 
-        foreach ($items as $itemReport) {
-            $title = $itemReport['movie'] ?? 'Unknown';
-            $year = $itemReport['year'] ?? null;
-            $label = $title . ($year !== null ? " ({$year})" : '');
+    /**
+     * Build the Discord embed for a deletion reminder.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildReminderEmbed(ScheduledDeletion $deletion): array
+    {
+        [$movieLines, $totalFiles, $totalSize] = $this->collectItemStats($deletion);
+        $itemCount = $deletion->getItems()->count();
 
-            if (empty($itemReport['errors'])) {
-                $successLines[] = "• {$label} ✅";
-            } else {
-                $errorMsg = implode(', ', $itemReport['errors']);
-                $failedLines[] = "• {$label} ❌ — {$errorMsg}";
+        return [
+            'title' => '⚠️ Rappel — Suppression planifiée',
+            'description' => $this->buildReminderDescription($deletion, $itemCount),
+            'color' => self::COLOR_WARNING,
+            'fields' => $this->buildReminderFields($movieLines, $totalFiles, $totalSize, $deletion),
+            'footer' => ['text' => 'Scanarr — Annulez via l\'interface si besoin'],
+            'timestamp' => (new DateTimeImmutable())->format('c'),
+        ];
+    }
+
+    private function buildReminderDescription(ScheduledDeletion $deletion, int $itemCount): string
+    {
+        $scheduledDate = $deletion->getScheduledDate();
+        $dateStr = $scheduledDate instanceof DateTimeInterface ? $scheduledDate->format('d/m/Y') : '??';
+        $timeStr = $deletion->getExecutionTime()->format('H:i');
+        $plural = $itemCount > 1;
+
+        return sprintf(
+            '**%d film%s** %s supprimé%s le **%s à %s**.',
+            $itemCount,
+            $plural ? 's' : '',
+            $plural ? 'seront' : 'sera',
+            $plural ? 's' : '',
+            $dateStr,
+            $timeStr,
+        );
+    }
+
+    /**
+     * @param array<string> $movieLines
+     *
+     * @return array<int, array{name: string, value: string, inline: bool}>
+     */
+    private function buildReminderFields(array $movieLines, int $totalFiles, int $totalSize, ScheduledDeletion $deletion): array
+    {
+        return [
+            $this->buildField('Films concernés', implode("\n", array_slice($movieLines, 0, 20))),
+            $this->buildField(
+                'Fichiers à supprimer',
+                sprintf('%d fichier%s (%s)', $totalFiles, $totalFiles > 1 ? 's' : '', $this->formatSize($totalSize)),
+                true,
+            ),
+            $this->buildField('Créé par', $deletion->getCreatedBy()?->getUsername() ?? 'Unknown', true),
+        ];
+    }
+
+    /**
+     * Collect movie lines, total file count, and total size from deletion items.
+     *
+     * @return array{0: array<string>, 1: int, 2: int}
+     */
+    private function collectItemStats(ScheduledDeletion $deletion): array
+    {
+        $movieLines = [];
+        $totalFiles = 0;
+        $totalSize = 0;
+
+        foreach ($deletion->getItems() as $item) {
+            $movie = $item->getMovie();
+            $title = $movie?->getTitle() ?? 'Unknown';
+            $year = $movie?->getYear();
+            $movieLines[] = '• ' . $title . ($year !== null ? " ({$year})" : '');
+            $totalFiles += count($item->getMediaFileIds());
+            $totalSize += $this->sumMediaFileSizes($item->getMediaFileIds());
+        }
+
+        return [$movieLines, $totalFiles, $totalSize];
+    }
+
+    /**
+     * Sum file sizes for the given media file IDs.
+     *
+     * @param array<string> $mediaFileIds
+     */
+    private function sumMediaFileSizes(array $mediaFileIds): int
+    {
+        $totalSize = 0;
+
+        foreach ($mediaFileIds as $mediaFileId) {
+            $mediaFile = $this->mediaFileRepository->find($mediaFileId);
+            if ($mediaFile !== null) {
+                $totalSize += $mediaFile->getFileSizeBytes();
             }
         }
+
+        return $totalSize;
+    }
+
+    /**
+     * Build the Discord embed for a successful deletion.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildSuccessEmbed(ScheduledDeletion $deletion): array
+    {
+        [$movieLines, $totalSpaceFreed, $itemCount] = $this->collectSuccessData($deletion);
+
+        return [
+            'title' => '✅ Suppression exécutée',
+            'description' => sprintf(
+                '**%d film%s** %s été supprimé%s avec succès.',
+                $itemCount,
+                $itemCount > 1 ? 's' : '',
+                $itemCount > 1 ? 'ont' : 'a',
+                $itemCount > 1 ? 's' : '',
+            ),
+            'color' => self::COLOR_SUCCESS,
+            'fields' => [
+                $this->buildField('Films supprimés', implode("\n", array_slice($movieLines, 0, 20))),
+                $this->buildField('Espace libéré', $this->formatSize($totalSpaceFreed), true),
+                $this->buildField('Radarr déréférencé', $deletion->isDeleteRadarrReference() ? 'Oui' : 'Non', true),
+            ],
+            'footer' => ['text' => 'Scanarr'],
+            'timestamp' => (new DateTimeImmutable())->format('c'),
+        ];
+    }
+
+    /**
+     * @return array{0: array<string>, 1: int, 2: int}
+     */
+    private function collectSuccessData(ScheduledDeletion $deletion): array
+    {
+        $report = $deletion->getExecutionReport() ?? [];
+        $items = $report['items'] ?? [];
+        $movieLines = [];
+        $totalSpaceFreed = 0;
+
+        foreach ($items as $itemReport) {
+            $label = $this->formatMovieLabel($itemReport);
+            $movieLines[] = empty($itemReport['errors']) ? "• {$label} ✅" : "• {$label} ❌";
+            $totalSpaceFreed += $itemReport['space_freed_bytes'] ?? 0;
+        }
+
+        return [$movieLines, $totalSpaceFreed, count($items)];
+    }
+
+    /**
+     * Build the Discord embed for a deletion with errors.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildErrorEmbed(ScheduledDeletion $deletion): array
+    {
+        $report = $deletion->getExecutionReport() ?? [];
+        $items = $report['items'] ?? [];
+        $fields = $this->buildErrorFields($items);
 
         $scheduledDate = $deletion->getScheduledDate();
         $dateStr = $scheduledDate instanceof DateTimeInterface ? $scheduledDate->format('d/m/Y') : '??';
 
-        $fields = [];
-
-        if ($successLines !== []) {
-            $fields[] = [
-                'name' => 'Succès',
-                'value' => implode("\n", array_slice($successLines, 0, 15)),
-                'inline' => false,
-            ];
-        }
-
-        if ($failedLines !== []) {
-            $fields[] = [
-                'name' => 'Échecs',
-                'value' => implode("\n", array_slice($failedLines, 0, 15)),
-                'inline' => false,
-            ];
-        }
-
-        $embed = [
+        return [
             'title' => '❌ Suppression — Erreurs détectées',
             'description' => sprintf(
                 'La suppression planifiée du **%s** a rencontré des erreurs.',
@@ -223,8 +246,70 @@ class DiscordNotificationService implements NotificationChannelInterface
             'footer' => ['text' => 'Scanarr — Vérifiez les permissions de fichiers'],
             'timestamp' => (new DateTimeImmutable())->format('c'),
         ];
+    }
 
-        return $this->sendEmbed($webhookUrl, $embed);
+    /**
+     * Build success/failure field lists for the error embed.
+     *
+     * @param array<int, array<string, mixed>> $items
+     *
+     * @return array<int, array{name: string, value: string, inline: bool}>
+     */
+    private function buildErrorFields(array $items): array
+    {
+        $successLines = [];
+        $failedLines = [];
+
+        foreach ($items as $itemReport) {
+            $label = $this->formatMovieLabel($itemReport);
+
+            if (!empty($itemReport['errors'])) {
+                $errorMsg = implode(', ', $itemReport['errors']);
+                $failedLines[] = "• {$label} ❌ — {$errorMsg}";
+                continue;
+            }
+
+            $successLines[] = "• {$label} ✅";
+        }
+
+        $fields = [];
+
+        if ($successLines !== []) {
+            $fields[] = $this->buildField('Succès', implode("\n", array_slice($successLines, 0, 15)));
+        }
+
+        if ($failedLines !== []) {
+            $fields[] = $this->buildField('Échecs', implode("\n", array_slice($failedLines, 0, 15)));
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Format a movie label from an item report (title + optional year).
+     *
+     * @param array<string, mixed> $itemReport
+     */
+    private function formatMovieLabel(array $itemReport): string
+    {
+        $title = $itemReport['movie'] ?? 'Unknown';
+        $year = $itemReport['year'] ?? null;
+
+        return $title . ($year !== null ? " ({$year})" : '');
+    }
+
+    /**
+     * Build a single Discord embed field.
+     *
+     * @return array{name: string, value: string, inline: bool}
+     */
+    private function buildField(string $name, string $value, bool $inline = false): array
+    {
+        return [
+            'name' => $name,
+            'value' => $value,
+            'inline' => $inline,
+        ];
     }
 
     /**
@@ -283,9 +368,9 @@ class DiscordNotificationService implements NotificationChannelInterface
         }
 
         $units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        $k = 1024;
-        $i = (int)floor(log($bytes) / log($k));
+        $bytesPerUnit = 1024;
+        $unitIndex = (int)floor(log($bytes) / log($bytesPerUnit));
 
-        return round($bytes / $k ** $i, $i > 1 ? 1 : 0) . ' ' . $units[$i];
+        return round($bytes / $bytesPerUnit ** $unitIndex, $unitIndex > 1 ? 1 : 0) . ' ' . $units[$unitIndex];
     }
 }

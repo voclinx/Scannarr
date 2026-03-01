@@ -13,13 +13,14 @@ use App\Enum\DeletionStatus;
 use App\Repository\MediaFileRepository;
 use DateTime;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\QueryBuilder;
 
-final class FileService
+final readonly class FileService
 {
     public function __construct(
-        private readonly EntityManagerInterface $em,
-        private readonly MediaFileRepository $mediaFileRepository,
-        private readonly DeletionService $deletionService,
+        private EntityManagerInterface $em,
+        private MediaFileRepository $mediaFileRepository,
+        private DeletionService $deletionService,
     ) {
     }
 
@@ -41,6 +42,29 @@ final class FileService
             ->from(MediaFile::class, 'mf')
             ->leftJoin('mf.volume', 'v');
 
+        $this->applyFileListFilters($qb, $filters);
+
+        $countQb = clone $qb;
+        $countQb->select('COUNT(mf.id)');
+        $total = (int)$countQb->getQuery()->getSingleScalarResult();
+
+        $this->applySortAndPaginate($qb, $filters, $offset, $limit);
+        $files = $qb->getQuery()->getResult();
+
+        return [
+            'data' => array_map($this->serializeFile(...), $files),
+            'meta' => [
+                'total' => $total,
+                'page' => $page,
+                'limit' => $limit,
+                'total_pages' => (int)ceil($total / $limit),
+            ],
+        ];
+    }
+
+    /** @param array<string, mixed> $filters */
+    private function applyFileListFilters(QueryBuilder $qb, array $filters): void
+    {
         if (!empty($filters['volume_id'])) {
             $qb->andWhere('v.id = :volumeId')->setParameter('volumeId', $filters['volume_id']);
         }
@@ -60,11 +84,11 @@ final class FileService
         if ($minHardlinks !== null && $minHardlinks !== '') {
             $qb->andWhere('mf.hardlinkCount >= :minHardlinks')->setParameter('minHardlinks', (int)$minHardlinks);
         }
+    }
 
-        $countQb = clone $qb;
-        $countQb->select('COUNT(mf.id)');
-        $total = (int)$countQb->getQuery()->getSingleScalarResult();
-
+    /** @param array<string, mixed> $filters */
+    private function applySortAndPaginate(QueryBuilder $qb, array $filters, int $offset, int $limit): void
+    {
         $allowedSorts = ['file_name', 'file_size_bytes', 'detected_at', 'hardlink_count', 'file_path'];
         $sortField = $filters['sort'] ?? 'detected_at';
         $sortOrder = strtoupper((string)($filters['order'] ?? 'DESC'));
@@ -85,17 +109,6 @@ final class FileService
         ];
 
         $qb->orderBy($sortMap[$sortField], $sortOrder)->setFirstResult($offset)->setMaxResults($limit);
-        $files = $qb->getQuery()->getResult();
-
-        return [
-            'data' => array_map($this->serializeFile(...), $files),
-            'meta' => [
-                'total' => $total,
-                'page' => $page,
-                'limit' => $limit,
-                'total_pages' => (int)ceil($total / $limit),
-            ],
-        ];
     }
 
     public function findById(string $id): ?MediaFile
@@ -113,13 +126,13 @@ final class FileService
         $siblings = $this->mediaFileRepository->findSiblingsByInode($file);
 
         return [
-            'data' => array_map(fn (MediaFile $f) => [
-                'id' => (string) $f->getId(),
-                'file_path' => $f->getFilePath(),
-                'file_name' => $f->getFileName(),
-                'file_size_bytes' => $f->getFileSizeBytes(),
-                'volume_id' => (string) $f->getVolume()?->getId(),
-                'volume_name' => $f->getVolume()?->getName(),
+            'data' => array_map(fn (MediaFile $file): array => [
+                'id' => (string)$file->getId(),
+                'file_path' => $file->getFilePath(),
+                'file_name' => $file->getFileName(),
+                'file_size_bytes' => $file->getFileSizeBytes(),
+                'volume_id' => (string)$file->getVolume()?->getId(),
+                'volume_name' => $file->getVolume()?->getName(),
             ], $siblings),
             'meta' => [
                 'inode' => $file->getInode(),
@@ -160,6 +173,30 @@ final class FileService
      */
     public function deleteFile(MediaFile $file, bool $deletePhysical, bool $deleteRadarrRef, bool $disableRadarrAutoSearch, User $user): array
     {
+        $deletion = $this->buildSingleFileDeletion($file, $deletePhysical, $deleteRadarrRef, $disableRadarrAutoSearch, $user);
+
+        $this->em->persist($deletion);
+        $this->em->flush();
+
+        $this->deletionService->executeDeletion($deletion);
+
+        $this->logFileActivity($file, $user, 'file.deleted', [
+            'file_name' => $file->getFileName(),
+            'file_path' => $file->getFilePath(),
+            'volume' => $file->getVolume()?->getName(),
+            'deletion_id' => (string)$deletion->getId(),
+            'status' => $deletion->getStatus()->value,
+        ]);
+
+        return [
+            'deletion_id' => (string)$deletion->getId(),
+            'status' => $deletion->getStatus()->value,
+            'http_code' => $this->resolveHttpCode($deletion->getStatus()),
+        ];
+    }
+
+    private function buildSingleFileDeletion(MediaFile $file, bool $deletePhysical, bool $deleteRadarrRef, bool $disableRadarrAutoSearch, User $user): ScheduledDeletion
+    {
         $movie = null;
         foreach ($file->getMovieFiles() as $mf) {
             if ($mf->getMovie() !== null) {
@@ -180,24 +217,7 @@ final class FileService
         $item->setMediaFileIds([(string)$file->getId()]);
         $deletion->addItem($item);
 
-        $this->em->persist($deletion);
-        $this->em->flush();
-
-        $this->deletionService->executeDeletion($deletion);
-
-        $this->logFileActivity($file, $deletion, $user, 'file.deleted', [
-            'file_name' => $file->getFileName(),
-            'file_path' => $file->getFilePath(),
-            'volume' => $file->getVolume()?->getName(),
-            'deletion_id' => (string)$deletion->getId(),
-            'status' => $deletion->getStatus()->value,
-        ]);
-
-        return [
-            'deletion_id' => (string)$deletion->getId(),
-            'status' => $deletion->getStatus()->value,
-            'http_code' => $this->resolveHttpCode($deletion->getStatus()),
-        ];
+        return $deletion;
     }
 
     /**
@@ -208,7 +228,39 @@ final class FileService
     public function globalDeleteFile(MediaFile $sourceFile, bool $deletePhysical, bool $deleteRadarrRef, bool $disableRadarrAutoSearch, User $user): array
     {
         $allFiles = $this->mediaFileRepository->findByFileName($sourceFile->getFileName());
+        [$movieFiles, $warning] = $this->groupFilesByMovie($allFiles, $deleteRadarrRef, $disableRadarrAutoSearch);
 
+        $deletion = $this->buildGlobalFileDeletion($movieFiles, $deletePhysical, $deleteRadarrRef, $disableRadarrAutoSearch, $user);
+        $this->em->persist($deletion);
+        $this->em->flush();
+
+        $this->deletionService->executeDeletion($deletion);
+        $this->logAllFileDeletions($allFiles, $sourceFile, $deletion, $user);
+        $this->em->flush();
+
+        $result = [
+            'deletion_id' => (string)$deletion->getId(),
+            'status' => $deletion->getStatus()->value,
+            'files_count' => count($allFiles),
+            'http_code' => $this->resolveHttpCode($deletion->getStatus()),
+        ];
+
+        if ($warning !== null) {
+            $result['warning'] = $warning;
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param MediaFile[] $allFiles
+     *
+     * @SuppressWarnings(PHPMD.CyclomaticComplexity)
+     *
+     * @return array{0: array<string, array{movie: mixed, file_ids: string[]}>, 1: string|null}
+     */
+    private function groupFilesByMovie(array $allFiles, bool $deleteRadarrRef, bool $disableRadarrAutoSearch): array
+    {
         $movieFiles = [];
         $warning = null;
 
@@ -232,6 +284,14 @@ final class FileService
             }
         }
 
+        return [$movieFiles, $warning];
+    }
+
+    /**
+     * @param array<string, array{movie: mixed, file_ids: string[]}> $movieFiles
+     */
+    private function buildGlobalFileDeletion(array $movieFiles, bool $deletePhysical, bool $deleteRadarrRef, bool $disableRadarrAutoSearch, User $user): ScheduledDeletion
+    {
         $deletion = new ScheduledDeletion();
         $deletion->setCreatedBy($user);
         $deletion->setScheduledDate(new DateTime('today'));
@@ -246,13 +306,16 @@ final class FileService
             $deletion->addItem($item);
         }
 
-        $this->em->persist($deletion);
-        $this->em->flush();
+        return $deletion;
+    }
 
-        $this->deletionService->executeDeletion($deletion);
-
+    /**
+     * @param MediaFile[] $allFiles
+     */
+    private function logAllFileDeletions(array $allFiles, MediaFile $sourceFile, ScheduledDeletion $deletion, User $user): void
+    {
         foreach ($allFiles as $file) {
-            $this->logFileActivity($file, $deletion, $user, 'file.global_deleted', [
+            $this->logFileActivity($file, $user, 'file.global_deleted', [
                 'file_name' => $file->getFileName(),
                 'file_path' => $file->getFilePath(),
                 'volume' => $file->getVolume()?->getName(),
@@ -260,24 +323,10 @@ final class FileService
                 'deletion_id' => (string)$deletion->getId(),
             ]);
         }
-        $this->em->flush();
-
-        $result = [
-            'deletion_id' => (string)$deletion->getId(),
-            'status' => $deletion->getStatus()->value,
-            'files_count' => count($allFiles),
-            'http_code' => $this->resolveHttpCode($deletion->getStatus()),
-        ];
-
-        if ($warning !== null) {
-            $result['warning'] = $warning;
-        }
-
-        return $result;
     }
 
     /** @param array<string, mixed> $details */
-    private function logFileActivity(MediaFile $file, ScheduledDeletion $deletion, User $user, string $action, array $details): void
+    private function logFileActivity(MediaFile $file, User $user, string $action, array $details): void
     {
         $log = new ActivityLog();
         $log->setAction($action);

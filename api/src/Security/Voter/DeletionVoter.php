@@ -27,6 +27,9 @@ class DeletionVoter extends Voter
             && $subject instanceof ScheduledDeletion;
     }
 
+    /**
+     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
+     */
     protected function voteOnAttribute(string $attribute, mixed $subject, TokenInterface $token): bool
     {
         $user = $token->getUser();

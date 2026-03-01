@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\Entity\ScheduledDeletion;
 use App\Entity\User;
 use App\Enum\DeletionStatus;
 use App\Security\Voter\DeletionVoter;
@@ -18,7 +19,9 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 #[Route('/api/v1/scheduled-deletions')]
 class ScheduledDeletionController extends AbstractController
 {
-    public function __construct(private readonly ScheduledDeletionService $scheduledDeletionService) {}
+    public function __construct(private readonly ScheduledDeletionService $scheduledDeletionService)
+    {
+    }
 
     #[Route('', methods: ['GET'])]
     #[IsGranted('ROLE_USER')]
@@ -78,7 +81,7 @@ class ScheduledDeletionController extends AbstractController
         }
 
         $deletion = $this->scheduledDeletionService->find($id);
-        if ($deletion === null) {
+        if (!$deletion instanceof ScheduledDeletion) {
             return $this->json(['error' => ['code' => 404, 'message' => 'Scheduled deletion not found']], Response::HTTP_NOT_FOUND);
         }
 
@@ -104,7 +107,7 @@ class ScheduledDeletionController extends AbstractController
     public function cancel(string $id): JsonResponse
     {
         $deletion = $this->scheduledDeletionService->find($id);
-        if ($deletion === null) {
+        if (!$deletion instanceof ScheduledDeletion) {
             return $this->json(['error' => ['code' => 404, 'message' => 'Scheduled deletion not found']], Response::HTTP_NOT_FOUND);
         }
 

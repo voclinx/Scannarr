@@ -22,6 +22,7 @@ import { useApi } from '@/composables/useApi'
 import type { SuggestionItem, DeletionPreset } from '@/types'
 
 interface ScoredItem extends SuggestionItem {
+  _key: string
   _score: number
   _best_ratio: number | null
   _seed_time_max: number
@@ -88,6 +89,7 @@ const scoredItems = computed((): ScoredItem[] => {
 
       return {
         ...item,
+        _key: item.movie.id ?? item.files[0]?.id ?? '',
         _score: calculateItemScore(item, preset),
         _best_ratio,
         _seed_time_max,
@@ -138,19 +140,27 @@ function rowClass(data: ScoredItem): string {
   return ''
 }
 
+function itemKey(item: ScoredItem): string {
+  return item._key
+}
+
 function isSelected(item: ScoredItem): boolean {
-  return selectedItems.value.some((i) => i.movie.id === item.movie.id)
+  const key = itemKey(item)
+  return selectedItems.value.some((i) => itemKey(i) === key)
 }
 
 function toggleSelection(item: ScoredItem, checked: boolean): void {
+  const key = itemKey(item)
   if (checked) {
-    if (!selectedItems.value.find((i) => i.movie.id === item.movie.id)) {
+    if (!selectedItems.value.find((i) => itemKey(i) === key)) {
       selectedItems.value.push(item)
     }
   } else {
-    selectedItems.value = selectedItems.value.filter((i) => i.movie.id !== item.movie.id)
+    selectedItems.value = selectedItems.value.filter((i) => itemKey(i) !== key)
   }
 }
+
+const hasOrphanSelected = computed(() => selectedItems.value.some((i) => i.movie.id === null))
 
 async function syncQBittorrent(): Promise<void> {
   syncing.value = true
@@ -168,7 +178,7 @@ async function handleBatchDelete(): Promise<void> {
   try {
     const items = selectedItems.value.map((item) => ({
       movie_id: item.movie.id,
-      file_ids: item.files.map((f) => f.media_file_id),
+      file_ids: item.files.map((f) => f.id),
     }))
     await suggestionsStore.batchDelete(items, {
       delete_radarr_reference: batchDeleteRadarr.value,
@@ -193,7 +203,7 @@ async function handleBatchSchedule(): Promise<void> {
   try {
     const items = selectedItems.value.map((item) => ({
       movie_id: item.movie.id,
-      file_ids: item.files.map((f) => f.media_file_id),
+      file_ids: item.files.map((f) => f.id),
     }))
     const dateStr = batchScheduleDate.value.toISOString().substring(0, 10)
     await suggestionsStore.batchSchedule(items, dateStr, {
@@ -315,7 +325,7 @@ onMounted(async () => {
         :value="scoredItems"
         :loading="suggestionsStore.loading"
         :row-class="rowClass"
-        dataKey="movie.id"
+        dataKey="_key"
         stripedRows
         class="text-sm"
       >
@@ -358,12 +368,17 @@ onMounted(async () => {
           <template #body="{ data }">
             <div class="flex items-center gap-2">
               <a
+                v-if="data.movie.id"
                 class="text-blue-600 hover:underline cursor-pointer font-medium"
                 @click="router.push({ name: 'movie-detail', params: { id: data.movie.id } })"
               >
                 {{ data.movie.title }}
                 <span v-if="data.movie.year" class="text-gray-400 text-xs ml-1">({{ data.movie.year }})</span>
               </a>
+              <span v-else class="font-medium text-gray-700">
+                {{ data.movie.title }}
+              </span>
+              <Tag v-if="!data.movie.id" value="Non identifié" severity="warn" class="text-xs" />
               <Tag v-if="data.multi_file" value="Multi" severity="secondary" class="text-xs" />
             </div>
           </template>
@@ -412,6 +427,29 @@ onMounted(async () => {
               :severity="seedingStatusSeverity(data._seeding_status)"
             />
             <span v-else class="text-gray-400">—</span>
+          </template>
+        </Column>
+
+        <!-- Présence -->
+        <Column header="Présence" style="width: 10rem">
+          <template #body="{ data }">
+            <div class="flex items-center gap-1">
+              <Tag
+                value="Radarr"
+                :severity="data.is_in_radarr ? 'success' : 'secondary'"
+                class="text-xs"
+              />
+              <Tag
+                value="qBit"
+                :severity="data.is_in_torrent_client ? 'success' : 'secondary'"
+                class="text-xs"
+              />
+              <Tag
+                value="Lecteur"
+                :severity="data.is_in_media_player ? 'success' : 'secondary'"
+                class="text-xs"
+              />
+            </div>
           </template>
         </Column>
       </DataTable>
@@ -464,13 +502,16 @@ onMounted(async () => {
         </p>
         <div class="space-y-2">
           <div class="flex items-center gap-2">
-            <Checkbox v-model="batchDeleteRadarr" :binary="true" inputId="del-radarr" />
-            <label for="del-radarr" class="text-sm cursor-pointer">Supprimer dans Radarr</label>
+            <Checkbox v-model="batchDeleteRadarr" :binary="true" inputId="del-radarr" :disabled="hasOrphanSelected" />
+            <label for="del-radarr" class="text-sm cursor-pointer" :class="{ 'text-gray-400': hasOrphanSelected }">Supprimer dans Radarr</label>
           </div>
           <div class="flex items-center gap-2">
-            <Checkbox v-model="batchDisableAutoSearch" :binary="true" inputId="del-autosearch" />
-            <label for="del-autosearch" class="text-sm cursor-pointer">Désactiver la recherche automatique Radarr</label>
+            <Checkbox v-model="batchDisableAutoSearch" :binary="true" inputId="del-autosearch" :disabled="hasOrphanSelected" />
+            <label for="del-autosearch" class="text-sm cursor-pointer" :class="{ 'text-gray-400': hasOrphanSelected }">Désactiver la recherche automatique Radarr</label>
           </div>
+          <p v-if="hasOrphanSelected" class="text-xs text-orange-600">
+            Les options Radarr sont désactivées car la sélection contient des fichiers non identifiés.
+          </p>
         </div>
         <Message v-if="batchError" severity="error">{{ batchError }}</Message>
       </div>
@@ -500,13 +541,16 @@ onMounted(async () => {
         </div>
         <div class="space-y-2">
           <div class="flex items-center gap-2">
-            <Checkbox v-model="batchDeleteRadarr" :binary="true" inputId="sched-radarr" />
-            <label for="sched-radarr" class="text-sm cursor-pointer">Supprimer dans Radarr</label>
+            <Checkbox v-model="batchDeleteRadarr" :binary="true" inputId="sched-radarr" :disabled="hasOrphanSelected" />
+            <label for="sched-radarr" class="text-sm cursor-pointer" :class="{ 'text-gray-400': hasOrphanSelected }">Supprimer dans Radarr</label>
           </div>
           <div class="flex items-center gap-2">
-            <Checkbox v-model="batchDisableAutoSearch" :binary="true" inputId="sched-autosearch" />
-            <label for="sched-autosearch" class="text-sm cursor-pointer">Désactiver la recherche automatique Radarr</label>
+            <Checkbox v-model="batchDisableAutoSearch" :binary="true" inputId="sched-autosearch" :disabled="hasOrphanSelected" />
+            <label for="sched-autosearch" class="text-sm cursor-pointer" :class="{ 'text-gray-400': hasOrphanSelected }">Désactiver la recherche automatique Radarr</label>
           </div>
+          <p v-if="hasOrphanSelected" class="text-xs text-orange-600">
+            Les options Radarr sont désactivées car la sélection contient des fichiers non identifiés.
+          </p>
         </div>
         <Message v-if="batchError" severity="error">{{ batchError }}</Message>
       </div>

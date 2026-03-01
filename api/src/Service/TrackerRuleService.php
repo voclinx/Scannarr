@@ -8,11 +8,11 @@ use App\Entity\TrackerRule;
 use App\Repository\TrackerRuleRepository;
 use Doctrine\ORM\EntityManagerInterface;
 
-final class TrackerRuleService
+final readonly class TrackerRuleService
 {
     public function __construct(
-        private readonly TrackerRuleRepository $trackerRuleRepository,
-        private readonly EntityManagerInterface $em,
+        private TrackerRuleRepository $trackerRuleRepository,
+        private EntityManagerInterface $em,
     ) {
     }
 

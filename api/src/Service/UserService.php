@@ -13,15 +13,16 @@ use Lexik\Bundle\JWTAuthenticationBundle\Services\JWTTokenManagerInterface;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
-final class UserService
+final readonly class UserService
 {
     public function __construct(
-        private readonly UserRepository $userRepository,
-        private readonly EntityManagerInterface $em,
-        private readonly UserPasswordHasherInterface $passwordHasher,
-        private readonly ValidatorInterface $validator,
-        private readonly JWTTokenManagerInterface $jwtManager,
-    ) {}
+        private UserRepository $userRepository,
+        private EntityManagerInterface $em,
+        private UserPasswordHasherInterface $passwordHasher,
+        private ValidatorInterface $validator,
+        private JWTTokenManagerInterface $jwtManager,
+    ) {
+    }
 
     /**
      * @return array{data: array<int, array<string, mixed>>, meta: array<string, mixed>}
@@ -38,7 +39,7 @@ final class UserService
                 'total' => $total,
                 'page' => $page,
                 'limit' => $limit,
-                'total_pages' => (int) ceil($total / $limit),
+                'total_pages' => (int)ceil($total / $limit),
             ],
         ];
     }
@@ -55,27 +56,12 @@ final class UserService
         $user->setUsername($data['username'] ?? '');
         $user->setRole($data['role'] ?? 'ROLE_USER');
 
-        $errors = $this->validator->validate($user);
-        if (count($errors) > 0) {
-            $details = [];
-            foreach ($errors as $error) {
-                $details[$error->getPropertyPath()] = $error->getMessage();
-            }
-
-            return ['result' => 'validation_error', 'details' => $details];
+        $validationError = $this->validateCreateData($user, $data);
+        if ($validationError !== null) {
+            return $validationError;
         }
 
-        $password = $data['password'] ?? '';
-        if (strlen((string) $password) < 8) {
-            return ['result' => 'validation_error', 'details' => ['password' => 'Password must be at least 8 characters']];
-        }
-
-        $validRoles = ['ROLE_ADMIN', 'ROLE_ADVANCED_USER', 'ROLE_USER', 'ROLE_GUEST'];
-        if (!in_array($user->getRole(), $validRoles, true)) {
-            return ['result' => 'validation_error', 'details' => ['role' => 'Invalid role']];
-        }
-
-        $user->setPassword($this->passwordHasher->hashPassword($user, (string) $password));
+        $user->setPassword($this->passwordHasher->hashPassword($user, (string)($data['password'] ?? '')));
         $this->em->persist($user);
 
         try {
@@ -90,6 +76,36 @@ final class UserService
     /**
      * @param array<string, mixed> $data
      *
+     * @return array<string, mixed>|null Returns error array or null if valid
+     */
+    private function validateCreateData(User $user, array $data): ?array
+    {
+        $errors = $this->validator->validate($user);
+        if (count($errors) > 0) {
+            $details = [];
+            foreach ($errors as $error) {
+                $details[$error->getPropertyPath()] = $error->getMessage();
+            }
+
+            return ['result' => 'validation_error', 'details' => $details];
+        }
+
+        $password = $data['password'] ?? '';
+        if (strlen((string)$password) < 8) {
+            return ['result' => 'validation_error', 'details' => ['password' => 'Password must be at least 8 characters']];
+        }
+
+        $validRoles = ['ROLE_ADMIN', 'ROLE_ADVANCED_USER', 'ROLE_USER', 'ROLE_GUEST'];
+        if (!in_array($user->getRole(), $validRoles, true)) {
+            return ['result' => 'validation_error', 'details' => ['role' => 'Invalid role']];
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     *
      * @return array{result: string, data?: array<string, mixed>, details?: array<string, string>}
      */
     public function update(string $id, array $data, User $currentUser): array
@@ -99,9 +115,37 @@ final class UserService
             return ['result' => 'not_found'];
         }
 
-        $isSelfEdit = $user->getId()->equals($currentUser->getId());
         $oldEmail = $user->getEmail();
+        $isSelfEdit = $user->getId()->equals($currentUser->getId());
 
+        $applyError = $this->applyUserUpdates($user, $data);
+        if ($applyError !== null) {
+            return $applyError;
+        }
+
+        try {
+            $this->em->flush();
+        } catch (UniqueConstraintViolationException) {
+            return ['result' => 'duplicate'];
+        }
+
+        $result = ['result' => 'updated', 'data' => $this->serialize($user)];
+        $this->handleEmailChange($user, $oldEmail, $isSelfEdit, $result);
+
+        return $result;
+    }
+
+    /**
+     * @SuppressWarnings(PHPMD.CyclomaticComplexity)
+     * @SuppressWarnings(PHPMD.NPathComplexity)
+     * @SuppressWarnings(PHPMD.ExcessiveMethodLength)
+     *
+     * @param array<string, mixed> $data
+     *
+     * @return array<string, mixed>|null Error array or null if valid
+     */
+    private function applyUserUpdates(User $user, array $data): ?array
+    {
         if (isset($data['email'])) {
             $user->setEmail($data['email']);
         }
@@ -116,13 +160,13 @@ final class UserService
             $user->setRole($data['role']);
         }
         if (isset($data['is_active'])) {
-            $user->setIsActive((bool) $data['is_active']);
+            $user->setIsActive((bool)$data['is_active']);
         }
         if (isset($data['password'])) {
-            if (strlen((string) $data['password']) < 8) {
+            if (strlen((string)$data['password']) < 8) {
                 return ['result' => 'validation_error', 'details' => ['password' => 'Password must be at least 8 characters']];
             }
-            $user->setPassword($this->passwordHasher->hashPassword($user, (string) $data['password']));
+            $user->setPassword($this->passwordHasher->hashPassword($user, (string)$data['password']));
         }
 
         $errors = $this->validator->validate($user);
@@ -135,27 +179,26 @@ final class UserService
             return ['result' => 'validation_error', 'details' => $details];
         }
 
-        try {
-            $this->em->flush();
-        } catch (UniqueConstraintViolationException) {
-            return ['result' => 'duplicate'];
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     */
+    private function handleEmailChange(User $user, string $oldEmail, bool $isSelfEdit, array &$result): void
+    {
+        if (!$isSelfEdit || $oldEmail === $user->getEmail()) {
+            return;
         }
 
-        $result = ['result' => 'updated', 'data' => $this->serialize($user)];
-
-        $emailChanged = $isSelfEdit && $oldEmail !== $user->getEmail();
-        if ($emailChanged) {
-            $newAccessToken = $this->jwtManager->create($user);
-            $refreshTokenRepo = $this->em->getRepository(RefreshToken::class);
-            $oldRefreshTokens = $refreshTokenRepo->findBy(['username' => $oldEmail]);
-            foreach ($oldRefreshTokens as $rt) {
-                $rt->setUsername($user->getUserIdentifier());
-            }
-            $this->em->flush();
-            $result['data']['new_tokens'] = ['access_token' => $newAccessToken];
+        $newAccessToken = $this->jwtManager->create($user);
+        $refreshTokenRepo = $this->em->getRepository(RefreshToken::class);
+        $oldRefreshTokens = $refreshTokenRepo->findBy(['username' => $oldEmail]);
+        foreach ($oldRefreshTokens as $rt) {
+            $rt->setUsername($user->getUserIdentifier());
         }
-
-        return $result;
+        $this->em->flush();
+        $result['data']['new_tokens'] = ['access_token' => $newAccessToken];
     }
 
     public function delete(string $id, User $currentUser): string
@@ -178,7 +221,7 @@ final class UserService
     private function serialize(User $user): array
     {
         return [
-            'id' => (string) $user->getId(),
+            'id' => (string)$user->getId(),
             'email' => $user->getEmail(),
             'username' => $user->getUsername(),
             'role' => $user->getRole(),

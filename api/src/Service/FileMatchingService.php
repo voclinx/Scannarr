@@ -8,10 +8,10 @@ use App\Contract\Matching\FileMatchingStrategyInterface;
 use App\Contract\Matching\MatchResult;
 use Symfony\Component\DependencyInjection\Attribute\TaggedIterator;
 
-final class FileMatchingService
+final readonly class FileMatchingService
 {
     /** @var list<FileMatchingStrategyInterface> */
-    private readonly array $strategies;
+    private array $strategies;
 
     /**
      * @param iterable<FileMatchingStrategyInterface> $strategies
@@ -22,7 +22,7 @@ final class FileMatchingService
     ) {
         // Sort by descending priority (highest first)
         $arr = iterator_to_array($strategies);
-        usort($arr, static fn ($a, $b) => $b::getPriority() <=> $a::getPriority());
+        usort($arr, static fn ($stratA, $stratB): int => $stratB::getPriority() <=> $stratA::getPriority());
         $this->strategies = $arr;
     }
 

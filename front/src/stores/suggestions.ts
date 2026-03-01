@@ -43,14 +43,14 @@ export const useSuggestionsStore = defineStore('suggestions', () => {
   }
 
   async function batchDelete(
-    items: Array<{ movie_id: string; file_ids: string[] }>,
+    items: Array<{ movie_id: string | null; file_ids: string[] }>,
     options: { delete_radarr_reference?: boolean; disable_radarr_auto_search?: boolean },
   ): Promise<void> {
     await api.post('/suggestions/batch-delete', { items, ...options })
   }
 
   async function batchSchedule(
-    items: Array<{ movie_id: string; file_ids: string[] }>,
+    items: Array<{ movie_id: string | null; file_ids: string[] }>,
     scheduled_date: string,
     options: { delete_radarr_reference?: boolean; disable_radarr_auto_search?: boolean },
   ): Promise<void> {

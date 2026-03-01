@@ -15,66 +15,30 @@ use App\Repository\MovieRepository;
 use App\Repository\VolumeRepository;
 use Doctrine\ORM\EntityManagerInterface;
 
-final class DashboardService
+final readonly class DashboardService
 {
     public function __construct(
-        private readonly EntityManagerInterface $em,
-        private readonly MovieRepository $movieRepository,
-        private readonly VolumeRepository $volumeRepository,
-        private readonly ActivityLogRepository $activityLogRepository,
+        private EntityManagerInterface $em,
+        private MovieRepository $movieRepository,
+        private VolumeRepository $volumeRepository,
+        private ActivityLogRepository $activityLogRepository,
     ) {
     }
 
     /** @return array<string, mixed> */
     public function getStats(): array
     {
-        $totalMovies = $this->movieRepository->count([]);
-
-        $fileStats = $this->em->createQueryBuilder()
-            ->select('COUNT(mf.id) AS total_files, COALESCE(SUM(mf.fileSizeBytes), 0) AS total_size')
-            ->from(MediaFile::class, 'mf')
-            ->getQuery()
-            ->getSingleResult();
-
-        $totalFiles = (int)$fileStats['total_files'];
-        $totalSizeBytes = (int)$fileStats['total_size'];
-
-        $orphanFilesCount = (int)$this->em->createQueryBuilder()
-            ->select('COUNT(mf.id)')
-            ->from(MediaFile::class, 'mf')
-            ->leftJoin('mf.movieFiles', 'mof')
-            ->where('mof.id IS NULL')
-            ->getQuery()
-            ->getSingleScalarResult();
-
-        $upcomingDeletionsCount = (int)$this->em->createQueryBuilder()
-            ->select('COUNT(sd.id)')
-            ->from(ScheduledDeletion::class, 'sd')
-            ->where('sd.status IN (:statuses)')
-            ->setParameter('statuses', [DeletionStatus::PENDING, DeletionStatus::REMINDER_SENT])
-            ->getQuery()
-            ->getSingleScalarResult();
-
+        $fileStats = $this->queryFileStats();
         $volumes = $this->volumeRepository->findBy(['status' => VolumeStatus::ACTIVE]);
-        $volumeStats = $this->buildVolumeStats($volumes);
-
-        $recentLogs = $this->activityLogRepository->findBy([], ['createdAt' => 'DESC'], 20);
-        $recentActivity = array_map(fn (ActivityLog $log): array => [
-            'action' => $log->getAction(),
-            'entity_type' => $log->getEntityType(),
-            'details' => $log->getDetails() ?? [],
-            'user' => $log->getUser()?->getUsername() ?? 'system',
-            'created_at' => $log->getCreatedAt()->format('c'),
-        ], $recentLogs);
 
         return [
-            'total_movies' => $totalMovies,
-            'total_files' => $totalFiles,
-            'total_size_bytes' => $totalSizeBytes,
-            'volumes' => $volumeStats,
-            'orphan_files_count' => $orphanFilesCount,
-            'upcoming_deletions_count' => $upcomingDeletionsCount,
-            'recent_activity' => $recentActivity,
+            'total_movies' => $this->movieRepository->count([]),
+            'total_files' => $fileStats['total_files'],
+            'total_size_bytes' => $fileStats['total_size'],
+            'volumes' => $this->buildVolumeStats($volumes),
+            'orphan_files_count' => $this->countOrphanFiles(),
+            'upcoming_deletions_count' => $this->countUpcomingDeletions(),
+            'recent_activity' => $this->buildRecentActivity(),
         ];
     }
 
@@ -85,36 +49,101 @@ final class DashboardService
      */
     private function buildVolumeStats(array $volumes): array
     {
-        $volumeFileStats = [];
-        if ($volumes !== []) {
-            $rows = $this->em->createQueryBuilder()
-                ->select('IDENTITY(mf.volume) AS vol_id, COUNT(mf.id) AS file_count, COALESCE(SUM(mf.fileSizeBytes), 0) AS used_space')
-                ->from(MediaFile::class, 'mf')
-                ->where('mf.volume IN (:volumes)')
-                ->setParameter('volumes', $volumes)
-                ->groupBy('mf.volume')
-                ->getQuery()
-                ->getResult();
+        $volumeFileStats = $this->queryVolumeFileStats($volumes);
 
-            foreach ($rows as $row) {
-                $volumeFileStats[$row['vol_id']] = [
-                    'file_count' => (int)$row['file_count'],
-                    'used_space' => (int)$row['used_space'],
-                ];
-            }
-        }
-
-        return array_map(function (Volume $v) use ($volumeFileStats): array {
-            $volId = (string)$v->getId();
+        return array_map(function (Volume $volume) use ($volumeFileStats): array {
+            $volId = (string)$volume->getId();
             $stats = $volumeFileStats[$volId] ?? ['file_count' => 0, 'used_space' => 0];
 
             return [
                 'id' => $volId,
-                'name' => $v->getName(),
-                'total_space_bytes' => $v->getTotalSpaceBytes() ?? 0,
+                'name' => $volume->getName(),
+                'total_space_bytes' => $volume->getTotalSpaceBytes() ?? 0,
                 'used_space_bytes' => $stats['used_space'],
                 'file_count' => $stats['file_count'],
             ];
         }, $volumes);
+    }
+
+    /** @return array{total_files: int, total_size: int} */
+    private function queryFileStats(): array
+    {
+        $result = $this->em->createQueryBuilder()
+            ->select('COUNT(mf.id) AS total_files, COALESCE(SUM(mf.fileSizeBytes), 0) AS total_size')
+            ->from(MediaFile::class, 'mf')
+            ->getQuery()
+            ->getSingleResult();
+
+        return [
+            'total_files' => (int)$result['total_files'],
+            'total_size' => (int)$result['total_size'],
+        ];
+    }
+
+    private function countOrphanFiles(): int
+    {
+        return (int)$this->em->createQueryBuilder()
+            ->select('COUNT(mf.id)')
+            ->from(MediaFile::class, 'mf')
+            ->leftJoin('mf.movieFiles', 'mof')
+            ->where('mof.id IS NULL')
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    private function countUpcomingDeletions(): int
+    {
+        return (int)$this->em->createQueryBuilder()
+            ->select('COUNT(sd.id)')
+            ->from(ScheduledDeletion::class, 'sd')
+            ->where('sd.status IN (:statuses)')
+            ->setParameter('statuses', [DeletionStatus::PENDING, DeletionStatus::REMINDER_SENT])
+            ->getQuery()
+            ->getSingleScalarResult();
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function buildRecentActivity(): array
+    {
+        $recentLogs = $this->activityLogRepository->findBy([], ['createdAt' => 'DESC'], 20);
+
+        return array_map(fn (ActivityLog $log): array => [
+            'action' => $log->getAction(),
+            'entity_type' => $log->getEntityType(),
+            'details' => $log->getDetails() ?? [],
+            'user' => $log->getUser()?->getUsername() ?? 'system',
+            'created_at' => $log->getCreatedAt()->format('c'),
+        ], $recentLogs);
+    }
+
+    /**
+     * @param Volume[] $volumes
+     *
+     * @return array<string, array{file_count: int, used_space: int}>
+     */
+    private function queryVolumeFileStats(array $volumes): array
+    {
+        if ($volumes === []) {
+            return [];
+        }
+
+        $rows = $this->em->createQueryBuilder()
+            ->select('IDENTITY(mf.volume) AS vol_id, COUNT(mf.id) AS file_count, COALESCE(SUM(mf.fileSizeBytes), 0) AS used_space')
+            ->from(MediaFile::class, 'mf')
+            ->where('mf.volume IN (:volumes)')
+            ->setParameter('volumes', $volumes)
+            ->groupBy('mf.volume')
+            ->getQuery()
+            ->getResult();
+
+        $stats = [];
+        foreach ($rows as $row) {
+            $stats[$row['vol_id']] = [
+                'file_count' => (int)$row['file_count'],
+                'used_space' => (int)$row['used_space'],
+            ];
+        }
+
+        return $stats;
     }
 }

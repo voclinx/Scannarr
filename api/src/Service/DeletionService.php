@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Service;
 
 use App\Entity\ActivityLog;
+use App\Entity\MediaFile;
 use App\Entity\Movie;
 use App\Entity\RadarrInstance;
 use App\Entity\ScheduledDeletion;
+use App\Entity\ScheduledDeletionItem;
 use App\Entity\User;
+use App\Entity\Volume;
 use App\Enum\DeletionStatus;
 use App\ExternalService\MediaManager\RadarrService;
 use App\ExternalService\TorrentClient\QBittorrentService;
@@ -37,6 +40,7 @@ use Throwable;
  */
 class DeletionService
 {
+    /** @SuppressWarnings(PHPMD.ExcessiveParameterList) */
     public function __construct(
         private readonly EntityManagerInterface $em,
         private readonly MediaFileRepository $mediaFileRepository,
@@ -60,115 +64,189 @@ class DeletionService
         $deletion->setStatus(DeletionStatus::EXECUTING);
         $this->em->flush();
 
-        $allFilesToDelete = [];
-        $seenFileIds = [];
+        $allFilesToDelete = $this->processItems($deletion);
 
-        foreach ($deletion->getItems() as $item) {
-            $movie = $item->getMovie();
-
-            // Step 1: Radarr dereference (BEFORE any file deletion)
-            if ($deletion->isDeleteRadarrReference() && $movie instanceof Movie) {
-                $this->dereferenceFromRadarr($movie);
-            } elseif ($deletion->isDisableRadarrAutoSearch() && $movie instanceof Movie) {
-                $this->disableRadarrAutoSearch($movie);
-            }
-
-            // Step 2: qBittorrent cleanup + collect files for watcher
-            if ($deletion->isDeletePhysicalFiles()) {
-                foreach ($item->getMediaFileIds() as $mediaFileId) {
-                    $mediaFile = $this->mediaFileRepository->find($mediaFileId);
-                    if ($mediaFile === null) {
-                        continue;
-                    }
-
-                    // Collect explicit file + inode siblings (hardlinks on other volumes)
-                    $filesToCollect = [$mediaFile];
-
-                    $deviceId = $mediaFile->getDeviceId();
-                    $inode = $mediaFile->getInode();
-                    if ($deviceId !== null && $inode !== null) {
-                        $siblings = $this->mediaFileRepository->findAllByInode($deviceId, $inode);
-                        foreach ($siblings as $sibling) {
-                            $filesToCollect[] = $sibling;
-                        }
-                    }
-
-                    foreach ($filesToCollect as $fileToDelete) {
-                        $fid = (string) $fileToDelete->getId();
-                        if (isset($seenFileIds[$fid])) {
-                            continue;
-                        }
-                        $seenFileIds[$fid] = true;
-
-                        $volume = $fileToDelete->getVolume();
-                        if ($volume === null) {
-                            continue;
-                        }
-
-                        // qBittorrent uses host paths
-                        $hostPath = $volume->getHostPath();
-                        if ($hostPath !== null && $hostPath !== '' && $this->qBittorrentService->isConfigured()) {
-                            $absoluteHostPath = rtrim($hostPath, '/') . '/' . $fileToDelete->getFilePath();
-                            try {
-                                $this->qBittorrentService->findAndDeleteTorrent($absoluteHostPath);
-                            } catch (Throwable $e) {
-                                $this->logger->warning('qBittorrent cleanup failed (best-effort)', [
-                                    'file' => $absoluteHostPath,
-                                    'error' => $e->getMessage(),
-                                ]);
-                            }
-                        }
-
-                        // Collect file for watcher deletion — use hostPath for the watcher
-                        $volumeHostPath = $volume->getHostPath();
-                        if ($volumeHostPath === null || $volumeHostPath === '') {
-                            $volumeHostPath = $volume->getPath(); // fallback
-                        }
-
-                        $allFilesToDelete[] = [
-                            'media_file_id' => $fid,
-                            'volume_path' => rtrim($volumeHostPath ?? '', '/'),
-                            'file_path' => $fileToDelete->getFilePath(),
-                        ];
-                    }
-                }
-            }
-        }
-
-        // If no physical files to delete, complete immediately
         if ($allFilesToDelete === []) {
-            $deletion->setStatus(DeletionStatus::COMPLETED);
-            $deletion->setExecutedAt(new DateTimeImmutable());
-            $deletion->setExecutionReport([
-                'finished_at' => (new DateTimeImmutable())->format('c'),
-                'success_count' => 0,
-                'failed_count' => 0,
-                'message' => 'No physical files to delete',
-            ]);
-
-            // Log activity
-            $this->logDeletionActivity($deletion, 0, 0);
-            $this->em->flush();
+            $this->completeWithNoFiles($deletion);
 
             return;
         }
 
-        // Step 3: Send delete command to watcher
-        $watcherReached = $this->watcherCommandService->requestFilesDelete(
-            (string)$deletion->getId(),
-            $allFilesToDelete,
-        );
+        $this->sendToWatcher($deletion, $allFilesToDelete);
+        $this->em->flush();
+    }
 
-        if (!$watcherReached) {
-            $deletion->setStatus(DeletionStatus::WAITING_WATCHER);
-            $this->logger->info('Watcher offline, deletion queued for reconnection', [
-                'deletion_id' => (string)$deletion->getId(),
-                'files_count' => count($allFilesToDelete),
+    /**
+     * Process all deletion items: handle Radarr and collect files.
+     *
+     * @return array<int, array{media_file_id: string, volume_path: string, file_path: string}>
+     */
+    private function processItems(ScheduledDeletion $deletion): array
+    {
+        $allFilesToDelete = [];
+        $seenFileIds = [];
+
+        foreach ($deletion->getItems() as $item) {
+            $this->handleRadarrForItem($deletion, $item->getMovie());
+
+            if (!$deletion->isDeletePhysicalFiles()) {
+                continue;
+            }
+
+            $this->collectFilesForItem($item, $seenFileIds, $allFilesToDelete);
+        }
+
+        return $allFilesToDelete;
+    }
+
+    private function handleRadarrForItem(ScheduledDeletion $deletion, ?Movie $movie): void
+    {
+        if (!$movie instanceof Movie) {
+            return;
+        }
+
+        if ($deletion->isDeleteRadarrReference()) {
+            $this->dereferenceFromRadarr($movie);
+
+            return;
+        }
+
+        if ($deletion->isDisableRadarrAutoSearch()) {
+            $this->disableRadarrAutoSearch($movie);
+        }
+    }
+
+    /**
+     * @param array<string, bool> $seenFileIds
+     * @param array<int, array{media_file_id: string, volume_path: string, file_path: string}> $allFilesToDelete
+     */
+    private function collectFilesForItem(
+        ScheduledDeletionItem $item,
+        array &$seenFileIds,
+        array &$allFilesToDelete,
+    ): void {
+        foreach ($item->getMediaFileIds() as $mediaFileId) {
+            $mediaFile = $this->mediaFileRepository->find($mediaFileId);
+            if ($mediaFile === null) {
+                continue;
+            }
+
+            $filesToCollect = $this->collectWithSiblings($mediaFile);
+
+            foreach ($filesToCollect as $fileToDelete) {
+                $this->processFileForDeletion($fileToDelete, $seenFileIds, $allFilesToDelete);
+            }
+        }
+    }
+
+    /**
+     * Collect a media file and its inode siblings (hardlinks on other volumes).
+     *
+     * @return list<MediaFile>
+     */
+    private function collectWithSiblings(MediaFile $mediaFile): array
+    {
+        $files = [$mediaFile];
+
+        $deviceId = $mediaFile->getDeviceId();
+        $inode = $mediaFile->getInode();
+        if ($deviceId === null || $inode === null) {
+            return $files;
+        }
+
+        foreach ($this->mediaFileRepository->findAllByInode($deviceId, $inode) as $sibling) {
+            $files[] = $sibling;
+        }
+
+        return $files;
+    }
+
+    /**
+     * @param array<string, bool> $seenFileIds
+     * @param array<int, array{media_file_id: string, volume_path: string, file_path: string}> $allFilesToDelete
+     */
+    private function processFileForDeletion(
+        MediaFile $fileToDelete,
+        array &$seenFileIds,
+        array &$allFilesToDelete,
+    ): void {
+        $fileId = (string)$fileToDelete->getId();
+        if (isset($seenFileIds[$fileId])) {
+            return;
+        }
+        $seenFileIds[$fileId] = true;
+
+        $volume = $fileToDelete->getVolume();
+        if (!$volume instanceof Volume) {
+            return;
+        }
+
+        $this->cleanupQBittorrent($volume, $fileToDelete);
+
+        $volumeHostPath = $volume->getHostPath();
+        if ($volumeHostPath === null || $volumeHostPath === '') {
+            $volumeHostPath = $volume->getPath();
+        }
+
+        $allFilesToDelete[] = [
+            'media_file_id' => $fileId,
+            'volume_path' => rtrim($volumeHostPath ?? '', '/'),
+            'file_path' => $fileToDelete->getFilePath(),
+        ];
+    }
+
+    private function cleanupQBittorrent(Volume $volume, MediaFile $fileToDelete): void
+    {
+        $hostPath = $volume->getHostPath();
+        if ($hostPath === null || $hostPath === '' || !$this->qBittorrentService->isConfigured()) {
+            return;
+        }
+
+        $absoluteHostPath = rtrim($hostPath, '/') . '/' . $fileToDelete->getFilePath();
+        try {
+            $this->qBittorrentService->findAndDeleteTorrent($absoluteHostPath);
+        } catch (Throwable $throwable) {
+            $this->logger->warning('qBittorrent cleanup failed (best-effort)', [
+                'file' => $absoluteHostPath,
+                'error' => $throwable->getMessage(),
             ]);
         }
-        // If watcher reached → status stays EXECUTING, completion comes async via WS
+    }
 
+    private function completeWithNoFiles(ScheduledDeletion $deletion): void
+    {
+        $deletion->setStatus(DeletionStatus::COMPLETED);
+        $deletion->setExecutedAt(new DateTimeImmutable());
+        $deletion->setExecutionReport([
+            'finished_at' => (new DateTimeImmutable())->format('c'),
+            'success_count' => 0,
+            'failed_count' => 0,
+            'message' => 'No physical files to delete',
+        ]);
+
+        $this->logDeletionActivity($deletion, 0, 0);
         $this->em->flush();
+    }
+
+    /**
+     * @param array<int, array{media_file_id: string, volume_path: string, file_path: string}> $filesToDelete
+     */
+    private function sendToWatcher(ScheduledDeletion $deletion, array $filesToDelete): void
+    {
+        $watcherReached = $this->watcherCommandService->requestFilesDelete(
+            (string)$deletion->getId(),
+            $filesToDelete,
+        );
+
+        if ($watcherReached) {
+            return;
+        }
+
+        $deletion->setStatus(DeletionStatus::WAITING_WATCHER);
+        $this->logger->info('Watcher offline, deletion queued for reconnection', [
+            'deletion_id' => (string)$deletion->getId(),
+            'files_count' => count($filesToDelete),
+        ]);
     }
 
     /**

@@ -8,10 +8,12 @@ use App\Exception\DomainException;
 use App\Exception\EntityNotFoundException;
 use App\Exception\ExternalServiceException;
 use App\Exception\ValidationException;
+use Stringable;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Throwable;
 
 final class ApiExceptionListener
 {
@@ -23,30 +25,52 @@ final class ApiExceptionListener
             return;
         }
 
-        $e = $event->getThrowable();
+        $exception = $event->getThrowable();
+        [$statusCode, $body] = $this->buildErrorResponse($exception);
 
+        $event->setResponse(new JsonResponse($body, $statusCode));
+    }
+
+    /**
+     * Build the error response body and HTTP status code from an exception.
+     *
+     * @return array{0: int, 1: array<string, mixed>}
+     */
+    private function buildErrorResponse(Throwable $exception): array
+    {
         [$statusCode, $message] = match (true) {
-            $e instanceof EntityNotFoundException => [Response::HTTP_NOT_FOUND, $e->getMessage()],
-            $e instanceof DomainException => [Response::HTTP_FORBIDDEN, $e->getMessage()],
-            $e instanceof ValidationException => [Response::HTTP_UNPROCESSABLE_ENTITY, $e->getMessage()],
-            $e instanceof ExternalServiceException => [Response::HTTP_BAD_GATEWAY, $e->getMessage()],
-            $e instanceof HttpExceptionInterface => [$e->getStatusCode(), $e->getMessage()],
+            $exception instanceof EntityNotFoundException => [Response::HTTP_NOT_FOUND, $exception->getMessage()],
+            $exception instanceof DomainException => [Response::HTTP_FORBIDDEN, $exception->getMessage()],
+            $exception instanceof ValidationException => [Response::HTTP_UNPROCESSABLE_ENTITY, $exception->getMessage()],
+            $exception instanceof ExternalServiceException => [Response::HTTP_BAD_GATEWAY, $exception->getMessage()],
+            $exception instanceof HttpExceptionInterface => [$exception->getStatusCode(), $exception->getMessage()],
             default => [Response::HTTP_INTERNAL_SERVER_ERROR, 'An unexpected error occurred.'],
         };
 
         $body = ['error' => ['code' => $statusCode, 'message' => $message]];
 
-        if ($e instanceof ValidationException) {
-            $errors = [];
-            foreach ($e->getViolations() as $violation) {
-                $errors[] = [
-                    'field' => $violation->getPropertyPath(),
-                    'message' => $violation->getMessage(),
-                ];
-            }
-            $body['error']['details'] = $errors;
+        if ($exception instanceof ValidationException) {
+            $body['error']['details'] = $this->formatViolations($exception);
         }
 
-        $event->setResponse(new JsonResponse($body, $statusCode));
+        return [$statusCode, $body];
+    }
+
+    /**
+     * Format validation violations into an array of field/message pairs.
+     *
+     * @return array<int, array{field: string, message: string|Stringable}>
+     */
+    private function formatViolations(ValidationException $exception): array
+    {
+        $errors = [];
+        foreach ($exception->getViolations() as $violation) {
+            $errors[] = [
+                'field' => $violation->getPropertyPath(),
+                'message' => $violation->getMessage(),
+            ];
+        }
+
+        return $errors;
     }
 }

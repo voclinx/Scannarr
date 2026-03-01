@@ -70,10 +70,10 @@ class PlexService implements MediaPlayerInterface
         $data = $this->request($instance, 'GET', '/library/sections');
         $directories = $data['MediaContainer']['Directory'] ?? [];
 
-        return array_map(fn (array $d): array => [
-            'key' => $d['key'] ?? '',
-            'title' => $d['title'] ?? '',
-            'type' => $d['type'] ?? '',
+        return array_map(fn (array $directoryData): array => [
+            'key' => $directoryData['key'] ?? '',
+            'title' => $directoryData['title'] ?? '',
+            'type' => $directoryData['type'] ?? '',
         ], $directories);
     }
 

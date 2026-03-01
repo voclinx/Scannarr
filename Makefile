@@ -269,6 +269,9 @@ cs-fix: ## Corriger le style de code PHP (PHP CS Fixer)
 
 .PHONY: cs-check
 cs-check: ## Vérifier le style de code PHP (dry-run)
+	@echo "$(CYAN)══════════════════════════════════════════$(RESET)"
+	@echo "$(CYAN)  PHP CS Fixer — Style check (dry-run)$(RESET)"
+	@echo "$(CYAN)══════════════════════════════════════════$(RESET)"
 	$(API) php vendor/bin/php-cs-fixer fix --dry-run --diff
 
 .PHONY: rector
@@ -277,14 +280,29 @@ rector: ## Appliquer les refactors Rector
 
 .PHONY: rector-check
 rector-check: ## Vérifier les suggestions Rector (dry-run)
+	@echo "$(CYAN)══════════════════════════════════════════$(RESET)"
+	@echo "$(CYAN)  Rector — Suggestions (dry-run)$(RESET)"
+	@echo "$(CYAN)══════════════════════════════════════════$(RESET)"
 	$(API) php vendor/bin/rector process --dry-run
 
 .PHONY: phpmd
 phpmd: ## Analyser le code avec PHPMD
+	@echo "$(CYAN)══════════════════════════════════════════$(RESET)"
+	@echo "$(CYAN)  PHPMD — Mess Detector$(RESET)"
+	@echo "$(CYAN)══════════════════════════════════════════$(RESET)"
 	$(API) php vendor/bin/phpmd src text phpmd.xml
 
+.PHONY: phpstan
+phpstan: ## Analyser le code avec PHPStan (level 8)
+	@echo "$(CYAN)══════════════════════════════════════════$(RESET)"
+	@echo "$(CYAN)  PHPStan — Static analysis (level 8)$(RESET)"
+	@echo "$(CYAN)══════════════════════════════════════════$(RESET)"
+	$(API) php vendor/bin/phpstan analyse --memory-limit=512M
+
 .PHONY: quality
-quality: cs-check rector-check phpmd ## Lancer tous les checks de qualité (dry-run)
+quality: cs-check rector-check phpmd phpstan ## Lancer tous les checks de qualité (dry-run)
+	@echo ""
+	@echo "$(GREEN)✅ Quality checks terminés$(RESET)"
 
 .PHONY: quality-fix
 quality-fix: cs-fix rector ## Corriger automatiquement le code (CS Fixer + Rector)

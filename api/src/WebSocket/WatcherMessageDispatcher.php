@@ -37,24 +37,10 @@ final class WatcherMessageDispatcher
         $type = $message['type'] ?? 'unknown';
 
         $this->logger->info('Processing watcher message', ['type' => $type]);
-
-        // Ensure the EntityManager is open (long-running process safety)
-        if (!$this->em->isOpen()) {
-            $this->logger->warning('EntityManager was closed, resetting');
-            $this->managerRegistry->resetManager();
-            $this->em = $this->managerRegistry->getManager();
-        }
+        $this->ensureEntityManagerOpen();
 
         try {
-            foreach ($this->handlers as $handler) {
-                if ($handler->supports($type)) {
-                    $handler->handle($message);
-
-                    return;
-                }
-            }
-
-            $this->logger->warning('Unknown message type — no handler found', ['type' => $type]);
+            $this->dispatchToHandlers($type, $message);
         } catch (Throwable $e) {
             $this->logger->error('Error processing message', [
                 'type' => $type,
@@ -63,5 +49,30 @@ final class WatcherMessageDispatcher
             ]);
             $this->em->clear();
         }
+    }
+
+    /** @param array<string, mixed> $message */
+    private function dispatchToHandlers(string $type, array $message): void
+    {
+        foreach ($this->handlers as $handler) {
+            if ($handler->supports($type)) {
+                $handler->handle($message);
+
+                return;
+            }
+        }
+
+        $this->logger->warning('Unknown message type — no handler found', ['type' => $type]);
+    }
+
+    private function ensureEntityManagerOpen(): void
+    {
+        if ($this->em->isOpen()) {
+            return;
+        }
+
+        $this->logger->warning('EntityManager was closed, resetting');
+        $this->managerRegistry->resetManager();
+        $this->em = $this->managerRegistry->getManager();
     }
 }

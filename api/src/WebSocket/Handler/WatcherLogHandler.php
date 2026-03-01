@@ -12,11 +12,11 @@ use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Throwable;
 
-final class WatcherLogHandler implements WatcherMessageHandlerInterface
+final readonly class WatcherLogHandler implements WatcherMessageHandlerInterface
 {
     public function __construct(
-        private readonly EntityManagerInterface $em,
-        private readonly WatcherRepository $watcherRepository,
+        private EntityManagerInterface $em,
+        private WatcherRepository $watcherRepository,
     ) {
     }
 

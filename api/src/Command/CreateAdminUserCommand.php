@@ -42,39 +42,56 @@ class CreateAdminUserCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $io->title('Create Admin User');
 
-        $username = $input->getArgument('username');
-        $email = $input->getArgument('email');
-        $password = $input->getArgument('password');
-
-        if ($username === null) {
-            $username = $io->ask('Username', 'admin');
-        }
-
-        if ($email === null) {
-            $email = $io->ask('Email', 'admin@scanarr.local');
-        }
+        $username = $input->getArgument('username') ?? $io->ask('Username', 'admin');
+        $email = $input->getArgument('email') ?? $io->ask('Email', 'admin@scanarr.local');
+        $password = $this->resolvePassword($input, $io);
 
         if ($password === null) {
-            $password = $io->askHidden('Password (hidden)');
-            if (empty($password)) {
-                $io->error('Password cannot be empty.');
-
-                return Command::FAILURE;
-            }
-        }
-
-        if ($this->userRepository->findOneBy(['username' => $username]) !== null) {
-            $io->error(sprintf('User "%s" already exists.', $username));
+            $io->error('Password cannot be empty.');
 
             return Command::FAILURE;
+        }
+
+        $validationError = $this->validateUniqueness($username, $email);
+        if ($validationError !== null) {
+            $io->error($validationError);
+
+            return Command::FAILURE;
+        }
+
+        $this->createAdminUser($username, $email, $password);
+        $io->success(sprintf('Admin user "%s" (%s) created successfully.', $username, $email));
+
+        return Command::SUCCESS;
+    }
+
+    private function resolvePassword(InputInterface $input, SymfonyStyle $io): ?string
+    {
+        $password = $input->getArgument('password');
+        if ($password !== null) {
+            return $password;
+        }
+
+        $password = $io->askHidden('Password (hidden)');
+
+        return empty($password) ? null : $password;
+    }
+
+    private function validateUniqueness(string $username, string $email): ?string
+    {
+        if ($this->userRepository->findOneBy(['username' => $username]) !== null) {
+            return sprintf('User "%s" already exists.', $username);
         }
 
         if ($this->userRepository->findOneBy(['email' => $email]) !== null) {
-            $io->error(sprintf('Email "%s" is already in use.', $email));
-
-            return Command::FAILURE;
+            return sprintf('Email "%s" is already in use.', $email);
         }
 
+        return null;
+    }
+
+    private function createAdminUser(string $username, string $email, string $password): void
+    {
         $user = new User();
         $user->setUsername($username);
         $user->setEmail($email);
@@ -84,9 +101,5 @@ class CreateAdminUserCommand extends Command
 
         $this->em->persist($user);
         $this->em->flush();
-
-        $io->success(sprintf('Admin user "%s" (%s) created successfully.', $username, $email));
-
-        return Command::SUCCESS;
     }
 }

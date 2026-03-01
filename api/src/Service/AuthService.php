@@ -16,16 +16,18 @@ use Lexik\Bundle\JWTAuthenticationBundle\Services\JWTTokenManagerInterface;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 
-final class AuthService
+final readonly class AuthService
 {
+    /** @SuppressWarnings(PHPMD.ExcessiveParameterList) */
     public function __construct(
-        private readonly UserRepository $userRepository,
-        private readonly SettingRepository $settingRepository,
-        private readonly EntityManagerInterface $em,
-        private readonly UserPasswordHasherInterface $passwordHasher,
-        private readonly JWTTokenManagerInterface $jwtManager,
-        private readonly ValidatorInterface $validator,
-    ) {}
+        private UserRepository $userRepository,
+        private SettingRepository $settingRepository,
+        private EntityManagerInterface $em,
+        private UserPasswordHasherInterface $passwordHasher,
+        private JWTTokenManagerInterface $jwtManager,
+        private ValidatorInterface $validator,
+    ) {
+    }
 
     public function isSetupCompleted(): bool
     {
@@ -45,52 +47,25 @@ final class AuthService
             return ['result' => 'already_completed'];
         }
 
-        $user = new User();
-        $user->setEmail($data['email'] ?? '');
-        $user->setUsername($data['username'] ?? '');
-        $user->setRole('ROLE_ADMIN');
+        $user = $this->buildSetupUser($data);
 
-        $errors = $this->validator->validate($user);
-        if (count($errors) > 0) {
-            $details = [];
-            foreach ($errors as $error) {
-                $details[$error->getPropertyPath()] = $error->getMessage();
-            }
-
-            return ['result' => 'validation_error', 'details' => $details];
+        $validationResult = $this->validateSetupUser($user, $data['password'] ?? '');
+        if ($validationResult !== null) {
+            return $validationResult;
         }
 
-        $password = $data['password'] ?? '';
-        if (strlen((string) $password) < 8) {
-            return ['result' => 'validation_error', 'details' => ['password' => 'Password must be at least 8 characters']];
-        }
-
-        $user->setPassword($this->passwordHasher->hashPassword($user, (string) $password));
+        $user->setPassword($this->passwordHasher->hashPassword($user, (string)($data['password'] ?? '')));
         $this->em->persist($user);
 
-        $setupCompleted = $this->settingRepository->findOneBy(['settingKey' => 'setup_completed']);
-        $setting = $setupCompleted ?? new Setting();
-        $setting->setSettingKey('setup_completed');
-        $setting->setSettingValue('true');
-        $setting->setSettingType('boolean');
-        $this->em->persist($setting);
-
+        $this->markSetupCompleted();
         $this->createDefaultSettings();
         $this->em->flush();
 
-        return [
-            'result' => 'created',
-            'data' => [
-                'id' => (string) $user->getId(),
-                'email' => $user->getEmail(),
-                'username' => $user->getUsername(),
-                'role' => $user->getRole(),
-            ],
-        ];
+        return ['result' => 'created', 'data' => $this->serializeUser($user)];
     }
 
     /**
-     * @return array{access_token: string, refresh_token: string, expires_in: int, user: array<string, mixed>}|null
+     * @return array{access_token: string, refresh_token: string, user: array<string, mixed>}|null
      */
     public function login(string $email, string $password): ?array
     {
@@ -105,23 +80,12 @@ final class AuthService
         $user->setLastLoginAt(new DateTimeImmutable());
         $this->em->flush();
 
-        $accessToken = $this->jwtManager->create($user);
-
-        $refreshToken = new RefreshToken();
-        $refreshToken->setUsername($user->getUserIdentifier());
-        $refreshToken->setRefreshToken(bin2hex(random_bytes(64)));
-        $refreshToken->setValid(new DateTime('+30 days'));
-        $this->em->persist($refreshToken);
-        $this->em->flush();
+        $refreshToken = $this->createRefreshToken($user);
 
         return [
-            'access_token' => $accessToken,
+            'access_token' => $this->jwtManager->create($user),
             'refresh_token' => $refreshToken->getRefreshToken(),
-            'user' => [
-                'id' => (string) $user->getId(),
-                'username' => $user->getUsername(),
-                'role' => $user->getRole(),
-            ],
+            'user' => $this->serializeUser($user),
         ];
     }
 
@@ -153,10 +117,10 @@ final class AuthService
     }
 
     /** @return array<string, mixed> */
-    public function me(User $user): array
+    public function getCurrentUser(User $user): array
     {
         return [
-            'id' => (string) $user->getId(),
+            'id' => (string)$user->getId(),
             'email' => $user->getEmail(),
             'username' => $user->getUsername(),
             'role' => $user->getRole(),
@@ -164,6 +128,72 @@ final class AuthService
             'created_at' => $user->getCreatedAt()->format('c'),
             'last_login_at' => $user->getLastLoginAt()?->format('c'),
         ];
+    }
+
+    /** @param array<string, mixed> $data */
+    private function buildSetupUser(array $data): User
+    {
+        $user = new User();
+        $user->setEmail($data['email'] ?? '');
+        $user->setUsername($data['username'] ?? '');
+        $user->setRole('ROLE_ADMIN');
+
+        return $user;
+    }
+
+    /**
+     * @return array{result: string, details: array<string, string>}|null
+     */
+    private function validateSetupUser(User $user, mixed $password): ?array
+    {
+        $errors = $this->validator->validate($user);
+        if (count($errors) > 0) {
+            $details = [];
+            foreach ($errors as $error) {
+                $details[$error->getPropertyPath()] = $error->getMessage();
+            }
+
+            return ['result' => 'validation_error', 'details' => $details];
+        }
+
+        if (strlen((string)$password) < 8) {
+            return ['result' => 'validation_error', 'details' => ['password' => 'Password must be at least 8 characters']];
+        }
+
+        return null;
+    }
+
+    private function markSetupCompleted(): void
+    {
+        $setupCompleted = $this->settingRepository->findOneBy(['settingKey' => 'setup_completed']);
+        $setting = $setupCompleted ?? new Setting();
+        $setting->setSettingKey('setup_completed');
+        $setting->setSettingValue('true');
+        $setting->setSettingType('boolean');
+        $this->em->persist($setting);
+    }
+
+    /** @return array<string, mixed> */
+    private function serializeUser(User $user): array
+    {
+        return [
+            'id' => (string)$user->getId(),
+            'email' => $user->getEmail(),
+            'username' => $user->getUsername(),
+            'role' => $user->getRole(),
+        ];
+    }
+
+    private function createRefreshToken(User $user): RefreshToken
+    {
+        $refreshToken = new RefreshToken();
+        $refreshToken->setUsername($user->getUserIdentifier());
+        $refreshToken->setRefreshToken(bin2hex(random_bytes(64)));
+        $refreshToken->setValid(new DateTime('+30 days'));
+        $this->em->persist($refreshToken);
+        $this->em->flush();
+
+        return $refreshToken;
     }
 
     private function createDefaultSettings(): void

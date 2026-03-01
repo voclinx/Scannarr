@@ -18,6 +18,9 @@ use Symfony\Component\Uid\Uuid;
 #[ORM\Entity(repositoryClass: ScheduledDeletionRepository::class)]
 #[ORM\Table(name: 'scheduled_deletions')]
 #[ORM\HasLifecycleCallbacks]
+/**
+ * @SuppressWarnings(PHPMD.TooManyFields)
+ */
 class ScheduledDeletion
 {
     #[ORM\Id]

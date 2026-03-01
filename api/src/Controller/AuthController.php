@@ -15,7 +15,9 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 #[Route('/api/v1/auth')]
 class AuthController extends AbstractController
 {
-    public function __construct(private readonly AuthService $authService) {}
+    public function __construct(private readonly AuthService $authService)
+    {
+    }
 
     #[Route('/setup-status', methods: ['GET'])]
     public function setupStatus(): JsonResponse
@@ -60,7 +62,7 @@ class AuthController extends AbstractController
             return $this->json(['error' => ['code' => 401, 'message' => 'Account is disabled']], 401);
         }
 
-        return $this->json(['data' => array_merge($result, ['expires_in' => (int) $this->getParameter('lexik_jwt_authentication.token_ttl')])]);
+        return $this->json(['data' => array_merge($result, ['expires_in' => (int)$this->getParameter('lexik_jwt_authentication.token_ttl')])]);
     }
 
     #[Route('/refresh', methods: ['POST'])]
@@ -73,21 +75,21 @@ class AuthController extends AbstractController
             return $this->json(['error' => ['code' => 400, 'message' => 'Missing refresh_token']], 400);
         }
 
-        $result = $this->authService->refresh((string) $refreshTokenString);
+        $result = $this->authService->refresh((string)$refreshTokenString);
         if ($result === null) {
             return $this->json(['error' => ['code' => 401, 'message' => 'Invalid or expired refresh token']], 401);
         }
 
-        return $this->json(['data' => array_merge($result, ['expires_in' => (int) $this->getParameter('lexik_jwt_authentication.token_ttl')])]);
+        return $this->json(['data' => array_merge($result, ['expires_in' => (int)$this->getParameter('lexik_jwt_authentication.token_ttl')])]);
     }
 
     #[Route('/me', methods: ['GET'])]
     #[IsGranted('ROLE_GUEST')]
-    public function me(): JsonResponse
+    public function getCurrentUser(): JsonResponse
     {
         /** @var User $user */
         $user = $this->getUser();
 
-        return $this->json(['data' => $this->authService->me($user)]);
+        return $this->json(['data' => $this->authService->getCurrentUser($user)]);
     }
 }

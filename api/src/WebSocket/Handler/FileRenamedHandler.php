@@ -5,18 +5,20 @@ declare(strict_types=1);
 namespace App\WebSocket\Handler;
 
 use App\Contract\WebSocket\WatcherMessageHandlerInterface;
+use App\Entity\MediaFile;
+use App\Entity\Volume;
 use App\Repository\MediaFileRepository;
 use App\WebSocket\WatcherFileHelper;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 
-final class FileRenamedHandler implements WatcherMessageHandlerInterface
+final readonly class FileRenamedHandler implements WatcherMessageHandlerInterface
 {
     public function __construct(
-        private readonly EntityManagerInterface $em,
-        private readonly MediaFileRepository $mediaFileRepository,
-        private readonly WatcherFileHelper $helper,
-        private readonly LoggerInterface $logger,
+        private EntityManagerInterface $em,
+        private MediaFileRepository $mediaFileRepository,
+        private WatcherFileHelper $helper,
+        private LoggerInterface $logger,
     ) {
     }
 
@@ -44,40 +46,73 @@ final class FileRenamedHandler implements WatcherMessageHandlerInterface
             return;
         }
 
-        $oldRelativePath = $oldVolume !== null ? $this->helper->getRelativePath($oldPath, $oldVolume) : null;
-        $newRelativePath = $newVolume !== null ? $this->helper->getRelativePath($newPath, $newVolume) : null;
+        $mediaFile = $this->findExistingFile($oldVolume, $oldPath);
+        $newRelativePath = $newVolume instanceof Volume ? $this->helper->getRelativePath($newPath, $newVolume) : null;
 
-        $mediaFile = null;
-        if ($oldVolume && $oldRelativePath) {
-            $mediaFile = $this->mediaFileRepository->findByVolumeAndFilePath($oldVolume, $oldRelativePath);
+        $this->processRename($mediaFile, $newVolume, $newRelativePath, $data);
+    }
+
+    private function findExistingFile(?Volume $oldVolume, string $oldPath): ?MediaFile
+    {
+        if (!$oldVolume instanceof Volume) {
+            return null;
         }
 
-        if ($mediaFile && $newVolume && $newRelativePath) {
-            $mediaFile->setVolume($newVolume);
-            $mediaFile->setFilePath($newRelativePath);
-            $mediaFile->setFileName($data['name'] ?? basename((string)$newPath));
-            $mediaFile->setFileSizeBytes((int)($data['size_bytes'] ?? $mediaFile->getFileSizeBytes()));
-            $mediaFile->setHardlinkCount((int)($data['hardlink_count'] ?? $mediaFile->getHardlinkCount()));
-            if (isset($data['inode']) && $data['inode'] > 0) {
-                $mediaFile->setInode((string) $data['inode']);
-            }
-            if (isset($data['device_id']) && $data['device_id'] > 0) {
-                $mediaFile->setDeviceId((string) $data['device_id']);
-            }
-            $this->em->flush();
+        $oldRelativePath = $this->helper->getRelativePath($oldPath, $oldVolume);
 
-            $this->logger->info('File renamed', ['old' => $oldRelativePath, 'new' => $newRelativePath]);
-        } elseif (!$mediaFile && $newVolume && $newRelativePath) {
-            $newFile = $this->helper->createMediaFile($newVolume, $newRelativePath, $data);
-            $this->em->persist($newFile);
-            $this->em->flush();
+        return $this->mediaFileRepository->findByVolumeAndFilePath($oldVolume, $oldRelativePath);
+    }
 
-            $this->logger->info('File renamed (old not found, created new)', ['path' => $newRelativePath]);
-        } elseif ($mediaFile && !$newVolume) {
-            $this->em->remove($mediaFile);
-            $this->em->flush();
+    /** @param array<string, mixed> $data */
+    private function processRename(?MediaFile $mediaFile, ?Volume $newVolume, ?string $newRelativePath, array $data): void
+    {
+        if ($mediaFile instanceof MediaFile && $newVolume instanceof Volume && $newRelativePath !== null) {
+            $this->moveFile($mediaFile, $newVolume, $newRelativePath, $data);
 
-            $this->logger->info('File moved out of volumes (removed)', ['old' => $oldRelativePath]);
+            return;
         }
+
+        if (!$mediaFile instanceof MediaFile && $newVolume instanceof Volume && $newRelativePath !== null) {
+            $this->createFileAtNewLocation($newVolume, $newRelativePath, $data);
+
+            return;
+        }
+
+        if ($mediaFile instanceof MediaFile && !$newVolume instanceof Volume) {
+            $this->removeFileMovedOutOfVolumes($mediaFile);
+        }
+    }
+
+    /** @param array<string, mixed> $data */
+    private function moveFile(MediaFile $mediaFile, Volume $newVolume, string $newRelativePath, array $data): void
+    {
+        $mediaFile->setVolume($newVolume);
+        $mediaFile->setFilePath($newRelativePath);
+        $mediaFile->setFileName($data['name'] ?? basename((string)($data['new_path'] ?? '')));
+        $mediaFile->setFileSizeBytes((int)($data['size_bytes'] ?? $mediaFile->getFileSizeBytes()));
+        $mediaFile->setHardlinkCount((int)($data['hardlink_count'] ?? $mediaFile->getHardlinkCount()));
+        $this->helper->applyOptionalFields($mediaFile, $data);
+        $this->em->flush();
+
+        $this->logger->info('File renamed', ['new' => $newRelativePath]);
+    }
+
+    /** @param array<string, mixed> $data */
+    private function createFileAtNewLocation(Volume $newVolume, string $newRelativePath, array $data): void
+    {
+        $newFile = $this->helper->createMediaFile($newVolume, $newRelativePath, $data);
+        $this->em->persist($newFile);
+        $this->em->flush();
+
+        $this->logger->info('File renamed (old not found, created new)', ['path' => $newRelativePath]);
+    }
+
+    private function removeFileMovedOutOfVolumes(MediaFile $mediaFile): void
+    {
+        $oldPath = $mediaFile->getFilePath();
+        $this->em->remove($mediaFile);
+        $this->em->flush();
+
+        $this->logger->info('File moved out of volumes (removed)', ['old' => $oldPath]);
     }
 }

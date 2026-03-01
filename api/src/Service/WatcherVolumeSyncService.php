@@ -17,12 +17,12 @@ use Psr\Log\LoggerInterface;
  * match the watcher's watch_paths: creating new ones, renaming changed ones,
  * and deactivating orphaned ones.
  */
-final class WatcherVolumeSyncService
+final readonly class WatcherVolumeSyncService
 {
     public function __construct(
-        private readonly EntityManagerInterface $em,
-        private readonly VolumeRepository $volumeRepository,
-        private readonly LoggerInterface $logger,
+        private EntityManagerInterface $em,
+        private VolumeRepository $volumeRepository,
+        private LoggerInterface $logger,
     ) {
     }
 
@@ -37,75 +37,100 @@ final class WatcherVolumeSyncService
      */
     public function sync(array $watchPaths): void
     {
-        // Build wanted map: host_path => name
-        $wanted = [];
-        foreach ($watchPaths as $wp) {
-            if (!is_array($wp) || empty($wp['path'])) {
-                continue;
-            }
-            $path = $wp['path'];
-            $name = trim((string)($wp['name'] ?? ''));
-            if ($name === '') {
-                $parts = explode('/', rtrim($path, '/'));
-                $name = end($parts) ?: $path;
-            }
-            $wanted[$path] = $name;
-        }
+        $wanted = $this->buildWantedMap($watchPaths);
 
-        // Index all existing volumes by host_path
         $allVolumes = $this->volumeRepository->findAll();
         $existing = [];
         foreach ($allVolumes as $vol) {
             $existing[(string)$vol->getHostPath()] = $vol;
         }
 
-        // Create new volumes or update existing ones
         foreach ($wanted as $hostPath => $name) {
-            if (isset($existing[$hostPath])) {
-                $vol = $existing[$hostPath];
-                $changed = false;
-
-                if ($vol->getName() !== $name) {
-                    $vol->setName($name);
-                    $changed = true;
-                }
-                if ($vol->getStatus() !== VolumeStatus::ACTIVE) {
-                    $vol->setStatus(VolumeStatus::ACTIVE);
-                    $changed = true;
-                }
-
-                if ($changed) {
-                    $this->logger->info('WatcherVolumeSync: updated volume', [
-                        'host_path' => $hostPath,
-                        'name' => $name,
-                    ]);
-                }
-            } else {
-                $vol = new Volume();
-                $vol->setName($name);
-                $vol->setHostPath($hostPath);
-                // Use the same path as host_path; admins can adjust path (Docker mount) later if needed
-                $vol->setPath($hostPath);
-                $vol->setStatus(VolumeStatus::ACTIVE);
-                $this->em->persist($vol);
-
-                $this->logger->info('WatcherVolumeSync: created volume', [
-                    'host_path' => $hostPath,
-                    'name' => $name,
-                ]);
-            }
+            $this->createOrUpdateVolume($hostPath, $name, $existing);
         }
 
-        // Deactivate volumes no longer in watch_paths
+        $this->deactivateOrphanedVolumes($wanted, $existing);
+
+        $this->em->flush();
+    }
+
+    /**
+     * @param array<int, mixed> $watchPaths
+     *
+     * @return array<string, string>
+     */
+    private function buildWantedMap(array $watchPaths): array
+    {
+        $wanted = [];
+        foreach ($watchPaths as $wp) {
+            if (!is_array($wp)) {
+                continue;
+            }
+            if (empty($wp['path'])) {
+                continue;
+            }
+            $path = $wp['path'];
+            $name = trim((string)($wp['name'] ?? ''));
+            if ($name === '') {
+                $parts = explode('/', rtrim((string)$path, '/'));
+                $name = end($parts) ?: $path;
+            }
+            $wanted[$path] = $name;
+        }
+
+        return $wanted;
+    }
+
+    /**
+     * @param array<string, Volume> $existing
+     */
+    private function createOrUpdateVolume(string $hostPath, string $name, array $existing): void
+    {
+        if (isset($existing[$hostPath])) {
+            $this->updateExistingVolume($existing[$hostPath], $hostPath, $name);
+
+            return;
+        }
+
+        $vol = new Volume();
+        $vol->setName($name);
+        $vol->setHostPath($hostPath);
+        $vol->setPath($hostPath);
+        $vol->setStatus(VolumeStatus::ACTIVE);
+        $this->em->persist($vol);
+
+        $this->logger->info('WatcherVolumeSync: created volume', ['host_path' => $hostPath, 'name' => $name]);
+    }
+
+    private function updateExistingVolume(Volume $vol, string $hostPath, string $name): void
+    {
+        $changed = false;
+
+        if ($vol->getName() !== $name) {
+            $vol->setName($name);
+            $changed = true;
+        }
+        if ($vol->getStatus() !== VolumeStatus::ACTIVE) {
+            $vol->setStatus(VolumeStatus::ACTIVE);
+            $changed = true;
+        }
+
+        if ($changed) {
+            $this->logger->info('WatcherVolumeSync: updated volume', ['host_path' => $hostPath, 'name' => $name]);
+        }
+    }
+
+    /**
+     * @param array<string, string> $wanted
+     * @param array<string, Volume> $existing
+     */
+    private function deactivateOrphanedVolumes(array $wanted, array $existing): void
+    {
         foreach ($existing as $hostPath => $vol) {
             if (!isset($wanted[$hostPath]) && $vol->getStatus() === VolumeStatus::ACTIVE) {
                 $vol->setStatus(VolumeStatus::INACTIVE);
-                $this->logger->info('WatcherVolumeSync: deactivated orphaned volume', [
-                    'host_path' => $hostPath,
-                ]);
+                $this->logger->info('WatcherVolumeSync: deactivated orphaned volume', ['host_path' => $hostPath]);
             }
         }
-
-        $this->em->flush();
     }
 }

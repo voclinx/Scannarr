@@ -21,8 +21,7 @@
 declare(strict_types=1);
 
 use Rector\Config\RectorConfig;
-use Rector\Privatization\Rector\Class_\FinalizeClassesWithoutChildrenRector;
-use Rector\TypeDeclaration\Rector\Declare_\DeclareStrictTypesRector;
+use Rector\TypeDeclaration\Rector\StmtsAwareInterface\DeclareStrictTypesRector;
 
 return RectorConfig::configure()
 
@@ -50,18 +49,11 @@ return RectorConfig::configure()
         // Règles spécifiques à exclure sur certaines classes
         // ============================================================
 
-        /**
-         * §9.3 — FinalizeClassesWithoutChildrenRector.
-         *
-         * Les Entités Doctrine NE PEUVENT PAS être `final` :
-         * Doctrine génère des classes proxy qui ÉTENDENT les entités.
-         * Rendre une entité `final` casse le lazy loading de Doctrine.
-         *
-         * Les AbstractController de Symfony ne doivent pas être finalisés.
-         */
-        FinalizeClassesWithoutChildrenRector::class => [
-            __DIR__ . '/src/Entity',
-        ],
+        // Les Entités Doctrine NE PEUVENT PAS être `final` :
+        // Doctrine génère des classes proxy qui ÉTENDENT les entités.
+        // Rendre une entité `final` casse le lazy loading de Doctrine.
+        // Note: FinalizeClassesWithoutChildrenRector a été retiré de Rector.
+        // Si une règle similaire réapparaît, exclure src/Entity ici.
     ])
 
     // ================================================================

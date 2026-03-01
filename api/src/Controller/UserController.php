@@ -14,13 +14,15 @@ use Symfony\Component\Routing\Attribute\Route;
 #[Route('/api/v1/users')]
 class UserController extends AbstractController
 {
-    public function __construct(private readonly UserService $userService) {}
+    public function __construct(private readonly UserService $userService)
+    {
+    }
 
     #[Route('', methods: ['GET'])]
     public function index(Request $request): JsonResponse
     {
-        $page = max(1, (int) $request->query->get('page', 1));
-        $limit = min(100, max(1, (int) $request->query->get('limit', 25)));
+        $page = max(1, (int)$request->query->get('page', 1));
+        $limit = min(100, max(1, (int)$request->query->get('limit', 25)));
         $result = $this->userService->list($page, $limit);
 
         return $this->json(['data' => $result['data'], 'meta' => $result['meta']]);

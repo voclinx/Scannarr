@@ -6,12 +6,13 @@ namespace App\Matching;
 
 use App\Contract\Matching\FileMatchingStrategyInterface;
 use App\Contract\Matching\MatchResult;
+use App\Entity\MediaFile;
 use App\Repository\MediaFileRepository;
 
-final class InodeMatchingStrategy implements FileMatchingStrategyInterface
+final readonly class InodeMatchingStrategy implements FileMatchingStrategyInterface
 {
     public function __construct(
-        private readonly MediaFileRepository $mediaFileRepository,
+        private MediaFileRepository $mediaFileRepository,
     ) {
     }
 
@@ -36,11 +37,11 @@ final class InodeMatchingStrategy implements FileMatchingStrategyInterface
         }
 
         $mediaFile = $this->mediaFileRepository->findByInode(
-            (string) $deviceId,
-            (string) $inode,
+            (string)$deviceId,
+            (string)$inode,
         );
 
-        if ($mediaFile === null) {
+        if (!$mediaFile instanceof MediaFile) {
             return null;
         }
 

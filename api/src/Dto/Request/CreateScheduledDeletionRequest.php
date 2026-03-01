@@ -10,6 +10,8 @@ final readonly class CreateScheduledDeletionRequest
 {
     /**
      * @param array<int, array{movie_id: string, file_ids: string[]}> $items
+     *
+     * @SuppressWarnings(PHPMD.ExcessiveParameterList)
      */
     public function __construct(
         public string $scheduledDate,

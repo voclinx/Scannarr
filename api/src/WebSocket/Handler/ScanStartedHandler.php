@@ -5,16 +5,17 @@ declare(strict_types=1);
 namespace App\WebSocket\Handler;
 
 use App\Contract\WebSocket\WatcherMessageHandlerInterface;
+use App\Entity\Volume;
 use App\WebSocket\ScanStateManager;
 use App\WebSocket\WatcherFileHelper;
 use Psr\Log\LoggerInterface;
 
-final class ScanStartedHandler implements WatcherMessageHandlerInterface
+final readonly class ScanStartedHandler implements WatcherMessageHandlerInterface
 {
     public function __construct(
-        private readonly ScanStateManager $scanState,
-        private readonly WatcherFileHelper $helper,
-        private readonly LoggerInterface $logger,
+        private ScanStateManager $scanState,
+        private WatcherFileHelper $helper,
+        private LoggerInterface $logger,
     ) {
     }
 
@@ -36,7 +37,7 @@ final class ScanStartedHandler implements WatcherMessageHandlerInterface
         }
 
         $volume = $this->helper->resolveVolume($path);
-        if ($volume === null) {
+        if (!$volume instanceof Volume) {
             $this->logger->warning('No volume found for scan path', ['path' => $path]);
 
             return;
