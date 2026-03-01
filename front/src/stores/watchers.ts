@@ -82,7 +82,7 @@ export const useWatchersStore = defineStore('watchers', () => {
     const idx = watchers.value.findIndex((w) => w.id === watcherDbId)
     if (idx !== -1) {
       watchers.value[idx] = {
-        ...watchers.value[idx],
+        ...(watchers.value[idx] as Watcher),
         status,
         ...(lastSeenAt ? { last_seen_at: lastSeenAt } : {}),
       }

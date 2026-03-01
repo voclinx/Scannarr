@@ -17,7 +17,7 @@ import { useFormatters } from '@/composables/useFormatters'
 import type { DeletionPreset, PresetCriteria } from '@/types'
 
 interface PreviewItem {
-  movie: { id: string; title: string; year?: number }
+  movie: { id: string | null; title: string; year?: number }
   _score: number
   total_freed_bytes: number
   files: Array<{ torrents: Array<{ ratio: number; seed_time_seconds: number }>; file_size_bytes: number }>
