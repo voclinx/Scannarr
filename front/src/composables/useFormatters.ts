@@ -1,5 +1,6 @@
 export function useFormatters() {
-  function formatSize(bytes: number): string {
+  function formatSize(bytes: number | null | undefined): string {
+    if (bytes == null || isNaN(bytes)) return '—'
     if (bytes === 0) return '0 B'
     const units = ['B', 'KB', 'MB', 'GB', 'TB']
     const k = 1024
