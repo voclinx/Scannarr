@@ -11,6 +11,7 @@
 GREEN  := \033[0;32m
 YELLOW := \033[0;33m
 CYAN   := \033[0;36m
+RED    := \033[0;31m
 RESET  := \033[0m
 
 # ---------- Variables ----------
@@ -20,6 +21,9 @@ API     := docker exec scanarr-api
 FRONT   := docker exec scanarr-front
 DB      := docker exec scanarr-db
 GO_TEST := $(DC_DEV) --profile test run --rm watcher-test
+
+WATCHER_BIN   := watcher/bin
+WATCHER_ARCHS := linux/amd64 linux/arm64 linux/arm
 
 # ============================================================================
 # 🐳 Docker
@@ -220,8 +224,32 @@ test-go-coverage: ## Lancer les tests Go avec couverture via Docker
 # ============================================================================
 
 .PHONY: watcher-build
-watcher-build: ## Compiler le binaire du watcher
-	cd watcher && go build -o bin/scanarr-watcher .
+watcher-build: ## Compiler le watcher pour l'architecture locale
+	@mkdir -p $(WATCHER_BIN)
+	cd watcher && go build -ldflags="-s -w" -o ../$(WATCHER_BIN)/scanarr-watcher .
+	@echo "$(GREEN)✓ $(WATCHER_BIN)/scanarr-watcher$(RESET)"
+
+.PHONY: watcher-build-all
+watcher-build-all: ## Cross-compiler le watcher (linux/amd64, linux/arm64, linux/arm)
+	@mkdir -p $(WATCHER_BIN)
+	@for target in $(WATCHER_ARCHS); do \
+		os=$$(echo $$target | cut -d/ -f1); \
+		arch=$$(echo $$target | cut -d/ -f2); \
+		out="$(WATCHER_BIN)/scanarr-watcher-$$os-$$arch"; \
+		printf "$(YELLOW)→ %-20s$(RESET)" "$$os/$$arch"; \
+		if [ "$$arch" = "arm" ]; then \
+			(cd watcher && GOOS=$$os GOARCH=$$arch GOARM=7 go build -ldflags="-s -w" -o ../$$out .) && printf "$(GREEN)✓ $$out$(RESET)\n" || printf "$(RED)✗ échec$(RESET)\n"; \
+		else \
+			(cd watcher && GOOS=$$os GOARCH=$$arch go build -ldflags="-s -w" -o ../$$out .) && printf "$(GREEN)✓ $$out$(RESET)\n" || printf "$(RED)✗ échec$(RESET)\n"; \
+		fi; \
+	done
+	@echo ""
+	@ls -lh $(WATCHER_BIN)/
+
+.PHONY: watcher-clean
+watcher-clean: ## Supprimer les binaires du watcher compilés
+	rm -rf $(WATCHER_BIN)
+	@echo "$(GREEN)✓ Binaires watcher supprimés$(RESET)"
 
 .PHONY: watcher-run
 watcher-run: ## Lancer le watcher localement

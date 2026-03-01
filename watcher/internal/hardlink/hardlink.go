@@ -17,7 +17,7 @@ func Info(path string) (FileInfo, error) {
 		return FileInfo{}, err
 	}
 	return FileInfo{
-		Nlink:    stat.Nlink,
+		Nlink:    uint64(stat.Nlink),
 		Inode:    stat.Ino,
 		DeviceID: uint64(stat.Dev),
 	}, nil
