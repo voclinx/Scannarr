@@ -62,7 +62,7 @@ export interface Movie {
   best_ratio?: number;
   worst_ratio?: number;
   total_seed_time_max_seconds?: number;
-  seeding_status?: 'seeding' | 'orphan' | 'mixed';
+  seeding_status?: 'seeding' | 'orphan' | 'mixed' | 'inactive';
   cross_seed_count?: number;
 }
 

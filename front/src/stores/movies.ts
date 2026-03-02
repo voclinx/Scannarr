@@ -10,6 +10,15 @@ export interface MovieFilters {
   radarr_instance_id?: string
   page?: number
   limit?: number
+  // Advanced filters
+  seeding_status?: string // comma-separated: orphan,seeding,inactive
+  in_qbit?: string // 'true' | 'false'
+  in_media_player?: string // 'true' | 'false'
+  radarr_monitored?: string // 'true' | 'false'
+  is_protected?: string // 'true' | 'false'
+  has_files?: string // 'true' | 'false'
+  file_count_min?: string
+  file_count_max?: string
 }
 
 export const useMoviesStore = defineStore('movies', () => {
@@ -43,6 +52,15 @@ export const useMoviesStore = defineStore('movies', () => {
     if (f.radarr_instance_id) params.set('radarr_instance_id', f.radarr_instance_id)
     if (f.page) params.set('page', String(f.page))
     if (f.limit) params.set('limit', String(f.limit))
+    // Advanced filters
+    if (f.seeding_status) params.set('seeding_status', f.seeding_status)
+    if (f.in_qbit) params.set('in_qbit', f.in_qbit)
+    if (f.in_media_player) params.set('in_media_player', f.in_media_player)
+    if (f.radarr_monitored) params.set('radarr_monitored', f.radarr_monitored)
+    if (f.is_protected) params.set('is_protected', f.is_protected)
+    if (f.has_files) params.set('has_files', f.has_files)
+    if (f.file_count_min) params.set('file_count_min', f.file_count_min)
+    if (f.file_count_max) params.set('file_count_max', f.file_count_max)
 
     error.value = null
     try {
@@ -139,10 +157,21 @@ export const useMoviesStore = defineStore('movies', () => {
     fetchMovies()
   }
 
+  function setFilter<K extends keyof MovieFilters>(key: K, value: MovieFilters[K]): void {
+    filters.value[key] = value
+    filters.value.page = 1
+    fetchMovies()
+  }
+
+  function setFilters(newFilters: Partial<MovieFilters>): void {
+    filters.value = { ...filters.value, ...newFilters, page: 1 }
+    fetchMovies()
+  }
+
   function resetFilters(): void {
     filters.value = {
       page: 1,
-      limit: 25,
+      limit: filters.value.limit ?? 25,
       sort: 'title',
       order: 'ASC',
     }
@@ -165,6 +194,8 @@ export const useMoviesStore = defineStore('movies', () => {
     setPage,
     setSort,
     setSearch,
+    setFilter,
+    setFilters,
     resetFilters,
   }
 })
