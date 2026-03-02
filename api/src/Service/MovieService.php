@@ -241,7 +241,7 @@ final readonly class MovieService
 
             $filesSummary[] = $this->serializeFileSummary($mediaFile);
             $this->updateMaxFileSize($torrentAgg, $mediaFile->getFileSizeBytes());
-            $stats = $this->torrentStatRepository->findByMediaFile($mediaFile);
+            $stats = $this->findTorrentStatsForFile($mediaFile);
             $this->aggregateTorrentStats($torrentAgg, $stats);
             $fileSeedingStatuses[] = $this->resolveFileSeedingStatus($stats);
         }
@@ -378,7 +378,7 @@ final readonly class MovieService
                 continue;
             }
 
-            $torrentStats = $this->torrentStatRepository->findByMediaFile($mediaFile);
+            $torrentStats = $this->findTorrentStatsForFile($mediaFile);
             $files[] = [
                 'id' => (string)$mediaFile->getId(),
                 'volume_id' => (string)$mediaFile->getVolume()?->getId(),
@@ -403,6 +403,23 @@ final readonly class MovieService
         }
 
         return $files;
+    }
+
+    /**
+     * Find torrent stats for a file, crossing volume boundaries via inode lookup.
+     *
+     * @return TorrentStat[]
+     */
+    private function findTorrentStatsForFile(MediaFile $mediaFile): array
+    {
+        $deviceId = $mediaFile->getDeviceId();
+        $inode = $mediaFile->getInode();
+
+        if ($deviceId !== null && $inode !== null) {
+            return $this->torrentStatRepository->findByInode($deviceId, $inode);
+        }
+
+        return $this->torrentStatRepository->findByMediaFile($mediaFile);
     }
 
     /** @return array<string, mixed> */

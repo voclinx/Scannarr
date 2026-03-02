@@ -562,7 +562,14 @@ final readonly class SuggestionService
     /** @return array<int, array<string, mixed>> */
     private function getFileTorrents(MediaFile $file): array
     {
-        return array_map($this->serializeTorrentStat(...), $this->torrentStatRepository->findByMediaFile($file));
+        $deviceId = $file->getDeviceId();
+        $inode = $file->getInode();
+
+        if ($deviceId === null || $inode === null) {
+            return array_map($this->serializeTorrentStat(...), $this->torrentStatRepository->findByMediaFile($file));
+        }
+
+        return array_map($this->serializeTorrentStat(...), $this->torrentStatRepository->findByInode($deviceId, $inode));
     }
 
     /** @return array<string, mixed> */

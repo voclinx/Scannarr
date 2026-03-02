@@ -103,7 +103,7 @@ onMounted(async () => {
       <div>
         <h1 class="text-2xl font-bold text-gray-900">Explorateur de fichiers</h1>
         <p class="text-sm text-gray-500 mt-1">
-          {{ filesStore.meta.total }} fichier(s)
+          {{ filesStore.meta.total }} fichier(s) physique(s) unique(s)
           <span v-if="filesStore.totalSize > 0"> &mdash; {{ formatSize(filesStore.totalSize) }} affich&eacute;(s)</span>
         </p>
       </div>

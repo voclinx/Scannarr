@@ -84,6 +84,28 @@ final readonly class FileService
         if ($minHardlinks !== null && $minHardlinks !== '') {
             $qb->andWhere('mf.hardlinkCount >= :minHardlinks')->setParameter('minHardlinks', (int)$minHardlinks);
         }
+
+        $this->applyDeduplication($qb, $filters);
+    }
+
+    /**
+     * Deduplicate by inode: show one representative per physical file (default: true).
+     *
+     * @param array<string, mixed> $filters
+     */
+    private function applyDeduplication(QueryBuilder $qb, array $filters): void
+    {
+        $deduplicate = $filters['deduplicate'] ?? 'true';
+        if (!filter_var($deduplicate, FILTER_VALIDATE_BOOLEAN)) {
+            return;
+        }
+
+        $qb->andWhere(
+            'mf.id IN (SELECT MIN(sub.id) FROM App\Entity\MediaFile sub'
+            . ' WHERE sub.deviceId IS NOT NULL AND sub.inode IS NOT NULL'
+            . ' GROUP BY sub.deviceId, sub.inode)'
+            . ' OR mf.deviceId IS NULL OR mf.inode IS NULL',
+        );
     }
 
     /** @param array<string, mixed> $filters */

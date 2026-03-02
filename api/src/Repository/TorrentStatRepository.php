@@ -63,6 +63,25 @@ class TorrentStatRepository extends ServiceEntityRepository
     }
 
     /**
+     * Find all TorrentStats linked to any media_file sharing the same physical inode.
+     * This crosses volume boundaries (Media, Torrents, Cross-seed hardlinks).
+     *
+     * @return TorrentStat[]
+     */
+    public function findByInode(string $deviceId, string $inode): array
+    {
+        return $this->createQueryBuilder('ts')
+            ->join('ts.mediaFile', 'mf')
+            ->where('mf.deviceId = :deviceId')
+            ->andWhere('mf.inode = :inode')
+            ->setParameter('deviceId', $deviceId)
+            ->setParameter('inode', $inode)
+            ->orderBy('ts.trackerDomain', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * Find all torrents for a tracker domain.
      *
      * @return TorrentStat[]

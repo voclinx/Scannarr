@@ -42,6 +42,9 @@ function onSort(event: DataTableSortEvent): void {
     rating: 'rating',
     runtime_minutes: 'runtime_minutes',
     created_at: 'created_at',
+    max_file_size_bytes: 'max_file_size_bytes',
+    best_ratio: 'best_ratio',
+    total_seed_time_max_seconds: 'total_seed_time_max_seconds',
   }
 
   emit('sort', fieldMap[field] || field, order)
@@ -142,7 +145,7 @@ function truncate(text: string, maxLength: number): string {
     </Column>
 
     <!-- Max size -->
-    <Column header="Poids max" style="width: 120px">
+    <Column field="max_file_size_bytes" header="Poids max" :sortable="true" style="width: 120px">
       <template #body="{ data }: { data: Movie }">
         <span v-if="data.max_file_size_bytes > 0" class="text-gray-600">
           {{ formatSize(data.max_file_size_bytes) }}

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMoviesStore } from '@/stores/movies'
 import { useAuthStore } from '@/stores/auth'
@@ -7,6 +7,9 @@ import MovieTable from '@/components/movies/MovieTable.vue'
 import InputText from 'primevue/inputtext'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
+import MultiSelect from 'primevue/multiselect'
+import Select from 'primevue/select'
+import InputNumber from 'primevue/inputnumber'
 import type { Movie } from '@/types'
 
 const moviesStore = useMoviesStore()
@@ -17,6 +20,42 @@ const searchInput = ref('')
 const syncLoading = ref(false)
 const syncMessage = ref<string | null>(null)
 const syncError = ref<string | null>(null)
+
+// Advanced filter state
+const seedingStatusSelection = ref<string[]>([])
+const inQbitSelection = ref<string | undefined>(undefined)
+const inMediaPlayerSelection = ref<string | undefined>(undefined)
+const radarrMonitoredSelection = ref<string | undefined>(undefined)
+const isProtectedSelection = ref<string | undefined>(undefined)
+const hasFilesSelection = ref<string | undefined>(undefined)
+const fileCountMin = ref<number | undefined>(undefined)
+const fileCountMax = ref<number | undefined>(undefined)
+
+// Filter options
+const seedingStatusOptions = [
+  { label: 'Orphelin', value: 'orphan' },
+  { label: 'Seeding', value: 'seeding' },
+  { label: 'Inactif', value: 'inactive' },
+  { label: 'Mixte', value: 'mixed' },
+]
+
+const booleanOptions = [
+  { label: 'Tous', value: undefined },
+  { label: 'Oui', value: 'true' },
+  { label: 'Non', value: 'false' },
+]
+
+const hasActiveFilters = computed(() => {
+  return seedingStatusSelection.value.length > 0
+    || inQbitSelection.value !== undefined
+    || inMediaPlayerSelection.value !== undefined
+    || radarrMonitoredSelection.value !== undefined
+    || isProtectedSelection.value !== undefined
+    || hasFilesSelection.value !== undefined
+    || fileCountMin.value !== undefined
+    || fileCountMax.value !== undefined
+    || searchInput.value !== ''
+})
 
 // Debounced search
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
@@ -37,8 +76,35 @@ function onSort(field: string, order: 'ASC' | 'DESC'): void {
 }
 
 function onDeleteClick(movie: Movie): void {
-  // Navigate to detail view where global delete modal is available
   router.push({ name: 'movie-detail', params: { id: movie.id } })
+}
+
+function applyFilters(): void {
+  moviesStore.setFilters({
+    seeding_status: seedingStatusSelection.value.length > 0
+      ? seedingStatusSelection.value.join(',')
+      : undefined,
+    in_qbit: inQbitSelection.value,
+    in_media_player: inMediaPlayerSelection.value,
+    radarr_monitored: radarrMonitoredSelection.value,
+    is_protected: isProtectedSelection.value,
+    has_files: hasFilesSelection.value,
+    file_count_min: fileCountMin.value !== undefined ? String(fileCountMin.value) : undefined,
+    file_count_max: fileCountMax.value !== undefined ? String(fileCountMax.value) : undefined,
+  })
+}
+
+function onResetFilters(): void {
+  searchInput.value = ''
+  seedingStatusSelection.value = []
+  inQbitSelection.value = undefined
+  inMediaPlayerSelection.value = undefined
+  radarrMonitoredSelection.value = undefined
+  isProtectedSelection.value = undefined
+  hasFilesSelection.value = undefined
+  fileCountMin.value = undefined
+  fileCountMax.value = undefined
+  moviesStore.resetFilters()
 }
 
 async function onSync(): Promise<void> {
@@ -49,7 +115,6 @@ async function onSync(): Promise<void> {
   try {
     await moviesStore.triggerSync()
     syncMessage.value = 'Synchronisation Radarr lancée en arrière-plan.'
-    // Refresh list after a short delay
     setTimeout(() => {
       moviesStore.fetchMovies()
     }, 3000)
@@ -65,11 +130,6 @@ async function onSync(): Promise<void> {
   } finally {
     syncLoading.value = false
   }
-}
-
-function onResetFilters(): void {
-  searchInput.value = ''
-  moviesStore.resetFilters()
 }
 
 onMounted(async () => {
@@ -113,30 +173,141 @@ onMounted(async () => {
     </Message>
 
     <!-- Filters bar -->
-    <div class="flex flex-wrap gap-3 items-center bg-white rounded-lg border border-gray-200 p-3">
-      <!-- Search -->
-      <div class="flex-1 min-w-[200px]">
-        <span class="p-input-icon-left w-full">
-          <i class="pi pi-search" />
-          <InputText
-            v-model="searchInput"
-            placeholder="Rechercher un film..."
-            class="w-full"
-            @input="onSearchInput"
-          />
-        </span>
+    <div class="bg-white rounded-lg border border-gray-200 p-3 space-y-3">
+      <!-- Row 1: Search + Reset -->
+      <div class="flex flex-wrap gap-3 items-center">
+        <div class="flex-1 min-w-[200px]">
+          <span class="p-input-icon-left w-full">
+            <i class="pi pi-search" />
+            <InputText
+              v-model="searchInput"
+              placeholder="Rechercher un film..."
+              class="w-full"
+              @input="onSearchInput"
+            />
+          </span>
+        </div>
+
+        <Button
+          v-if="hasActiveFilters"
+          label="Réinitialiser"
+          icon="pi pi-times"
+          severity="secondary"
+          text
+          size="small"
+          @click="onResetFilters"
+        />
       </div>
 
-      <!-- Reset search -->
-      <Button
-        v-if="searchInput"
-        label="Effacer"
-        icon="pi pi-times"
-        severity="secondary"
-        text
-        size="small"
-        @click="onResetFilters"
-      />
+      <!-- Row 2: Advanced filters -->
+      <div class="flex flex-wrap gap-3 items-end">
+        <!-- Seeding status -->
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500 font-medium">Statut</label>
+          <MultiSelect
+            v-model="seedingStatusSelection"
+            :options="seedingStatusOptions"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Tous"
+            class="w-40"
+            :maxSelectedLabels="2"
+            @change="applyFilters"
+          />
+        </div>
+
+        <!-- In qBit -->
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500 font-medium">Dans qBit</label>
+          <Select
+            v-model="inQbitSelection"
+            :options="booleanOptions"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Tous"
+            class="w-28"
+            @change="applyFilters"
+          />
+        </div>
+
+        <!-- In media player -->
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500 font-medium">Dans lecteur</label>
+          <Select
+            v-model="inMediaPlayerSelection"
+            :options="booleanOptions"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Tous"
+            class="w-28"
+            @change="applyFilters"
+          />
+        </div>
+
+        <!-- Radarr monitored -->
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500 font-medium">Radarr suivi</label>
+          <Select
+            v-model="radarrMonitoredSelection"
+            :options="booleanOptions"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Tous"
+            class="w-28"
+            @change="applyFilters"
+          />
+        </div>
+
+        <!-- Protected -->
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500 font-medium">Protégé</label>
+          <Select
+            v-model="isProtectedSelection"
+            :options="booleanOptions"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Tous"
+            class="w-28"
+            @change="applyFilters"
+          />
+        </div>
+
+        <!-- Has files -->
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500 font-medium">A des fichiers</label>
+          <Select
+            v-model="hasFilesSelection"
+            :options="booleanOptions"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Tous"
+            class="w-28"
+            @change="applyFilters"
+          />
+        </div>
+
+        <!-- File count range -->
+        <div class="flex flex-col gap-1">
+          <label class="text-xs text-gray-500 font-medium">Nb fichiers</label>
+          <div class="flex items-center gap-1">
+            <InputNumber
+              v-model="fileCountMin"
+              placeholder="Min"
+              class="w-20"
+              :min="0"
+              @blur="applyFilters"
+            />
+            <span class="text-gray-400">-</span>
+            <InputNumber
+              v-model="fileCountMax"
+              placeholder="Max"
+              class="w-20"
+              :min="0"
+              @blur="applyFilters"
+            />
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Movie table -->
